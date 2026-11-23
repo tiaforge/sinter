@@ -488,3 +488,34 @@ mail file 8.03 / 9.95 → 8.27 / 10.1 (the same).
 
 A/B against change 12 (9 rounds; machine quiet again): blog static `decideFor` 4.41 / 4.96 / 6.03 → 4.25 / 5.02 / 5.91
 (`compile()` 7.02 / 8.04 → 6.89 / 7.92).
+
+
+### Round 2 so far, against the integration branch without it (`0efedb8`, which has round 1)
+
+A/B, 7 rounds blog, 5 sinter-mail, wall ms a call p25 / median / mean (merged with `03658b3`):
+
+| app | phase | before | after |
+| --- | --- | ---: | ---: |
+| blog static | `decideFor` | 4.43 / 5.35 / 6.59 | 4.09 / 4.72 / 5.66 |
+| | `compile()` | 7.10 / 8.13 / 11.2 | 6.66 / 7.57 / 10.3 |
+| blog live | `decideFor` | 4.68 / 5.58 / 6.19 | 4.33 / 5.37 / 6.22 |
+| | `compile()` | 8.55 / 9.95 / 12.2 | 8.15 / 9.87 / 12.7 |
+| blog static-files | `compile()` | 9.84 / 11.4 / 14.0 | 9.55 / 11.1 / 13.8 |
+| mail 2,012-element | `compile()` | 103 / 117 / 198 | 102 / 121 / 198 |
+| mail file | `compile()` | 32.5 / 36.6 / 117 | 30.4 / 36.1 / 111 |
+| mail API | `compile()` | 87.6 / 98.4 / 280 | 84.1 / 101 / 275 |
+
+(sinter-mail's pages now take B1b's route from the first pass's walk where a unit is placed, so their `settle` is no
+longer a phase of its own: `compile()` is the number; they hold.)
+
+**How close to 4 ms.** The static blog's `compile()` is ~6.7 ms p25 here, of it the deciding ~4.1 (the post's
+`md.parse` ~1.8 of it, the library's) and the second pass from the kept walk ~2.4 (B1b's). The deciding without the
+parse is ~2.3 ms: the data checks (~0.6: `frozenPlain`'s walk of the post's tree is most of it, and a cheaper walk was
+tried: `getOwnPropertyDescriptors` per object was 2.3× slower, keys then descriptors no faster), the walk (~0.8) and
+rendering (~0.9), per node, with nothing above 0.4 left. So the first pass alone cannot bring the compile under 4 ms:
+with the parse it needs the second pass for template entries to go (2.4 ms) as much as all of the deciding's own
+work. **For B2** (the coordinator's question): the first pass's result for a template entry is its records and the
+rows' rendered markup, made in ~0.9 ms; finishing the entry from it (B1b's route) instead of a second pass is where the
+next 2 ms are, and nothing in this work stands in its way (`RowRec` is read by `rowRenderer` alone).
+
+Tried and dropped in round 2: the heights in a second `WeakMap` (change 11), a faster `frozenPlain` walk (above).
