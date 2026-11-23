@@ -30,6 +30,9 @@ const argv = process.argv.slice(2);
 // (iii) from an API, rendered through the components (templates: a slot fill or `templates: true`).
 const RES = '<sn-resource name="message" src="/api/message" type="Body"></sn-resource>\n';
 const AGAIN = '<button id="again" data-sn-on-click="refresh(message)">again</button>';
+// a bench page: state the use reads (`n`), so a click on #tick evaluates the use again with the same body (new props
+// objects, the same values: what `sameProps` keeps), and #again, the same message fetched again (a new tree)
+const BENCHED = (use, fill = '') => `${RES}<main data-sn-state="{ n: 0 }"><mail-body id="message" data-sn-with="{ ${use} }">${fill}</mail-body>${AGAIN}<button id="tick" data-sn-on-click="n++" data-sn-text="n"></button></main>`;
 const FILLS = `<a slot="link" class="out" target="_blank" rel="noopener noreferrer nofollow" data-sn-attr="{ href: $slot.node.attrs.href }"><slot></slot></a>
   <template slot="image" data-sn-if="$slot.node.attrs.src"><img loading="lazy" data-sn-attr="{ src: $slot.node.attrs.src, alt: $slot.node.attrs.alt, srcset: null }"></template>
   <template data-sn-else><span class="blocked" data-sn-text="$slot.node.attrs.alt ?? 'image'"></span></template>`;
@@ -50,13 +53,13 @@ const PAGES = {
   'file-all': ['i', fileTree('all.json')],
   'file-fills': ['i', fileTree('static.json', FILLS)],
   'file-gen': ['i', fileTree('gen.json')],
-  'api': ['ii', `${RES}<main><mail-body id="message" data-sn-with="{ body: message }"></mail-body>${AGAIN}</main>`],
+  'api': ['ii', BENCHED('body: n >= 0 ? message : null')],
   'api-html': ['ii', `<sn-resource name="html" src="/api/html" type="string"></sn-resource>
 <main><mail-body id="message" data-sn-with="{ body: html ? mail.parse(html, { images: 'allow' }) : null }"></mail-body></main>`],
   'api-width': ['ii', `<sn-resource name="html" src="/api/html" type="string"></sn-resource>
 <main data-sn-state="{ media: /** @type {'wide' | 'narrow' | null} */ (null) }"><mail-width data-sn-on-media="media = $event.detail"></mail-width><mail-warm></mail-warm><mail-body id="message" data-sn-with="{ body: html && media ? mail.parse(html, { media }) : null }"></mail-body></main>`],
-  'api-templates': ['iii', `${RES}<main><mail-body id="message" data-sn-with="{ body: message, templates: true }"></mail-body>${AGAIN}</main>`],
-  'api-fills': ['iii', `${RES}<main><mail-body id="message" data-sn-with="{ body: message }">${FILLS}</mail-body>${AGAIN}</main>`],
+  'api-templates': ['iii', BENCHED('body: n >= 0 ? message : null, templates: true')],
+  'api-fills': ['iii', BENCHED('body: n >= 0 ? message : null', FILLS)],
   'api-both': ['ii+iii', `${RES}<main><mail-body id="a" data-sn-with="{ body: message, templates: true }"></mail-body><mail-body id="b" data-sn-with="{ body: message }"></mail-body>${AGAIN}</main>`],
 };
 const page = (body) => `<!doctype html>\n<html lang="en">\n<head><meta charset="utf-8"><title>t</title></head>\n<body>\n${body}\n</body>\n</html>\n`;
@@ -159,7 +162,8 @@ const summary = {};
 {
   const jsFiles = files(dist).filter((f) => f.endsWith('.js'));
   for (const [name, [route]] of Object.entries(PAGES)) {
-    const p = existsSync(join(dist, `${name}.html`)) ? `${name}.html` : `${name}/index.html`;
+    // (with clean URLs the page is <name>/index.html, and <name>.html a copy or a redirect)
+    const p = existsSync(join(dist, `${name}/index.html`)) ? `${name}/index.html` : `${name}.html`;
     const html = readFileSync(join(dist, p), 'utf8');
     // the page's scripts and what they import, transitively (Vite's chunks import by relative path)
     const seen = new Set(), queue = [...html.matchAll(/<script type="module"[^>]*src="\/?([^"]+)"/g)].map((m) => m[1]);
@@ -222,7 +226,9 @@ if (BENCH) {
   const base = `http://127.0.0.1:${server.address().port}/`;
   const INIT = () => {
     window.__last = 0; window.__calls = 0;
-    new MutationObserver(() => { window.__last = performance.now(); }).observe(document, { subtree: true, childList: true, attributes: true, characterData: true });
+    // the time of the last change inside the email's root (#message); changes elsewhere on the page do not count
+    const inMail = (n) => { const e = n.nodeType === 1 ? n : n.parentElement; return !!e && (e.id === 'message' || !!e.closest('#message')); };
+    new MutationObserver((rs) => { if (rs.some((r) => inMail(r.target))) window.__last = performance.now(); }).observe(document, { subtree: true, childList: true, attributes: true, characterData: true });
     const P = CSSStyleDeclaration.prototype, o = P.setProperty;
     P.setProperty = function (...x) { window.__calls++; return o.apply(this, x); };
   };
@@ -231,13 +237,14 @@ if (BENCH) {
     for (const [tname, tree] of Object.entries(TREES)) {
       message = tree;
       const n = count(JSON.parse(tree)), first = [], again = [], script = [];
-      let calls = 0, comments = 0, rendered = 0;
+      let calls = 0, comments = 0, rendered = 0, changedOnTick = false;
+      const tick = [];
       for (let r = 0; r <= RUNS; r++) {
         const p = await browser.newPage();
         await p.addInitScript(INIT);
         const cdp = await p.context().newCDPSession(p);
         await cdp.send('Performance.enable');
-        await p.goto(base + name);
+        await p.goto(base + name + '/');
         // rendered: the body has elements and nothing has changed for 300 ms
         await p.waitForFunction(() => document.querySelectorAll('#message *').length > 0 && performance.now() - window.__last > 300, null, { polling: 20, timeout: 60000 });
         const t = await p.evaluate(() => {
@@ -245,6 +252,12 @@ if (BENCH) {
           return window.__last - api.responseEnd;
         });
         if (r === 0) calls = await p.evaluate(() => window.__calls);
+        // #tick: the use evaluated again over the same body, five times; nothing in the email changes
+        await p.evaluate(() => { window.__last = 0; });
+        const k0 = Object.fromEntries((await cdp.send('Performance.getMetrics')).metrics.map((x) => [x.name, x.value]));
+        for (let i = 0; i < 5; i++) { await p.click('#tick'); await p.waitForFunction((j) => document.getElementById('tick').textContent === String(j), i + 1, { polling: 10 }); }
+        const k1 = Object.fromEntries((await cdp.send('Performance.getMetrics')).metrics.map((x) => [x.name, x.value]));
+        const touched = await p.evaluate(() => window.__last > 0);
         // the same message again (`refresh`): a new tree of the same content, rendered over the one in place
         const before = await p.evaluate(() => { window.__last = 0; return performance.now(); });
         const m0 = Object.fromEntries((await cdp.send('Performance.getMetrics')).metrics.map((x) => [x.name, x.value]));
@@ -255,11 +268,12 @@ if (BENCH) {
         if (r === 0) {
           // the first load warms the HTTP and code caches; not counted
           [comments, rendered] = await p.evaluate(() => { let c = 0; const w = document.createTreeWalker(document.getElementById('message'), NodeFilter.SHOW_COMMENT); while (w.nextNode()) c++; return [c, document.querySelectorAll('#message *').length]; });
-        } else { first.push(t); again.push(t2); script.push((m1.ScriptDuration - m0.ScriptDuration) * 1000); }
+        } else { first.push(t); again.push(t2); script.push((m1.ScriptDuration - m0.ScriptDuration) * 1000); tick.push((k1.ScriptDuration - k0.ScriptDuration) * 1000 / 5); }
+        changedOnTick ||= touched;
         await p.close();
       }
-      result[`${name} ${tname}`] = { elements: n, firstRender: stats(first), sameAgain: stats(again), sameAgainScript: stats(script), rendered, setPropertyCalls: calls, comments };
-      console.log(`bench ${name.padEnd(14)} ${tname.padEnd(16)} ${n} elements (${rendered} rendered): first render ${result[`${name} ${tname}`].firstRender.median} ms [${r1(Math.min(...first))}–${r1(Math.max(...first))}], same body again ${result[`${name} ${tname}`].sameAgain.median} ms (script ${result[`${name} ${tname}`].sameAgainScript.median} ms); setProperty ${calls}, comments ${comments}`);
+      result[`${name} ${tname}`] = { elements: n, firstRender: stats(first), sameAgain: stats(again), sameAgainScript: stats(script), tickScript: stats(tick), changedOnTick, rendered, setPropertyCalls: calls, comments };
+      console.log(`bench ${name.padEnd(14)} ${tname.padEnd(16)} ${n} elements (${rendered} rendered): first render ${result[`${name} ${tname}`].firstRender.median} ms [${r1(Math.min(...first))}–${r1(Math.max(...first))}], same body again ${result[`${name} ${tname}`].sameAgain.median} ms (script ${result[`${name} ${tname}`].sameAgainScript.median} ms), same body re-evaluated: script ${result[`${name} ${tname}`].tickScript.median} ms${changedOnTick ? ' (THE EMAIL CHANGED)' : ''}; setProperty ${calls}, comments ${comments}`);
     }
   }
   await browser.close(); server.close();
