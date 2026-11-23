@@ -284,7 +284,8 @@ export function shadow(o: ShadowOptions): Shadow {
       if (f.kind === 'state') {
         line('let {');
         f.names.forEach((n, k) => { at(f.locs?.[k]); line(`${n},`); });
-        line(`} = ${f.init === null ? '$any' : `$e${f.init}()`};`);
+        // a field that starts as \`null\`, \`undefined\` or \`[]\` takes what is assigned later (\`State\`)
+        line(`} = ${f.init === null ? '$any' : `/** @type {${decl('State')}<ReturnType<typeof $e${f.init}>>} */ ($e${f.init}())`};`);
       } else if (f.kind === 'props') {
         tagged('type', f.type, ' const $props = $any;');
         line(`const { ${f.names.join(', ')} } = $props;`);
@@ -427,6 +428,12 @@ export type PathValue = string | number | boolean | bigint | null | undefined | 
 export interface CallContext { signal: AbortSignal; request(url: string, init?: { method?: string; body?: unknown; headers?: Record<string, string>; signal?: AbortSignal }): Promise<any>; el: Element | null }
 /** an action's parameters without its trailing context */
 export type CallArgs<F> = F extends (...a: infer P) => any ? (P extends [...infer A, infer L] ? ([L] extends [CallContext] ? A : P) : P) : never;
+/**
+ * A state's fields as its initial value types them, but a field that starts as \`null\`, \`undefined\` or \`[]\` is
+ * any (any[]): what an expression assigns it later, as without \`strictNullChecks\` (\`{ error: null }\`, then
+ * \`error = $error\`). A field whose initial value has a JSDoc type (\`Contact | null\`) keeps it.
+ */
+export type State<T> = { [K in keyof T]: [T[K]] extends [null | undefined] ? any : [T[K]] extends [never[]] ? any[] : T[K] };
 export type Item<T> = NonNullable<T> extends readonly (infer U)[] ? U : NonNullable<T> extends Iterable<infer U> ? U : any;
 export type El<K extends string> = K extends keyof HTMLElementTagNameMap ? HTMLElementTagNameMap[K] : HTMLElement;
 declare global {
