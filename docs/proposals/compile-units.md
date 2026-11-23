@@ -252,9 +252,10 @@ timings were not usable). A cloud session pushes to a branch of its own:
 | --- | --- | --- | --- |
 | a unit's check data once (stage 4, step 3) | cloud, `session_01AjKzdxUhXTUw7iSJ32w1x1` | `redesign/check-data-once` | `stage4-check-once.md` |
 | a page file walked once (stage 3's leftover) | cloud, `session_01AjKze2EoiDyjazXQrsWJQk` | `redesign/page-walked-once` | `page-walked-once.md` |
-| stage 5: assembly and live uses | local agent | merged as it lands | `stage5-assembly.md` |
+| stage 5, A1: second-pass units | local agent | merged as it lands | `stage5-assembly.md` |
+| stage 5, B1: the second pass from the first's walk | cloud, `session_01AjKzdxkDukbMzASz1qaYeA` | `redesign/stage5-b1` | `stage5-b1.md` |
 | the evaluation's cost | local agent | merged as it lands | `evaluation.md` |
-| dev renders; the six bugs; embedding | local agents | merged as they land | `stage2-coverage.md`, `bugs.md`, `embed-fields.md` |
+| the six bugs (three merged) | local agent | merged as they land | `bugs.md` |
 
 **The bar, as the owner set it on 2026-11-23:** the output need not be byte for byte today's where only numbering
 and generated names differ (`data-sn` ids, anchor numbers, template, state and function numbers, renamed loop
@@ -416,3 +417,22 @@ decision of their own (stage 7). A step that can stay byte-identical does.
   started, measuring and planning first (`redesign-notes/stage5-assembly.md`); new workstreams go to cloud sessions
   with a machine each, the first two started (table above); agents no longer run the full suite, the coordinating
   session does at each merge.
+- 2026-11-23, 19:30 UTC: **dev renders** (merged; `redesign-notes/stage2-coverage.md`, "Dev renders"): dev compiles
+  take the rendered route, the `dev` fallback (1,493 loops over the suite) is gone, the render audit compares dev
+  results without the empty slots. It fixed three differences between the routes that builds had too: a chain root
+  reached through a tag root in slot content was not marked for scoped styles; white space after a written text
+  survived the minifier; a folded state's source-map site. No dev-server speed-up could be shown at this machine's
+  load. **Embedding** (merged; `redesign-notes/embed-fields.md`): a read of a build-time value down to a primitive
+  is written into the code in the second pass, what is left is embedded with only the keys read, what can escape
+  stays whole; the benchmark's live post goes from 20,345 to 11,811 bytes with no JSON script, the live build's
+  `dist/` from 2.33 to 1.44 MB; nothing else in any app changes. It also found and fixed a run-time bug: since URL
+  templates compile to code, a `file:`, `content:` or entry value read in the browser was `null` in every build
+  (the benchmark's comments request was never sent). Left whole: lists, `select`, dev, pages with `merge`/`upsert`/
+  `remove`. **Bugs**, three of six merged: a choice's props must be constants; `(1).toFixed()`; a broken expression
+  no longer silences every type error. **Stage 5** is measured and planned (`redesign-notes/stage5-assembly.md`) and
+  its step 0, the canonicalizer (`src/compiler/canon.ts`, `SN_CANON=1`), is merged. What its numbers say: second-pass
+  units are half the compile of a page that ships definitions (sinter-mail's components route: 110 to 139 of 276 to
+  364 ms) and nothing elsewhere; the second pass is 42% of a large live page's compile and 20 to 30% of a blog
+  page's; live uses from units would buy 3.5% of that live page and 7 to 11% of realworld, so they wait for a
+  profile after the other two. Reserved number ranges are still out (the runtime reads a row's template from the
+  loop index's name, and longer names ship); what the relaxed bar buys is the order numbers are handed out in.
