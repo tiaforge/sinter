@@ -8771,7 +8771,8 @@ class Compiler {
     /** a choice's case, at `key`: its definition over its props (one row), when that is static markup */
     const expandCase = (point: NonNullable<ReturnType<typeof this.pointOf.get>>, name: string, key: string, sc: object, prefix: string, out: Found, rec?: RowRec, n?: NodeDef): boolean => {
       const c = point.group!.cases.find((x) => x.name === name), t = c && this.templates[c.tid];
-      const props = c ? run(sc, `($) => (${c.props})`) : FAIL;
+      // its props are decided expressions like any other: fixed (nothing writes what they read) and known
+      const props = c && fixed(c.deps) && known(c.deps) ? run(sc, `($) => (${c.props})`) : FAIL;
       if (!t?.item || props === FAIL || !plainData(props, heights)) return false;
       out.decided.push([prefix + key, true, point.pick!.deps]);
       const recs: RowRec[] | undefined = rec ? [] : undefined;
@@ -8808,6 +8809,8 @@ class Compiler {
         // a tree placement in a definition: the case its fill map chooses (a fill, or its default), as the instance's markup
         const P = placementOf.get(n);
         if (P) {
+          // (its data is decided like any other expression: fixed and known)
+          if (!fixed(P.deps) || !known(strs(P.deps))) return false;
           const v = run(sc, this.fns[P.node.b[0]!.f!]!);
           const pick = Array.isArray(v) && typeof v[0] === 'number' ? v as [number, unknown] : null;
           const tc = pick ? this.templates[P.cases[pick[0]]!] : undefined;
