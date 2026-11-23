@@ -383,3 +383,12 @@ Found by the research, not changed:
   numbers sit inside code; it needs assembly with numbers handed out at the end (stage 5). A page file is still
   walked three times: its description needs every page's description first, a pipeline change. Started: the
   evaluation's cost (`redesign-notes/evaluation.md`), the largest item left per page (8 to 12 ms).
+- 2026-11-23, 18:40 UTC: stage 4, where it stands (`redesign-notes/stage4-units.md`; the agent ran out of room and
+  stopped with a design, no code since the merge). Check data once per unit is designed, not built: a page with a
+  unit costs about 90 ms to check on top of `tsc` (15 its copy of the unit's check part, 39 its whole shadow, 36
+  keying its functions by text), nearly all of it the unit's part, the same text on every page but for its numbers;
+  the design holds a unit's part in the check unit by reference, then writes a part's shadow once per build. A new
+  agent takes it after the bug fixes land, which change check diagnostics. Second-pass units are stage 5's: the
+  components route replays the library in its second pass (25 to 30 ms a page, 71 with TypeScript), and sharing
+  there has to survive `finishPage`; `anchors()` and `shareTemplates()` could run once per unit, but
+  `compactTables()`, `groupStyles()`, `checkUrlArrays()` and `placeTemplates()` are the page's own assembly.
