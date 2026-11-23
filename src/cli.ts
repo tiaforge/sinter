@@ -90,7 +90,7 @@ async function main(argv: string[]): Promise<number> {
       ...p.libraries.flatMap((l) => [...l.public.map(at(join(l.folder, 'components'))), ...l.internal.map(at(join(l.folder, 'components', 'internal')))])].map((f) => (f ? componentScript(f) : null)).filter((f): f is string => !!f);
     diagnostics.push(...lazyDiagnostics(root, p.lazy, [p.helpersFile, p.actionsFile, mod(p.config), mod(p.early)], lazyReachOf(p).whole(p.helpers), scripts, p.libraries, p.helpersFile));
   }
-  const r = check({ ...checkOptionsOf(p), helpers, units });
+  const r = check({ ...checkOptionsOf(p), helpers, units, share: true });
   diagnostics.push(...r.diagnostics);
 
   const warned = diagnostics.filter((d) => d.severity === 'warning').length;

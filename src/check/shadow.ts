@@ -27,6 +27,10 @@ export interface ShadowOptions {
   schemas?: string[][];
   /** the component libraries' types modules: a type written in a file of `folder` names theirs */
   libraries?: LibraryTypes[];
+  /** the name of expression `i`'s function (default `$e<i>`); a build's shared shadows name them themselves (`checkShared`) */
+  name?: (i: number) => string;
+  /** the type names declared `any` (an app with neither a types module nor a spec), instead of those the unit's types name */
+  unknown?: string[];
 }
 
 /** A component library's types module, the names it exports, and the folder of the files it types. */
@@ -51,6 +55,17 @@ export interface Shadow {
   regions: Region[];
   /** first line of the broken expressions (written last); nothing from there on is reported */
   brokenFrom: number | null;
+  /** the text's lines */
+  lines: string[];
+  /**
+   * After the declarations (`lines[0 .. prelude)`), one block per expression in the order written: the expression
+   * (`i`), its first line (1-based) and its number of lines. A block is its function, and refers to nothing of the
+   * file's but the declarations and the functions of the frames it opens.
+   */
+  blocks: Array<{ i: number; start: number; lines: number }>;
+  prelude: number;
+  /** the type names the declarations make `any` */
+  unknown: string[];
 }
 
 /** TypeScript's own types a type the app writes may name (not taken as the app's, unknown without a types module) */
@@ -105,12 +120,14 @@ export function shadow(o: ShadowOptions): Shadow {
     if (own.length) line(`/** @import { ${own.join(', ')} } from '${spec(o.openapi![i]!).replace(/\.d\.ts$/, '')}' */`);
   });
   // an app with neither a types module nor a spec: the types its components name are unknown, as its resources are
+  let unknownTypes: string[] = [];
   if (!o.types && !o.schemas?.some((x) => x.length)) {
     const texts = [...unit.frames.flatMap((f) => (f.kind === 'props' && f.type.kind === 'ts' ? [f.type.text] : [])),
       ...unit.exprs.flatMap((e) => [e.returns, e.detail]).flatMap((t) => (t?.kind === 'ts' ? [t.text] : []))];
-    const unknown = new Set(texts.flatMap((t) => t.replace(/'[^']*'|"[^"]*"/g, '').match(/(?<![\w$.])[A-Z][\w$]*/g) ?? []).filter((n) => !named.has(n) && !LIB_TYPES.has(n)));
-    for (const n of unknown) line(`/** @typedef {any} ${n} */`);
+    unknownTypes = o.unknown ?? [...new Set(texts.flatMap((t) => t.replace(/'[^']*'|"[^"]*"/g, '').match(/(?<![\w$.])[A-Z][\w$]*/g) ?? []).filter((n) => !named.has(n) && !LIB_TYPES.has(n)))];
+    for (const n of unknownTypes) line(`/** @typedef {any} ${n} */`);
   }
+  const fn = o.name ?? ((i: number) => `$e${i}`);
 
   // names a page can see besides its own frames; resources first, as sinter resolves them
   const taken = new Set<string>(unit.resources.map((r) => r.name));
@@ -286,7 +303,7 @@ export function shadow(o: ShadowOptions): Shadow {
         f.names.forEach((n, k) => { at(f.locs?.[k]); line(`${n},`); });
         // a field that starts as \`null\`, \`undefined\` or \`[]\` takes what is assigned later (\`State\`), at any depth of
         // the object literals in the initial value (\`nested\`)
-        line(`} = ${f.init === null ? '$any' : `/** @type {${decl('State')}<ReturnType<typeof $e${f.init}>${f.nested ? `, ${f.nested}` : ''}>} */ ($e${f.init}())`};`);
+        line(`} = ${f.init === null ? '$any' : `/** @type {${decl('State')}<ReturnType<typeof ${fn(f.init)}>${f.nested ? `, ${f.nested}` : ''}>} */ (${fn(f.init)}())`};`);
       } else if (f.kind === 'props') {
         tagged('type', f.type, ' const $props = $any;');
         line(`const { ${f.names.join(', ')} } = $props;`);
@@ -312,10 +329,10 @@ export function shadow(o: ShadowOptions): Shadow {
         line(`/** @type {${decl('Err')} | null} */ let $error = $any;`);
       } else if (f.kind === 'let') {
         at(f.loc);
-        line(`const ${f.name} = ${f.init === null ? '$any' : f.waits ? `$waits($e${f.init}())` : `$e${f.init}()`};`);
+        line(`const ${f.name} = ${f.init === null ? '$any' : f.waits ? `$waits(${fn(f.init)}())` : `${fn(f.init)}()`};`);
       } else {
         at(f.loc);
-        line(`const ${f.item} = ${f.init === null ? '$any' : `$item($e${f.init}())`};`);
+        line(`const ${f.item} = ${f.init === null ? '$any' : `$item(${fn(f.init)}())`};`);
         if (f.index) { at(f.indexLoc); line(`const ${f.index} = 0;`); }
       }
     }
@@ -325,11 +342,14 @@ export function shadow(o: ShadowOptions): Shadow {
   // broken expressions last, so their syntax errors cannot spill into checked code
   const order = unit.exprs.map((e, i) => [e, i] as const).sort(([a], [b]) => Number(!!a.broken) - Number(!!b.broken));
   let brokenFrom: number | null = null;
+  const prelude = out.length;
+  const blocks: Shadow['blocks'] = [];
   order.forEach(([e, i]) => {
     if (e.broken && brokenFrom === null) brokenFrom = out.length + 1;
+    const start = out.length + 1;
     line('');
     if (e.returns) tagged('returns', e.returns);
-    line(`function $e${i}() {`);
+    line(`function ${fn(i)}() {`);
     // the payload's block is outside the frames
     if (e.payload) {
       line('{');
@@ -338,7 +358,7 @@ export function shadow(o: ShadowOptions): Shadow {
       // the payload by its name: `$event` in an `<sn-event>`, `$item` in a cursor
       line(`const ${e.payload.as} = $p;`);
     }
-    const blocks = open(e.frames) + (e.payload ? 1 : 0);
+    const opened = open(e.frames) + (e.payload ? 1 : 0);
     line(`/** @type {${decl(`El<${JSON.stringify(e.tag)}>`)}} */ const $el = $any;`);
     if (e.mode === 'value') {
       // action arguments and bodies are taken when the trigger fires
@@ -368,10 +388,11 @@ export function shadow(o: ShadowOptions): Shadow {
       verbatim(e.src, e.loc);
       line(';');
     }
-    for (let b = 0; b < blocks; b++) line('}');
+    for (let b = 0; b < opened; b++) line('}');
     line('}');
+    blocks.push({ i, start, lines: out.length + 1 - start });
   });
-  return { text: out.join('\n') + '\n', regions, brokenFrom };
+  return { text: out.join('\n') + '\n', regions, brokenFrom, lines: out, blocks, prelude, unknown: unknownTypes };
 }
 
 /** A shadow line generated from markup checked elsewhere (a branch's condition): its errors are not reported. */

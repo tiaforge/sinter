@@ -15,7 +15,7 @@ import { checkOptionsOf, compileOptionsOf, project, type ProjectOptions } from '
 import type { OpenApiSpec } from '../compiler/openapi.js';
 import { specDeclarations, typeName } from './openapi-types.js';
 import type { LibraryTypes } from './shadow.js';
-import { DECLARATIONS, mapPosition, quietLine, shadow, type Region, type Shadow } from './shadow.js';
+import { DECLARATIONS, mapPosition, quietLine, shadow, type Region, type Shadow, type ShadowOptions } from './shadow.js';
 import { appTsconfig, SCRIPT_OVERRIDES, type AppTsconfig } from './tsconfig.js';
 
 export interface CheckOptions {
@@ -39,6 +39,11 @@ export interface CheckOptions {
   scripts?: string[];
   /** the generated `src/sinter.components.d.ts`, which types the base class a component's script imports from its HTML */
   componentTypes?: string | null;
+  /**
+   * check each expression's function once where pages repeat it (a component's markup, used on many pages or many
+   * times on one), and report its errors at every place it repeats (`checkShared`); the diagnostics are the same
+   */
+  share?: boolean;
 }
 
 export interface CheckResult {
@@ -120,8 +125,8 @@ export function shadowPath(support: Support, root: string, page: string): string
   return join(support.outDir, relative(root, page) + '.js');
 }
 
-export function shadowOf(unit: CheckUnit, support: Support, root: string, helpers: HelperManifest, actions?: HelperManifest): Shadow {
-  return shadow({ unit, file: shadowPath(support, root, unit.file), root, declarations: support.declarations, types: support.types, helpers, actions, openapi: support.openapi, ...(support.schemas ? { schemas: support.schemas } : {}), ...(support.libraries ? { libraries: support.libraries } : {}) });
+export function shadowOf(unit: CheckUnit, support: Support, root: string, helpers: HelperManifest, actions?: HelperManifest, more: Partial<Pick<ShadowOptions, 'name' | 'unknown' | 'file'>> = {}): Shadow {
+  return shadow({ unit, file: shadowPath(support, root, unit.file), root, declarations: support.declarations, types: support.types, helpers, actions, openapi: support.openapi, ...(support.schemas ? { schemas: support.schemas } : {}), ...(support.libraries ? { libraries: support.libraries } : {}), ...more });
 }
 
 /** A hint for a type error agents meet in markup, or null; \`tag\` is the element the expression sits on. */
@@ -193,44 +198,236 @@ export function check(o: CheckOptions): CheckResult {
   const outDir = o.outDir ?? join(o.root, '.sinter', 'check');
   const support = writeSupport({ root: o.root, outDir, types: o.types, openapi: o.openapi, ...(o.libraries ? { libraries: o.libraries } : {}) });
 
-  const shadows = new Map<string, { unit: CheckUnit; regions: Region[]; brokenFrom: number | null }>();
-  for (const unit of o.units) {
-    const file = shadowPath(support, o.root, unit.file);
-    const s = shadowOf(unit, support, o.root, o.helpers, o.actions);
-    mkdirSync(dirname(file), { recursive: true });
-    writeFileSync(file, s.text);
-    shadows.set(resolve(file), { unit, regions: s.regions, brokenFrom: s.brokenFrom });
-  }
   const tsc = o.tsc ?? findTsc(o.root);
   const app = appTsconfig(o.root, tsc);
   const scriptsDir = join(outDir, SCRIPTS_DIR);
   const scripts = writeScriptShadows(o.root, scriptsDir, o.scripts ?? []);
   // with the app's tsconfig, the scripts are a program of their own under its options (a second tsc, when there are any)
   const own = !!app && scripts.size > 0;
-  const tsconfig = join(outDir, 'tsconfig.json');
-  const rel = (f: string) => relative(outDir, f).split('\\').join('/');
-  writeFileSync(tsconfig, JSON.stringify({
-    compilerOptions: { ...markupOptions(app), ...(own ? {} : scriptOptions(o.root, scriptsDir, scripts.size > 0, outDir)) },
-    // the types module always, so augmentations in it (declare global, a library's import type {}) apply
-    files: ['sinter.d.ts', ...(support.types ? [rel(support.types.file)] : []), ...support.openapi.map((f) => relative(outDir, f)), ...[...shadows.keys()].map(rel),
-      ...(!own && scripts.size && o.componentTypes ? [rel(o.componentTypes)] : []), ...(own ? [] : [...scripts.keys()].map(rel))],
-  }, null, 2) + '\n');
-  const runs = [tsconfig];
-  if (own) {
-    const t = join(scriptsDir, 'tsconfig.json');
-    writeFileSync(t, scriptTsconfig(app, o.root, scriptsDir, [...scripts.keys()], o.componentTypes));
-    runs.push(t);
-  }
-  const diagnostics = runs.flatMap((t) => {
-    const run = spawnSync(process.execPath, [tsc, '-p', t, '--pretty', 'false'], { encoding: 'utf8', cwd: outDir });
-    if (run.error) throw run.error;
-    return parseTsc(run.stdout, outDir, o.root, shadows, scripts);
-  });
+  /** writes the tsconfig(s) over these shadow files and runs `tsc` on each: the records of each run */
+  const run = (files: string[]): TscRecord[][] => {
+    const tsconfig = join(outDir, 'tsconfig.json');
+    const rel = (f: string) => relative(outDir, f).split('\\').join('/');
+    writeFileSync(tsconfig, JSON.stringify({
+      compilerOptions: { ...markupOptions(app), ...(own ? {} : scriptOptions(o.root, scriptsDir, scripts.size > 0, outDir)) },
+      // the types module always, so augmentations in it (declare global, a library's import type {}) apply
+      files: ['sinter.d.ts', ...(support.types ? [rel(support.types.file)] : []), ...support.openapi.map((f) => relative(outDir, f)), ...files.map(rel),
+        ...(!own && scripts.size && o.componentTypes ? [rel(o.componentTypes)] : []), ...(own ? [] : [...scripts.keys()].map(rel))],
+    }, null, 2) + '\n');
+    const runs = [tsconfig];
+    if (own) {
+      const t = join(scriptsDir, 'tsconfig.json');
+      writeFileSync(t, scriptTsconfig(app, o.root, scriptsDir, [...scripts.keys()], o.componentTypes));
+      runs.push(t);
+    }
+    return runs.map((t) => {
+      const r = spawnSync(process.execPath, [tsc, '-p', t, '--pretty', 'false'], { encoding: 'utf8', cwd: outDir });
+      if (r.error) throw r.error;
+      return tscRecords(r.stdout, outDir);
+    });
+  };
+
+  // (`SN_CHECK_SHARE=0`: every page checked whole, to compare)
+  const diagnostics = (o.share && process.env.SN_CHECK_SHARE !== '0' ? checkShared(o, support, scripts, run) : null) ?? (() => {
+    const shadows = new Map<string, ShadowInfo>();
+    for (const unit of o.units) {
+      const file = shadowPath(support, o.root, unit.file);
+      const s = shadowOf(unit, support, o.root, o.helpers, o.actions);
+      mkdirSync(dirname(file), { recursive: true });
+      writeFileSync(file, s.text);
+      shadows.set(resolve(file), { unit, regions: s.regions, brokenFrom: s.brokenFrom });
+    }
+    return run([...shadows.keys()]).flatMap((records) => parseTsc(records, o.root, shadows, scripts));
+  })();
 
   const resources = o.units.reduce((n, u) => n + u.resources.length, 0);
   const typed = o.units.reduce((n, u) => n + u.resources.filter((r) => r.type || r.openapi || r.call || r.file?.adds || r.item || r.content).length, 0);
   const viaOpenapi = o.units.reduce((n, u) => n + u.resources.filter((r) => !r.type && r.openapi).length, 0);
   return { diagnostics, resources, typed, openapi: viaOpenapi };
+}
+
+/** Expression `i`'s name in a shadow of the shared check, replaced when the shadow is written. */
+const MARK = '\u0001';
+const marked = (i: number) => `${MARK}${i}${MARK}`;
+const MARKS = /\u0001(\d+)\u0001/g;
+/** names a page's declarations give a type of its own (with its resources'): a function that reads one stays on the page */
+const PAGE_NAMES = new Set(['$meta', 'refresh', 'upsert', 'page', '$A']);
+const pageName = (t: string) => PAGE_NAMES.has(t) || /^\$(?:F\d|fv|O\d)/.test(t);
+/** a name, anywhere in a function's text (its comments and strings too: a name read where it is not one only keeps the function on the page) */
+const NAMES = /[A-Za-z_$][\w$]*/g;
+
+/** Whether file names differ by case, as TypeScript tells (its order of files is by path, lower-cased where they do not). */
+const caseSensitive = (() => {
+  if (process.platform === 'win32') return false;
+  const f = fileURLToPath(import.meta.url);
+  const swapped = f.replace(/[a-z]/gi, (c) => (c === c.toLowerCase() ? c.toUpperCase() : c.toLowerCase()));
+  return swapped === f || !existsSync(swapped);
+})();
+/** TypeScript's order of the files of its diagnostics */
+const pathOrder = (a: string, b: string) => {
+  const p = (f: string) => { const x = f.split('\\').join('/'); return caseSensitive ? x : x.toLowerCase(); };
+  const x = p(a), y = p(b);
+  return x < y ? -1 : x > y ? 1 : 0;
+};
+
+/**
+ * The type check of many pages, each expression's function checked once. A page's shadow is a block of declarations
+ * and a function per expression, which refers to nothing of the file but the declarations and the functions of the
+ * frames it opens; a component's markup gives the same functions on every page and at every use, but for their names.
+ * So the functions that repeat, with the functions they call, go once into a module of their own beside the pages
+ * (one per folder, whose relative imports are theirs), and each page's shadow keeps the rest. TypeScript's errors in
+ * a shared function are then laid out where each page would have had them, in the order TypeScript would have
+ * printed them (by file, then position), and turned into diagnostics as before: the same, at every place it repeats.
+ *
+ * A function stays on its page when it reads a name the page's declarations type for that page (a resource, `$meta`,
+ * `refresh`…), or calls one that does; the shared module's declarations are a page's without those. Null (check each
+ * page whole) when nothing repeats, or when anything does not add up: an error outside a function of a shared module,
+ * a message that names a shared function, files in an order other than expected.
+ */
+function checkShared(o: CheckOptions, support: Support, scripts: Map<string, string>, run: (files: string[]) => TscRecord[][]): Diagnostic[] | null {
+  interface Ctx { dir: string; unknown: string[]; ids: Map<string, number>; texts: string[]; deps: number[][]; count: number[]; file?: string; at?: Int32Array; starts?: number[] }
+  interface Page { unit: CheckUnit; file: string; sh: Shadow; ctx: Ctx; block: Array<{ text: string; deps: number[]; id: number | null }>; shared: boolean[] }
+  // (`SN_CHECK_DEBUG=1`: what was shared, or why not)
+  const debug = (s: string) => { if (process.env.SN_CHECK_DEBUG) process.stderr.write(`sinter check (shared): ${s}\n`); };
+  const gaveUp = (why: string): null => { debug(`every page whole: ${why}`); return null; };
+  const ctxs = new Map<string, Ctx>();
+  const pages: Page[] = [];
+  for (const unit of o.units) {
+    const file = resolve(shadowPath(support, o.root, unit.file));
+    if (/[^\x20-\x7e]/.test(file)) return gaveUp("a path TypeScript may order otherwise");
+    const sh = shadowOf(unit, support, o.root, o.helpers, o.actions, { name: marked });
+    const key = `${dirname(file)}\0${sh.unknown.join('\0')}`;
+    let ctx = ctxs.get(key);
+    if (!ctx) ctxs.set(key, ctx = { dir: dirname(file), unknown: sh.unknown, ids: new Map(), texts: [], deps: [], count: [] });
+    const byExpr = new Map(sh.blocks.map((b, k) => [b.i, k]));
+    const own = new Set(unit.resources.map((r) => r.name));
+    // (a page whose markup holds the mark itself shares nothing)
+    const clean = !JSON.stringify(unit).includes(MARK);
+    const block = sh.blocks.map((b) => {
+      const text = sh.lines.slice(b.start - 1, b.start - 1 + b.lines).join('\n');
+      const deps = [...text.matchAll(MARKS)].map((m) => Number(m[1])).filter((j) => j !== b.i).map((j) => byExpr.get(j)!);
+      return { text, deps, id: undefined as number | null | undefined };
+    });
+    /** the function's id in its folder's shared module, or null when it stays on the page */
+    const idOf = (k: number): number | null => {
+      const b = block[k]!;
+      if (b.id !== undefined) return b.id;
+      b.id = null;
+      const e = unit.exprs[sh.blocks[k]!.i]!;
+      if (!clean || e.broken || (b.text.replace(MARKS, ' ').match(NAMES) ?? []).some((t) => own.has(t) || pageName(t))) return null;
+      const deps = b.deps.map(idOf);
+      if (deps.some((d) => d === null)) return null;
+      const i = sh.blocks[k]!.i;
+      const text = b.text.replace(MARKS, (_, j: string) => (Number(j) === i ? '\u0002' : `$s${block[byExpr.get(Number(j))!]!.id}`));
+      let id = ctx!.ids.get(text);
+      if (id === undefined) {
+        ctx!.ids.set(text, id = ctx!.texts.length);
+        ctx!.texts.push(text);
+        ctx!.deps.push(deps as number[]);
+        ctx!.count.push(0);
+      }
+      ctx!.count[id]!++;
+      return b.id = id;
+    };
+    block.forEach((_, k) => idOf(k));
+    pages.push({ unit, file, sh, ctx, block: block as Page['block'], shared: [] });
+  }
+  // what repeats is taken from the shared module; what stays, with the functions it calls, is written on the page
+  let any = false;
+  for (const p of pages) {
+    const local = p.block.map((b) => b.id === null || p.ctx.count[b.id]! < 2);
+    const stack = local.flatMap((l, k) => (l ? [k] : []));
+    while (stack.length) for (const d of p.block[stack.pop()!]!.deps) if (!local[d]) { local[d] = true; stack.push(d); }
+    p.shared = local.map((l) => !l);
+    any ||= p.shared.some(Boolean);
+  }
+  if (!any) return gaveUp("nothing repeats");
+
+  // the shared modules: the functions pages take from them, and those they call
+  let n = 0;
+  for (const ctx of ctxs.values()) {
+    const need = new Set<number>();
+    const add = (id: number) => { if (need.has(id)) return; need.add(id); for (const d of ctx.deps[id]!) add(d); };
+    for (const p of pages) if (p.ctx === ctx) p.block.forEach((b, k) => { if (p.shared[k]) add(b.id!); });
+    if (!need.size) continue;
+    ctx.file = join(ctx.dir, `$shared-${n++}.js`);
+    const head = shadowOf({ file: ctx.file, resources: [], frames: [], exprs: [] }, support, o.root, o.helpers, o.actions, { file: ctx.file, unknown: ctx.unknown });
+    const lines = head.lines.slice(0, head.prelude);
+    ctx.starts = [];
+    const at: number[] = [];
+    for (const id of [...need].sort((a, b) => a - b)) {
+      const own = ctx.texts[id]!.split('\u0002').join(`$s${id}`).split('\n');
+      ctx.starts[id] = lines.length + 1;
+      for (let k = 0; k < own.length; k++) at[lines.length + k + 1] = id;
+      lines.push(...own);
+    }
+    ctx.at = Int32Array.from({ length: lines.length + 2 }, (_, l) => at[l] ?? -1);
+    mkdirSync(ctx.dir, { recursive: true });
+    writeFileSync(ctx.file, lines.join('\n') + '\n');
+  }
+  // the pages: their declarations and the functions they keep, each mapped back to its line in the page's whole shadow
+  const real = new Map<string, { page: Page; virt: Int32Array }>();
+  for (const p of pages) {
+    const lines = p.sh.lines.slice(0, p.sh.prelude);
+    const virt: number[] = Array.from({ length: p.sh.prelude + 1 }, (_, l) => l);
+    p.sh.blocks.forEach((b, k) => {
+      if (p.shared[k]) return;
+      for (let l = 0; l < b.lines; l++) {
+        virt[lines.length + 1] = b.start + l;
+        lines.push(p.sh.lines[b.start - 1 + l]!.replace(MARKS, (_, j: string) => `$e${j}`));
+      }
+    });
+    mkdirSync(dirname(p.file), { recursive: true });
+    writeFileSync(p.file, lines.join('\n') + '\n');
+    real.set(p.file, { page: p, virt: Int32Array.from(virt) });
+  }
+  const shared = new Map([...ctxs.values()].filter((c) => c.file).map((c) => [c.file!, c]));
+  const [first = [], ...rest] = run([...real.keys(), ...shared.keys()]);
+
+  // TypeScript prints its errors by file, then position: so must the files have come
+  const order = [...new Set(first.map((r) => r.file))];
+  if (order.some((f, k) => k > 0 && pathOrder(order[k - 1]!, f) >= 0)) return gaveUp("files in another order");
+  const byId = new Map<Ctx, Map<number, TscRecord[]>>();
+  const onPage = new Map<string, TscRecord[]>();
+  const other = new Map<string, TscRecord[]>();
+  for (const r of first) {
+    const c = shared.get(r.file);
+    if (c) {
+      const id = c.at![r.line] ?? -1;
+      if (id < 0 || /\$s\d/.test(r.message + r.more.join('\n'))) return gaveUp("an error outside a shared function, or naming one");
+      let m = byId.get(c);
+      if (!m) byId.set(c, m = new Map());
+      let list = m.get(id);
+      if (!list) m.set(id, list = []);
+      list.push({ ...r, line: r.line - c.starts![id]! });
+      continue;
+    }
+    const p = real.get(r.file);
+    // (a line past the page's end: where would its whole shadow have had it)
+    if (p && !(p.virt[r.line]! > 0)) return gaveUp("an error past a page's end");
+    const list = (p ? onPage : other).get(r.file) ?? [];
+    list.push(p ? { ...r, line: p.virt[r.line]! } : r);
+    (p ? onPage : other).set(r.file, list);
+  }
+  // each page's errors as its whole shadow would have had them: its declarations', then each function's in turn
+  const files = new Map<string, TscRecord[]>(other);
+  const shadows = new Map<string, ShadowInfo>();
+  for (const p of pages) {
+    shadows.set(p.file, { unit: p.unit, regions: p.sh.regions, brokenFrom: p.sh.brokenFrom });
+    const mine = onPage.get(p.file) ?? [];
+    const out = mine.filter((r) => r.line <= p.sh.prelude);
+    p.sh.blocks.forEach((b, k) => {
+      if (!p.shared[k]) { for (const r of mine) if (r.line >= b.start && r.line < b.start + b.lines) out.push(r); return; }
+      for (const r of byId.get(p.ctx)?.get(p.block[k]!.id!) ?? []) out.push({ ...r, file: p.file, line: b.start + r.line });
+    });
+    if (out.length) files.set(p.file, out);
+  }
+  const records = [...files.keys()].sort(pathOrder).flatMap((f) => files.get(f)!);
+  if (process.env.SN_CHECK_DEBUG) {
+    const all = pages.reduce((n, p) => n + p.block.length, 0), kept = pages.reduce((n, p) => n + p.shared.filter((s) => !s).length, 0);
+    debug(`${pages.length} pages, ${all} functions: ${kept} on their pages, ${all - kept} from ${shared.size} shared module(s) of ${[...shared.values()].reduce((n, c) => n + c.starts!.filter((x) => x !== undefined).length, 0)} functions`);
+  }
+  return [records, ...rest].flatMap((rs) => parseTsc(rs, o.root, shadows, scripts));
 }
 
 /**
@@ -290,31 +487,46 @@ export function typeExports(source: string): string[] {
   return [...names].sort();
 }
 
-/** `file(line,col): error TS1234: message`, with indented continuation lines. */
-function parseTsc(stdout: string, outDir: string, root: string, shadows: Map<string, { unit: CheckUnit; regions: Region[]; brokenFrom: number | null }>, scripts: Map<string, string> = new Map()): Diagnostic[] {
-  const out: Diagnostic[] = [];
-  let last: Diagnostic | null = null;
+/** A line of `tsc --pretty false`: `file(line,col): error TS1234: message`, with its indented continuation lines. */
+interface TscRecord { file: string; line: number; col: number; code: string; message: string; more: string[] }
+
+/** `tsc`'s output as records, in its order; `file` is absolute. */
+function tscRecords(stdout: string, outDir: string): TscRecord[] {
+  const out: TscRecord[] = [];
+  let last: TscRecord | null = null;
   for (const raw of stdout.split(/\r?\n/)) {
     const m = /^(.+?)\((\d+),(\d+)\): error (TS\d+): (.*)$/.exec(raw);
     if (!m) {
-      if (last && /^\s+\S/.test(raw)) last.message += '\n  ' + raw.trim();
+      if (last && /^\s+\S/.test(raw)) last.more.push(raw.trim());
       continue;
     }
-    last = null;
+    out.push(last = { file: resolve(outDir, m[1]!), line: Number(m[2]), col: Number(m[3]), code: m[4]!, message: m[5]!, more: [] });
+  }
+  return out;
+}
+
+type ShadowInfo = { unit: CheckUnit; regions: Region[]; brokenFrom: number | null };
+
+/** The diagnostics of `tsc`'s records, in their order. */
+function parseTsc(records: TscRecord[], root: string, shadows: Map<string, ShadowInfo>, scripts: Map<string, string> = new Map()): Diagnostic[] {
+  const out: Diagnostic[] = [];
+  const more = (d: Diagnostic, r: TscRecord) => { for (const x of r.more) d.message += '\n  ' + x; };
+  for (const r of records) {
     // a component's top-level `<script>`: its shadow has the file's lines and columns
-    const html = scripts.get(resolve(outDir, m[1]!));
+    const html = scripts.get(r.file);
     if (html) {
-      last = { severity: 'error', code: 'SN208', message: `${clean(m[5]!, root)} (${m[4]})`, file: html, line: Number(m[2]), col: Number(m[3]) };
-      out.push(last);
+      const d: Diagnostic = { severity: 'error', code: 'SN208', message: `${clean(r.message, root)} (${r.code})`, file: html, line: r.line, col: r.col };
+      more(d, r);
+      out.push(d);
       continue;
     }
-    const s = shadows.get(resolve(outDir, m[1]!));
+    const s = shadows.get(r.file);
     // errors in the app's own modules are its own tsc's business; broken expressions are the compiler's
-    if (!s || (s.brokenFrom !== null && Number(m[2]) >= s.brokenFrom) || quietLine(s.regions, Number(m[2]))) continue;
-    const d = typeDiagnostic(s.unit, s.regions, Number(m[2]), Number(m[3]), m[4]!, m[5]!, root);
+    if (!s || (s.brokenFrom !== null && r.line >= s.brokenFrom) || quietLine(s.regions, r.line)) continue;
+    const d = typeDiagnostic(s.unit, s.regions, r.line, r.col, r.code, r.message, root);
     if (!d) continue;
+    more(d, r);
     out.push(d);
-    last = d;
   }
   return out;
 }
