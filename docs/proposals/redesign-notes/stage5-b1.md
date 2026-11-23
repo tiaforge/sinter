@@ -7,14 +7,17 @@ Running log (2026-11-23), branch `redesign/stage5-b1`, started at `5f203af` (the
 Continued on branch `redesign/stage5-b1b` (2026-11-23, second session; sections 11 to 14).
 
 - **Done**: the route for pages of their own (`compileTwice` → `Compiler#fromWalk`, sections 3 to 5); since section 11
-  also for **pages with a unit placed** (the blog's page-file variants: 100 of 100 entries, sinter-mail 3 pages) and for
-  **pages whose second pass would fold values into code that does not ship** (`shipsFold`, section 12). The suite: 227
-  second passes routed (193 before), "values folded" 124 → 16.
+  also for **pages with a unit placed** (the blog's page-file variants: 100 of 100 entries, sinter-mail 3 pages), for
+  **pages whose second pass would fold values into code that does not ship** (`shipsFold`, section 12) and for
+  **rendered rows under the minifier with a layout** (`respaceRows`, section 15; an embedded resource's id renumbered in
+  place, a route bug). The suite: 306 second passes routed (193 before), "values folded" 124 → 16, "rendered rows and a
+  layout" 48 → 8.
 - **Written up, not built**: a template's entries (section 13): every design that copies walked state per entry costs
   more than the second pass it saves (measured), and the fold of entry values needs a walk that folds.
 - **What B2 still needs**: section 14 (the remaining reasons, by count).
-- **Next**: the "rendered rows and a layout" fallbacks (84 in the suite, the examples' 12 pages): the route has to run
-  the minifier's layout and the image pipeline over the rows it splices, or the first pass has to give them the rows.
+- **Next**: the page's own layout with rendered rows (the examples' 12 pages: static-site, multilingual-site; 7 in the
+  suite): what reads `this.layout` before the walk (the late rows' space, `planSpace`; the images; the dry run of
+  constants) read the page without the rows; section 15 says what each needs. Then loops unrolled the old way (100).
 
 ## How it is measured
 
@@ -363,3 +366,39 @@ sinter-mail: 48 files byte for byte, raw and canonical; its suite (234 tests, `s
 13.9 / 13.8 / 16.5, api-templates 55.7 / 64.4 / 62.4 and 24.3 / 27.1 / 28.4, api-fills 50.3 / 65.4 / 72.9 and 23.1 / 28.7 /
 23.4 (the same bytes: noise). `npm run size -- --check`
 passes; the apps' outputs are the same bytes but bench-live-files' state digit, so no page is heavier.
+
+## 15. Rendered rows under the minifier with a layout (second session)
+
+In a build the minifier runs with the page's stylesheets (its own `Layout`), and the second pass minifies the rows with
+them in place; the route splices the rows after the first pass's minifier, which judged the white space beside the
+`<template>` by what is past it (a sinter template that renders blocks is looked through) and each row's edges as its
+template content's (unknown: "other"). `respaceRows` (after the splice, before the texts are merged): the texts that
+meet at the rows' edges merged and collapsed as the minifier's first step does; then for each text from the one right
+before the rows to the one right after them, the minifier's rule (`spaces`: in a container whose white space collapses,
+white space alone beside a block-level box or an item, or at the box's edge, goes; a text loses its white space on such
+a side), asked of a `Layout` over the walked page, with the rows' paints shown as the bindings they stand for
+(`RenderedRows.shown`, as `walkExpanded` shows them). The rest of the rows' white space is the template content's,
+judged alike. What the walk changed is not asked: the rows' parent or an element above it bound to anything but a
+handler, a model or a text (its class, style or display taken off), or an element past the rows that is bound, or a
+template there: refused (`rendered rows and a layout: a bound element around them`, 1 in the suite). The minifier
+without a layout (a stylesheet from another origin) only drops comments: routed as before. Still refused: the page's
+own layout (`this.layout`: `styles`, or the images' stylesheets), read before the walk by the late rows' space
+(`planSpace`), the image pipeline and the dry run of constant classes and styles, all over the page without the rows
+(the examples' 12 pages, 7 in the suite).
+
+A route bug this exposed (test/vite/origins.test.ts): `renumberIds` numbered the page's ids again in document order but
+left an embedded resource's id (`<sn-resource>` taken out by the walk, its data in `<script data-sn=N>`, `r.data`) as it
+was, so it could meet an element's new id. Now the walk records where each such element stood (`fw.gone`: before the
+next element or anchor that stays), the route points a record at a template it replaces to what took its place, and
+`renumberIds` numbers it there and writes `embedded` and `r.data`; where its place is gone, refused (none in the suite).
+
+Suite under `SN_FROM_WALK_AUDIT=1` after this (merged at 22152eb, 2,998 tests): taken 306; a loop unrolled, not
+rendered 65; nothing decided 51; prefold 38; a loop unrolled on a page that is not quiet 35; no branch the build may
+decide 33; code compiled first in a decided branch compiled elsewhere 12; values folded into code that ships 9; a
+definition compiled first in a decided branch 9; a choice decided 9; values folded (nothing else decided) 7; rendered
+rows and a layout 7 (+1 bound element); diagnostics in a decided branch 4; ids in rendered rows 2; a unit's definition
+the page keeps 2; SN501 2; over the limit, an else-if decided, a decided if in a template that stays 1 each. The 43
+template-pass entries compiled alone (no kept template) now route. Apps: unchanged from section 14 (their rows are under
+the page's layout). Verified: suite plain and audited; RENDER/LINK/ONE_PASS audits pass, UNITS/UNITS2 the same 62/52;
+render-audit --canon the eight apps the same; pass-audit byte for byte but bench-live-files' state digit; sinter-mail
+48 files byte for byte raw and canonical; size check passes.
