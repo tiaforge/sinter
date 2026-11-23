@@ -10,7 +10,8 @@ on a quiet machine, then cut where the output stays byte for byte the same.
   1.65 s. sinter's **fixed part is not the gap**: ≈1.1 s, against Astro's ≈1.35 s. The gap is per page: sinter
   12.2 ms a page (wall, 100→400), Astro ≈4 ms. Of sinter's 12.2 ms, ≈7 are the compiler's, ≈5 outside it.
 - Fix 1 in: SN521's scan of the page modules (quadratic with a page file per post): −1.2 s at 1,000 page files.
-- Next: `pageStyles`' import scan per page, then the cross check (SN534) in a worker, then the write-ups.
+- Fix 2 in: `pageStyles` scans each module's text for its imports once, not once per page: −0.33 ms a page.
+- Next: the cross check (SN534), then the write-ups (Vite's HTML step, the fold check's cache).
 
 ## How it is measured
 
@@ -114,6 +115,25 @@ same order. Test: `test/vite/files-named.test.ts` (the old pattern as the oracle
 | static-files-400 | 192 ms | < 9 ms |
 | static-files-1000 | 1,174 ms | < 27 ms |
 | floor, static-files-1000 | 12,205 ms | 10,954 ms |
+
+Byte identity: every file of the bar, and the log lines, the same as `base`.
+
+## Fix 2: `pageStyles`' scan, each module's import list once
+
+For the box sizes of images and lists, every page's stylesheets are collected (`pageStyles`, `src/styles.ts`), with the
+CSS the app's modules import: from the config, the early module, the helpers and the actions module, each module's
+imports are followed through the project's own files. Each page ran the comment-stripping regex and the import regex
+over every one of those modules again. On the blog, `src/sinter.helpers.ts` re-exports sinter-markdown, which resolves
+to a folder outside `node_modules` (a workspace link, as in the benchmark), so every page scanned the markdown parser's
+whole source. The import list is now kept by the module's file while its text is the same string (`read` already keeps
+the text by mtime), and the resolution of each import still runs per page (its importer may differ). Test:
+`test/vite/page-styles-scan.test.ts` (two pages, the same stylesheets; the module edited, the new order; a page's own
+module script scanned as it is).
+
+| `pageStyles` and `styles.ts` (CPU profile, outside the compiler) | before | after |
+| --- | ---: | ---: |
+| static-100 | 60 ms | 26 ms |
+| static-400 | 213 ms | 82 ms (−0.33 ms a page) |
 
 Byte identity: every file of the bar, and the log lines, the same as `base`.
 
