@@ -748,6 +748,9 @@ interface ComponentFile {
   either?: boolean;
   /** its `<style>` as written, for `rootCss` */
   rawCss?: string;
+  /** its styles in a file of their own beside it (`<tag>.css`, scoped as a `<style>` is), and that file's text */
+  cssFile?: string;
+  cssText?: string;
   /** the names of its slots that pass data (`Slot<T>` in its props type), read once */
   dataSlots?: Set<string>;
   /** a component of a library (`sinter({ libraries })`); `internal`: in its `components/internal/` */
@@ -2370,6 +2373,11 @@ class Compiler {
           : /export\s+default\b|export\s*\{[^}]*\bas\s+default\b/.test(text) ? 'default' : null;
         break;
       }
+      // its styles in a file of their own: `<tag>.css` beside it, scoped as its `<style>` would be
+      {
+        const f = file.replace(/\.html$/, '.css');
+        try { c.cssText = this.opts.readFile(f); c.cssFile = f; } catch { /* none */ }
+      }
       // its early renderer: `<tag>.early.ts` beside it, run by the early script where the use's props are known before
       // the page module (only with a script: the instance adopts what it rendered)
       if (c.script) for (const ext of ['.ts', '.js', '.mts', '.mjs']) {
@@ -2950,6 +2958,7 @@ class Compiler {
     const usedAt = hostOrigin.usedAt ?? (def.lib && !this.libOfFile(hostOrigin.file) ? `${this.rootRel(hostOrigin.file)}:${loc.line}` : undefined);
     this.tag(frag, { file: def.file, src: def.text, chain: [`${basename(hostOrigin.file)}:${loc.line}`, ...hostOrigin.chain], use: `${this.siteKey(host) ?? ''}<${hostOrigin.use ?? ''}`, ...(usedAt ? { usedAt } : {}) });
     this.files.add(def.file);
+    if (def.cssFile) this.files.add(def.cssFile);
     const fail = (el: P5Element | null, a: string | null, message: string, hint?: string): null => {
       if (el) this.report(el, a, 'SN312', message, 0, hint);
       else this.diagnostics.push({ severity: 'error', code: 'SN312', message, file: def.file, line: 1, col: 1, ...(hint ? { hint } : {}) });
@@ -2987,18 +2996,23 @@ class Compiler {
     for (const t of top) {
       if (t !== template && t.tagName !== 'style') return fail(t, null, `a component file holds its \`<template>\` and \`<style>\`; \`<${t.tagName}>\` belongs inside the template`);
     }
-    if (def.head && def.css === undefined && top.some((t) => t.tagName === 'style')) {
+    const style = top.find((t) => t.tagName === 'style');
+    // its styles are in one place: its `<style>` or its `.css` file
+    if (style && def.cssFile) return fail(style, null, `\`<${name}>\` has a \`<style>\` and \`${basename(def.cssFile)}\` beside it: a component's styles are in one place`, `move the \`<style>\` into \`${basename(def.cssFile)}\`, or the file's rules into the \`<style>\``);
+    if (def.head && def.css === undefined && (style || def.cssFile)) {
       def.css = null;
-      this.report(top.find((t) => t.tagName === 'style')!, null, 'SN320', `the head component \`<${name}>\` has a \`<style>\` beside its template: head elements render nothing to style`, 0, 'put the CSS in a stylesheet');
+      if (style) this.report(style, null, 'SN320', `the head component \`<${name}>\` has a \`<style>\` beside its template: head elements render nothing to style`, 0, 'put the CSS in a stylesheet');
+      else this.diagnostics.push({ severity: 'error', code: 'SN320', message: `the head component \`<${name}>\` has styles (\`${basename(def.cssFile!)}\`): head elements render nothing to style`, file: def.cssFile!, line: 1, col: 1, hint: 'put the CSS in a stylesheet' });
     }
     if (def.head && def.script) return fail(template, null, `the head component \`<${name}>\` has a script (\`${def.script}\`); head components have none`);
     // its `<style>`, scoped to the component (read once per file)
     if (def.css === undefined) {
-      const css = top.filter((t) => t.tagName === 'style').map((t) => t.childNodes.map((c) => (c as DefaultTreeAdapterMap['textNode']).value ?? '').join('')).join('\n');
+      const css = def.cssText ?? top.filter((t) => t.tagName === 'style').map((t) => t.childNodes.map((c) => (c as DefaultTreeAdapterMap['textNode']).value ?? '').join('')).join('\n');
       def.rawCss = css;
       try { def.css = css.trim() ? scopeCss(css, name, def.lib ? LIBRARY_LAYER : undefined) : null; } catch (e) {
         def.css = null;
-        this.report(top.find((t) => t.tagName === 'style')!, null, 'SN401', `the component's \`<style>\` does not parse: ${(e as Error).message}`, 0);
+        if (def.cssFile) this.diagnostics.push({ severity: 'error', code: 'SN401', message: `\`${basename(def.cssFile)}\` does not parse: ${(e as Error).message}`, file: def.cssFile, line: 1, col: 1 });
+        else this.report(style!, null, 'SN401', `the component's \`<style>\` does not parse: ${(e as Error).message}`, 0);
       }
     }
     for (const a of template.attrs) {

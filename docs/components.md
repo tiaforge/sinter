@@ -47,7 +47,7 @@ runtime.
 
 ## Where its files go
 
-A component is `src/components/<name>.html`, with its [script](#a-script) and
+A component is `src/components/<name>.html`, with its [styles](#styles), [script](#a-script) and
 [early renderer](#early-renderers), if it has them, beside it under the same name. When a component grows,
 give it a folder of its own, named after it, and move its files in unchanged:
 
@@ -56,6 +56,7 @@ src/components/                 src/components/
   app-header.html                 app-header.html
   task-ring.html                  task-ring/
   task-ring.ts                      task-ring.html
+                                    task-ring.css
                                     task-ring.ts
                                     task-ring.early.ts
                                     ring-math.ts        ← a module of its own: import './ring-math.js'
@@ -65,7 +66,7 @@ src/components/                 src/components/
 - **The tag is still the file's name.** `task-ring/task-ring.html` is `<task-ring>`, used as before.
   Nothing in the files changes when they move: the script's `import … from './task-ring.html'` is
   beside it in either place.
-- **Only the files named after the component are its parts** (`<name>.html`, `<name>.ts`,
+- **Only the files named after the component are its parts** (`<name>.html`, `<name>.css`, `<name>.ts`,
   `<name>.early.ts`). Any other module in the folder is an ordinary module: the script imports it, and it is
   bundled with the pages that use the component, like any import. That makes it the place for the logic
   you want to unit-test without a page: functions that turn props into what the script draws, kept apart
@@ -371,6 +372,9 @@ A `<style>` in the component file is scoped to the component:
 </style>
 ```
 
+- **Or in a file of its own:** `article-preview.css` beside the HTML (or in the component's
+  [folder](#where-its-files-go)) holds the same rules and is scoped the same way. A component has one of the
+  two: a `<style>` and a `.css` file both is `SN312`.
 - It goes into the page's stylesheet (the bundler puts it there, with the page's other CSS): no inline
   style, no CSP change, and it is there for the first paint.
 - The compiler wraps it in native `@scope`. The rules apply to the component's root and what is inside

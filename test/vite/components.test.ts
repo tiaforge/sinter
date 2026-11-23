@@ -145,7 +145,7 @@ export class TaskRing extends TaskRingComponent {
   }
 }, 120_000);
 
-test('a component in a folder of its own: its HTML, script, early renderer and modules together, beside a component that is one file', async () => {
+test('a component in a folder of its own: its HTML, script, styles and modules together, beside a component that is one file', async () => {
   const app = mkdtempSync(join(tmpdir(), 'sinter-component-folder-'));
   try {
     mkdirSync(join(app, 'src/components/task-ring'), { recursive: true });
@@ -156,8 +156,9 @@ test('a component in a folder of its own: its HTML, script, early renderer and m
     <ring-legend></ring-legend>
   </figure>
 </template>
-<style>.ring { margin: 3px; }</style>
 `);
+    // its styles in a file of their own, beside it
+    writeFileSync(join(app, 'src/components/task-ring/task-ring.css'), '.ring { margin: 3px; }\n');
     // a module of the component's own, imported by its script: bundled with it
     writeFileSync(join(app, 'src/components/task-ring/ring-math.ts'), 'export const share = (done: number, open: number) => `${Math.round((100 * done) / (done + open))}%`;\n');
     writeFileSync(join(app, 'src/components/task-ring/task-ring.ts'), `import { TaskRingComponent } from './task-ring.html';
@@ -184,6 +185,7 @@ export class TaskRing extends TaskRingComponent {
     expect(html).toContain('<p class="legend"');
     const css = readdirSync(join(out, 'assets')).filter((f) => f.endsWith('.css')).map((f) => readFileSync(join(out, 'assets', f), 'utf8')).join('\n');
     expect(css).toContain('@scope ([data-sn-c="task-ring"]');
+    expect(css).toMatch(/\.ring[^{]*\{\s*margin:\s*3px/);
     // the types: the component's base, under its file in the folder
     const dts = readFileSync(join(app, 'src/sinter.components.d.ts'), 'utf8');
     expect(dts).toContain("declare module '*/task-ring.html' {");
