@@ -465,8 +465,14 @@ export interface SinterNavigate extends Event {
 /** $event of a handler for event K on an element with tag T */
 export type Ev<K extends string, T extends string = string> = K extends 'sn-navigate' ? SinterNavigate : K extends keyof HTMLElementEventMap ? HTMLElementEventMap[K]
   : T extends keyof SinterElementEvents ? (K extends keyof SinterElementEvents[T] ? CustomEvent<SinterElementEvents[T][K]> : CustomEvent) : CustomEvent;
-/** what data-sn-with accepts on a custom element: its own properties when HTMLElementTagNameMap has it, anything otherwise */
-export type Props<K extends string> = K extends keyof HTMLElementTagNameMap ? { [P in keyof HTMLElementTagNameMap[K]]?: HTMLElementTagNameMap[K][P] } : Record<string, unknown>;
+/**
+ * what data-sn-with accepts on a custom element: its own properties when HTMLElementTagNameMap has it, those it gives
+ * (G) each of its own type (\`undefined\` only where that has it); anything otherwise
+ */
+export type Props<K extends string, G extends string = never> = K extends keyof HTMLElementTagNameMap
+  ? Given<HTMLElementTagNameMap[K], G> : Record<string, unknown>;
+/** the props or properties T, those given (G) required with their own type: the others optional, so a key T has not is an error */
+export type Given<T, G> = { [P in keyof T as P extends G ? P : never]: T[P] } & { [P in keyof T]?: T[P] };
 /**
  * $event where run('id') can start the action: null then. Checking runs without strictNullChecks, where
  * \`E | null\` is just E, so the missing event is \`void\`: \`$event.shiftKey\` is an error, \`$event && $event.shiftKey\` is not.

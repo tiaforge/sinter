@@ -65,7 +65,7 @@ Then `data-sn-with` on `<mail-reader>` takes only its properties, with their typ
 `data-sn-on-reader-flag`, `$event.detail` is a `boolean`. An element the app does not declare takes any property,
 and its events' `detail` is `any`.
 
-Null checks and implicit `any` are off. A binding that reads `null` renders nothing, and expressions in separate attributes cannot narrow each other, so strictness would only produce noise.
+Without a tsconfig that turns them on (below), null checks are off; implicit `any` is always off. A binding that reads `null` renders nothing, and expressions in separate attributes cannot narrow each other, so strictness would only produce noise.
 
 Branches do narrow. What is inside a `data-sn-if` template is checked where its condition holds, and what is inside its `data-sn-else` where it does not. A `data-sn-else` after `<sn-component use>` is checked where the key names none of the candidates. With `type Inline = Text | Link`, where only `Text` has `value`, `n.value` checks inside `<template data-sn-if="n.type === 'text'">`.
 
@@ -146,7 +146,10 @@ the expressions follow its `strictNullChecks` (or `strict`): `$meta.list.pages >
 the state writes, and in the objects of its array literals (`{ form: { error: null, tags: [] } }`, then
 `form.error = $error`; `{ rows: [{ note: null }] }`, then `rows[0].note = 'x'`). Give it a type where it is
 written (`/** @type {Contact | null} */ (null)`) to have it checked; a JSDoc-typed object
-(`/** @type {Draft} */ ({ to: null })`) keeps its type too. The other options of your config do not apply to
+(`/** @type {Draft} */ ({ to: null })`) keeps its type too. A component's prop takes `undefined` only when it is
+optional: `<spark-line data-sn-with="{ at: last?.tick }">` is an error for `at: number` (write `last?.tick ?? 0`,
+or declare `at?: number`); a given `undefined` is passed as is, over a default the component's state holds. A
+custom element's property takes it only when its type has it (`message: Message | null` does not). The other options of your config do not apply to
 the expressions, which sinter generates code around. A component file's `<script>` block is checked under all
 of them, as a module of yours would be: [docs/islands.md](islands.md#single-file-components). Without a
 tsconfig, the check uses its own options and nulls are not checked.

@@ -4169,8 +4169,15 @@ class Compiler {
     const src = attr(host, 'data-sn-with');
     if (src !== undefined) {
       const r = this.expr(host, 'data-sn-with', caller, { mode: 'value', object: 'literal-keys', waits: true });
-      // a missing prop the compiler reports itself; TypeScript checks the types of those given
-      if (this.check) this.typeLast({ returns: { kind: 'ts', text: use.props ? `Partial<${use.propsText.trim() || '{}'}>` : use.propsText, loc: this.locOf(use.template, use.layout ? 'data-sn-layout' : use.head ? 'data-sn-head' : 'data-sn-component') } });
+      // a missing prop the compiler reports itself (SN313); TypeScript checks each given one against its declared type,
+      // so `undefined` fits only an optional one (`at: last?.tick` for `at: number` is an error under strictNullChecks;
+      // a given undefined is passed, over a default of the root's state). (`& Partial<…>`: a key it does not declare
+      // is an error there too, as when it is given alone)
+      if (this.check) {
+        const given = [...new Set((r.entries ?? []).map((e) => e.key).filter((k) => declared?.includes(k)))];
+        const props = use.propsText.trim() || '{}';
+        this.typeLast({ returns: { kind: 'ts', text: use.props ? `Pick<${props}, ${given.map((k) => JSON.stringify(k)).join(' | ') || 'never'}> & Partial<${props}>` : use.propsText, loc: this.locOf(use.template, use.layout ? 'data-sn-layout' : use.head ? 'data-sn-head' : 'data-sn-component') } });
+      }
       for (const e of r.entries ?? []) {
         const slot = use.slots?.get(e.key);
         if (slot) {
@@ -6334,8 +6341,12 @@ class Compiler {
   objectBinding(el: P5Element, node: NodeDef, scope: Scope, k: 'class' | 'style' | 'prop') {
     const name = k === 'prop' ? 'data-sn-with' : `data-sn-${k}`;
     const r = this.expr(el, name, scope, { mode: 'value', object: k === 'class' ? 'any-keys' : 'literal-keys' });
-    // a custom element's properties, from the app's HTMLElementTagNameMap
-    if (this.check && k === 'prop') this.typeLast({ returns: { kind: 'decl', name: `Props<${JSON.stringify(el.tagName)}>` } });
+    // a custom element's properties, from the app's HTMLElementTagNameMap: each one given, with its type (so `undefined`
+    // fits only one typed with it, under strictNullChecks)
+    if (this.check && k === 'prop') {
+      const given = [...new Set((r.entries ?? []).map((e) => JSON.stringify(e.key)))];
+      this.typeLast({ returns: { kind: 'decl', name: `Props<${JSON.stringify(el.tagName)}, ${given.join(' | ') || 'never'}>` } });
+    }
     if (!r.entries) return;
     for (const e of r.entries) {
       let key = e.key;
