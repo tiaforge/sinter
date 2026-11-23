@@ -241,6 +241,17 @@ describe('the paints of rows, read back from their records where they are commit
   });
 });
 
+describe('a `file:` value copied once (`frozenCopy`)', () => {
+  test('every page and pass reads its own frozen copy\'s values: the same with a copy per pass (`SN_FILE_COPY=0`)', () => {
+    const html = page(`<ul><template data-sn-for="r in grid.rows"><li data-sn-text="r.name"></li></template></ul><p data-sn-text="doc.children.length"></p>`);
+    const a = routes(html), b = routes(html);
+    process.env.SN_FILE_COPY = '0';
+    try { expect(routes(html)).toBe(a); } finally { delete process.env.SN_FILE_COPY; }
+    expect(b).toBe(a);
+    expect(a).toContain('<li>a</li><li>b</li>');
+  });
+});
+
 describe('choices in rows', () => {
   test('the candidates a choice does not render, at every depth, rendered and not', () => {
     const body = both(page('<x-doc data-sn-with="{ doc }"></x-doc>'));

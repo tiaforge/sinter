@@ -200,3 +200,23 @@ A/B against change 2, wall ms a call, p25 / median / mean (3 rounds; blog 5): ma
 141 → 105 / 123 / 132 (`compile()` 171 / 208 / 283 → 167 / 188 / 280); blog static `decideFor` 5.48 / 6.80 / 7.68 →
 5.73 / 7.19 / 7.93 (nothing of it runs there: no stylesheet, no style binding; the blog's rounds move by ±0.3 ms
 between runs).
+
+### 4. A `file:` value copied and frozen once, not in every pass
+
+`fileConstants` copied and froze each `file:` value for the evaluator in every pass (`deepFreeze(structuredClone(v))`):
+~8.5 ms a pass on the 2,012-element email. A file's parsed value is already one object for every page and pass that
+reads it (`fileValue` keeps it by path and text; `select` reads a part of it), and nothing writes it: the compile's
+other uses of `fileData` read it (keys, entries, an axis list's JSON, the embedded JSON). So its frozen copy is made
+once per value (`FROZEN_COPY`, a `WeakMap` by the value: it lives as long as the parse does). A value made for one
+page (a list `order` sorts anew) is a new object and copied as before; a glob's list is frozen once already
+(`globCache`). What changes: two passes, and two pages reading one file, see one frozen copy instead of one each; the
+evaluator only reads it, and what it hands on (a row's item, a part of it) was shared already within a pass
+(`frozenData`). One identity could show: a helper whose result is its argument (a frozen file value), shared as
+`frozenPlain` shares it, names that object by reference in the build's fold log (`refs`) in the second pass too, where
+it was a copy of its own before. `SN_FILE_COPY=0`: a copy per pass.
+
+Test: a page reading two files, compiled twice and with `SN_FILE_COPY=0`: the same.
+
+A/B against change 3 (3 rounds): mail gen `fileConstants` 8.19 / 8.40 → 0.03 / 0.02 ms a pass (p25, passes 1 / 2),
+pass-2 `prerender` 8.77 → 0.27, `compile()` 173 / 182 / 291 → 155 / 172 / 269. Nothing else reads a `file:` value
+that large: the blog's list is a glob (frozen once already), the mail file's email is a string.

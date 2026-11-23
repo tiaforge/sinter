@@ -9002,8 +9002,9 @@ class Compiler {
       const def = this.resources.find((x) => x.name === name);
       let v = d.value;
       for (const k of def?.select ? def.select.split('.') : []) v = (v as Record<string, unknown> | null)?.[k];
-      // a list a build keeps for every page that reads it is frozen once (`globCache`): shared, not copied per page
-      values.set(name, v && typeof v === 'object' ? (DEEP_FROZEN.has(v) ? v : deepFreeze(structuredClone(v) as object)) : v);
+      // a list a build keeps for every page that reads it is frozen once (`globCache`): shared, not copied per page; a
+      // file's value is copied once for every page and pass that reads it (`frozenCopy`)
+      values.set(name, v && typeof v === 'object' ? (DEEP_FROZEN.has(v) ? v : frozenCopy(v)) : v);
       status.set(name, Object.freeze({ loading: false, error: null, loadedAt: null, total: null, live: null }));
     }
     const of = (m: Map<string, unknown>) => new Proxy({}, { get: (_, k) => { if (typeof k === 'string' && m.has(k)) return m.get(k); throw NOT; } });
@@ -12869,6 +12870,21 @@ export function frozenPlain(v: object): boolean {
   if (!walk(v)) return false;
   for (const x of all) DEEP_FROZEN.add(x);
   return true;
+}
+
+/**
+ * A `file:` value's frozen copy (`fileConstants`), made once for each value: a file's parsed value is one object for
+ * every page and pass that reads it (`fileValue` keeps it by path and text, `select` reads a part of it), and nothing
+ * writes it (the compile reads it; a page embeds it as JSON). Each pass copied and froze the whole of it again: ~12 ms a
+ * pass on sinter-mail's 2,012-element email. A value made for one page (`order` sorts a list anew) is a new object, and
+ * copied as before. `SN_FILE_COPY=0`: a copy per pass, as before.
+ */
+const FROZEN_COPY = new WeakMap<object, object>();
+function frozenCopy(v: object): object {
+  if (proc?.env.SN_FILE_COPY === '0') return deepFreeze(structuredClone(v) as object);
+  let c = FROZEN_COPY.get(v);
+  if (!c) FROZEN_COPY.set(v, c = deepFreeze(structuredClone(v) as object));
+  return c;
 }
 
 function deepFreeze<T extends object>(v: T): T {
