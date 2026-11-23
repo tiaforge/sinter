@@ -130,6 +130,57 @@ On the files variant 1,304 `definition` calls a page and 38 compiled, as without
 What is left of the check in the compile: the two pages that compile and record the library (on sinter-mail the
 recording is 0.7 s more with check data), and the check data each later page replays (12 ms a page on sinter-mail).
 
+### 4. Shadows made faster (`shadow`, `checkShared`)
+
+`libTyped` (a library's type names in a props type, renamed to its types module) made a `Set` of the library's
+names and ran its regex for every function that opens a library component's frame, on every page; it keeps its
+work per library and text. `relative()` for module specifiers is kept per target. The sharing key's test for page
+names runs one regex over a function before the exact scan. sinter-mail, `check()` per build (12 pages, loaded
+machine): 3.1 s to 1.8 s (`shadow` 1.08 to 0.62 s, the key 0.81 to 0.17 s, `tsc` 0.7 s).
+
+| median of 3, interleaved (load 12 to 14) | before | after |
+|---|---:|---:|
+| blog, a page file per post, check on: CPU | 10.9 s | 9.6 s |
+| sinter-mail, 12 API pages with TypeScript: CPU of the cold and warm builds | 16.9 s | 15.2 s |
+
+## Is a component's markup checked the same at every use? (contract.md §5, checked)
+
+Mostly, and the shared check does not depend on it: it compares the text TypeScript sees. What the check data shows:
+
+- A component's frames are its own (`componentScope` starts from no state, loop or let of the caller's); its props
+  frame is the declared type. Choice candidates narrow on the caller's side (the `guard` is on the use's
+  `data-sn-with`); fills are the caller's markup, in the caller's frames and the slot's frame (`Slot<T>`), one copy
+  per fill. A `<script>` block is checked per file, in the second run. So over the blog's 101 pages, 42,500
+  functions are 150 texts.
+- **Not quite "nothing semantic":** a component sees the page's resources (SN201's message says so), and through
+  them `$meta`, `refresh`, `upsert` and `page`, which are typed by each page. The corpus has one (`x-res` reads
+  `people`, a `Person[]` on one page and a `string[]` on another): its error differs by page. Those functions stay
+  on their pages. A per-component check would have to do the same.
+- What differs per use otherwise is the include chain in the message (`(included from a.html:6)`), which is why the
+  errors are laid out per use rather than reported once. The build's error text and `sinter check` print every one;
+  the editor drops exact duplicates (`publishAll`: file, line, column, code, message), so it shows one per distinct
+  chain. Unchanged.
+
+## What is left, and what stage 4 proper adds
+
+- **The check data is still per page.** A linked definition's check data is replayed into each page (a copy, with
+  the page's chain), and `check()` writes each page's whole shadow in memory (`shadow`) to find where its errors go,
+  then hashes each function's text to find the shared ones. On sinter-mail that is about 12 ms a page of replay and
+  50 ms a page of shadow text and keys. Stage 4's unit would carry its check data once, with a hole for the page's
+  chain (the one thing that differs), and `check()` would take a page's layout from the units it links (their
+  functions' lines, known once) instead of writing it out.
+- **Recording.** The page that records a definition records its check data too (on sinter-mail, 0.7 s more per
+  build than without, mostly the linker's copy and encode of 4,700 expressions). Gone with the linker.
+- **`tsc`.** One process, not incremental; about 0.7 s on these apps, most of it parsing TypeScript's libs. A second
+  process for the components' `<script>` blocks when the app has a `tsconfig.json` (0.26 s for corpus app d);
+  running the two at once would need `check()` to be asynchronous (it is public API). Not done.
+- **`sinter check`** compiles each page without a definitions cache, so it compiles a library once per page; its
+  `tsc` part is shared now. Giving it the build's cache would be the same change as the build's.
+- **Tried and dropped:** turning `check` off in the second pass, whose unit is thrown away. `check` is not only data:
+  SN506 (an `<sn-event>` without `type`) is reported only under it, and a choice's key is compiled once more (and
+  can report), so the second pass's diagnostics would change. What it costs there is small once definitions link
+  (the files variant's second pass compiles a page's own few expressions).
+
 ## The diagnostics corpus
 
 `scratchpad/typecheck-agent/corpus/` (`gen.mjs` writes the apps, `run.mjs <out>` builds each and runs `sinter

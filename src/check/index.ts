@@ -301,6 +301,9 @@ function checkShared(o: CheckOptions, support: Support, scripts: Map<string, str
     if (!ctx) ctxs.set(key, ctx = { dir: dirname(file), unknown: sh.unknown, ids: new Map(), texts: [], deps: [], count: [] });
     const byExpr = new Map(sh.blocks.map((b, k) => [b.i, k]));
     const own = new Set(unit.resources.map((r) => r.name));
+    // (a quick test first: where none of those names is in the text, no name of it is one)
+    const maybe = new RegExp(`(?:${[...own, ...PAGE_NAMES].map((n) => n.replace(/\$/g, '\\$')).join('|')})(?![\\w$])|\\$(?:F\\d|fv|O\\d)`);
+    const pageNamed = (text: string) => maybe.test(text) && (text.replace(MARKS, ' ').match(NAMES) ?? []).some((t) => own.has(t) || pageName(t));
     // (a page whose markup holds the mark itself shares nothing)
     const clean = !JSON.stringify(unit).includes(MARK);
     const block = sh.blocks.map((b) => {
@@ -314,7 +317,7 @@ function checkShared(o: CheckOptions, support: Support, scripts: Map<string, str
       if (b.id !== undefined) return b.id;
       b.id = null;
       const e = unit.exprs[sh.blocks[k]!.i]!;
-      if (!clean || e.broken || (b.text.replace(MARKS, ' ').match(NAMES) ?? []).some((t) => own.has(t) || pageName(t))) return null;
+      if (!clean || e.broken || pageNamed(b.text)) return null;
       const deps = b.deps.map(idOf);
       if (deps.some((d) => d === null)) return null;
       const i = sh.blocks[k]!.i;
