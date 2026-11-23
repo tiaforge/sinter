@@ -956,6 +956,12 @@ function constantProps(src: string | undefined, props: Member[] | null): Map<str
 const TAG_ONLY_HINT = 'a component\'s tag takes `data-sn-with`, `data-sn-model`, handlers, actions, `data-sn-class`, `-attr`, `-href`, `-style`, `-show` and `-transition`; the rest belongs inside the component';
 
 export function compileParts(html: string, options: CompileOptions): CompiledParts {
+  // `SN_UNITS_SHIFT_AUDIT=1` (redesign-notes/stage4-units.md): the page compiled again with every top-level definition of
+  // its first pass numbered otherwise (`unitShift`), unlinked; whether the output is the same is logged, not thrown
+  if (proc?.env.SN_UNITS_SHIFT_AUDIT === '1' && unitShift === 0 && !shifting) {
+    shifting = true;
+    try { return shiftAudit(html, options); } finally { shifting = false; }
+  }
   // `SN_RENDER_AUDIT=1`: a compile that spliced rendered rows in is compiled again without rendering, and must be the same
   if (proc?.env.SN_RENDER_AUDIT === '1' && renderForced === null && renderOn()) {
     const n = RENDER_STATS.spliced, on = compilePartsOnce(html, options);
@@ -979,6 +985,37 @@ export function compileParts(html: string, options: CompileOptions): CompiledPar
   }
   return compilePartsOnce(html, options);
 }
+
+/**
+ * The shift audit (`SN_UNITS_SHIFT_AUDIT=1`): does a first-pass definition's numbering reach the output? The page is
+ * compiled as usual, then with `unitShift` templates, functions, state ids and use ids handed out before each top-level
+ * definition of its first pass (none in the second), with linking off, and the two are compared. One line per page that
+ * compiled a definition in its first pass goes to `SN_UNITS_SHIFT_LOG`: `same` or `differs`, and whether the output was
+ * the first pass's own (no second pass followed).
+ */
+function shiftAudit(html: string, options: CompileOptions): CompiledParts {
+  const before = SHIFT_STATS.defs, a = compileParts(html, options);
+  if (SHIFT_STATS.defs === before && !SHIFT_STATS.first) return a;
+  const plain = SHIFT_STATS.first;
+  SHIFT_STATS.first = false;
+  unitShift = 3;
+  let b: CompiledParts;
+  try { b = compileParts(html, { ...options, definitions: undefined }); } finally { unitShift = 0; }
+  const shifted = SHIFT_STATS.first;
+  SHIFT_STATS.first = false;
+  const text = (r: CompiledParts) => JSON.stringify(r, (_, v) => (typeof v === 'function' ? '[fn]' : v instanceof Map ? [...v] : v instanceof Set ? [...v] : v));
+  const same = text(a) === text(b);
+  const log = proc?.env.SN_UNITS_SHIFT_LOG;
+  if (log) (proc?.getBuiltinModule?.('node:fs') as { appendFileSync(f: string, s: string): void } | undefined)?.appendFileSync(log, `${same ? 'same' : 'differs'}\t${plain || shifted ? 'first-pass-output' : 'second-pass-output'}\t${options.check ? 'check' : '-'}\t${options.file}\n`);
+  return a;
+}
+
+/** the shift audit's state: definitions compiled in a first pass so far, and whether a compile's output was its first pass */
+const SHIFT_STATS = { defs: 0, first: false };
+/** (`shiftAudit`) how many of each number a first pass hands out before each top-level definition: 0, as compiled */
+let unitShift = 0;
+let shiftDepth = 0;
+let shifting = false;
 
 function compilePartsOnce(html: string, options: CompileOptions): CompiledParts {
   let out = compilePasses(html, options);
@@ -1116,9 +1153,9 @@ function compilePasses(html: string, options: CompileOptions): CompiledParts & {
   const out = first.finishPage(walk, true);
   // `data-sn-if` templates over state nothing writes: decided now, the page compiled again with their branches in place
   const withLate = (o: typeof out) => (o.lateDiagnostics ? { ...o, diagnostics: [...o.diagnostics, ...o.lateDiagnostics] } : o);
-  if (!twice) return withLate(out);
+  if (!twice) { SHIFT_STATS.first ||= first.hasDefinitions(); return withLate(out); }
   const next = second(isClean());
-  if (!next) return withLate(out);
+  if (!next) { SHIFT_STATS.first ||= first.hasDefinitions(); return withLate(out); }
   // the type check reads the page as written: in the second pass an unrolled loop's rows have no loop variable, so a
   // component prop in one (`{ post: p }`) was SN208 "Cannot find name 'p'" in `sinter check` of a `static` page
   return out.check ? { ...next, check: out.check } : next;
@@ -4983,9 +5020,26 @@ class Compiler {
   }
 
   /** The shared definition of a component used inside itself, compiled on its first such use. */
+  /** whether this page compiled a shared definition (the shift audit) */
+  hasDefinitions(): boolean { return this.defs.size > 0; }
+
   compileDefinition(name: string): { tid: number; id: string; use: Use } | null {
     const known = this.defs.get(name);
     if (known !== undefined) return known;
+    if (!this.opts.decided && !this.opts.unrolled && !this.opts.constants) {
+      SHIFT_STATS.defs++;
+      // (the shift audit: a top-level definition of a first pass, numbered otherwise)
+      if (unitShift && shiftDepth === 0) {
+        for (let i = 0; i < unitShift; i++) { this.newTemplate(); this.fn(`() => "sn-shift ${i}"`); }
+        this.nextSid += unitShift;
+        this.useIds += unitShift;
+      }
+    }
+    shiftDepth++;
+    try { return this.compileDefinitionIn(name); } finally { shiftDepth--; }
+  }
+
+  compileDefinitionIn(name: string): { tid: number; id: string; use: Use } | null {
     const file = this.componentFile(name);
     if (!file || file.bad) { this.defs.set(name, null); return null; }
     const tid = this.newTemplate(), t = this.templates[tid]!, rt = `$p${tid}`, d0 = this.diagnostics.length;
