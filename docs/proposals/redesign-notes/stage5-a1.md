@@ -11,10 +11,13 @@ The brief is "A1 brief" in [stage5-assembly.md](stage5-assembly.md) (section 5);
   turns it off, `SN_UNITS2_AUDIT=1` audits it; canonically identical over the suite and sinter-mail, every other app
   byte for byte, no page heavier, sinter-mail's suite and bench holding. A later components-route page 108 → 72 ms (142
   → 88 with TypeScript), the build's compile −14% (−19%).
-- **Merged** `ccr-9ebf49d5-gpdej8` at d64bc0b and verified again (section 4b): a template's entries crashed the
+- **Merged** `ccr-9ebf49d5-gpdej8` at d64bc0b, and again at 50eb4c7, and verified each time (section 4b, the log): a template's entries crashed the
   build there (their second pass did not give the unit back), fixed with every second pass through `unitPass`.
-- **Next**: A2 (section 5): its case occurs in no app measured; one shape found (a template's entries with only a
-  live tree); built behind the same switch if its audit holds.
+- **A2 built** (section 5): a first pass that is its output is compiled again with a unit of its own, not without
+  units (but under the type check); its audit found an A1 bug (bindings of a definition's tag attributes made by the
+  unit, not held), fixed, and a source-map difference (a page with a source map places no second-pass unit now).
+- **Done**: the final measurements on the merged tree (section 4: a later components-route page 97 → 66 ms, 112 → 70
+  with TypeScript; the build's compile −10.5 %, −19 %). What is left is in section 6.
 
 ## How it is measured
 
@@ -228,6 +231,18 @@ compiled in place (234) and page 2 recorded (493). The build's compile −414 ms
 Making a unit with a recorder costs two to three compiles; a unit compiler with fresh tables (stage 4's plan step 2)
 would cost one, and is the next thing that would pay on this route (about 400 ms a build).
 
+**On the merged tree** (d64bc0b and A2, 1c1ce95; the same harness, medians of three builds, the route off and on):
+
+| | off: page 1 | page 2 | later | mean | build's compile | wall | on: page 1 | page 2 | later | mean | build's compile | wall |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| no TypeScript | 1,220 | 538 | **97** | 229 | 2,751 | 3,585 to 4,357 | 1,713 | 87 | **66** | 205 | **2,462** | 3,315 to 3,526 |
+| with TypeScript | 1,536 | 750 | **112** | 287 | 3,448 | 4,966 to 5,240 | 1,995 | 102 | **70** | 234 | **2,807** | 4,175 to 4,711 |
+
+(The other workstreams' changes made every page cheaper: a later page 108 → 97 off, the type check's 142 → 112.) A
+later page −32 % (−37 % with TypeScript), the build's compile −10.5 % (−19 %). sinter-mail's suite against the
+merged tree: 234 passed, check and typecheck ok; its bench (9 runs) within the noise of both earlier runs (e.g.
+api-templates newsletter-2000 first render 69.8 [62.8–99.7], api-fills 66.2 [63.3–84.9]).
+
 **sinter-mail** (`scripts/mail-audit.mjs <checkout> --switch SN_UNITS2`): raw, the three route iii pages differ (their
 HTML and modules: numbering), the other 39 files are the same bytes; with `SN_CANON=1` and `SN_UNITS_VERIFY=1`, all
 42 files the same. Units: one second-pass unit made, placed on the other two pages; no fallback. Its suite against the
@@ -308,11 +323,85 @@ pass was their output. Measured again on the merged tree (one build, wall, the p
   (`quietFinish`: a signed-in guard, `data-sn-pages`, URL bindings, page models, `$url` writes). One shape found: a
   template's entries whose only tree is live and whose entry data is read only where it is written into the markup
   (an entry's title): no second pass, "a first pass that is finished" once per entry (a probe of three entries).
+  (sinter-mail's components over an API in a template's entries is not this shape: its entries have a second pass,
+  from the kept expansion, which A1 serves. Measured, 12 entries of a template whose only tree is `<mail-body
+  data-sn-with="{ body: message, templates: true }">`, wall, two builds each: off, a later entry 280 ms and the build
+  5.6 s; on, 52 ms and 3.1 to 3.4 s, one unit made and 11 placed. Its old route compiled the library on every entry:
+  the second pass from a kept expansion does not link.)
+
+**Built** (the same switch, `SN_UNITS2`; the same audit): where a first pass is finished and its units were placed or
+made, it is compiled again, as before, but with the build's units and marked `finishedFirst`, through `unitPass`:
+its walk places a finished unit as a second pass's does (the names of the points in its tree, the key with `first`
+added), holds it, copies its output off it and gives it back. A unit that does not hold for it falls back to the old
+recompile without units, counted as for a second pass. Not under the type check: there this pass's output carries its
+check unit, and a finished unit keeps no check part (so the type check keeps today's route). The fallback reason "a
+first pass that is finished" is still counted (it is why the page is compiled again); what changed is that the
+recompile takes its definitions from a unit.
+
+What A2's audit found (the suite's link-review pages are live trees whose first pass is their output, so A2 placed
+units there, where A1 had placed none):
+
+- **A1's too**: a unit's definition that passes attributes to another definition's tag (`x-tc` passing `class="hot"`
+  and `data-sn-class` to `x-tb`'s through a choice) makes the bindings of that definition's root in the unit
+  (`defAttrs`); each page puts them on the root (`defRootBindings`) and `compactTables` numbers their functions in
+  place. They sat in no template when the unit was made, so they were not held: the next page got the last page's
+  function numbers (VERIFY: "changed an object of a second pass's unit … k: class"). Now held (`irObjects` takes the
+  bindings of the unit's `defAttrs` maps). Test: `units2.test.ts` "a definition's tag attributes passed by another
+  definition…" (fails without the hold, on a second pass).
+- **Source maps**: where the page and the unit write a function of the same code, its site in the source map is the
+  first writer's; the unit's code now comes first, so the site is the unit's place where the old route has the page's
+  when the page wrote it before the walk reached the definition. Another site, not another number: with a source map
+  (`sourcemap`), a page places no second-pass unit (counted, `pass 2: a source map`) and compiles as before. Matching
+  the old route's site would need, per definition, the moment the old walk would have compiled it. Recorded as left.
+  Test: "with a source map: no second-pass unit…".
+
+Measured on its shape (in-process, through `dist/`, a template of 12 entries over a five-component library whose only
+tree is live, three rounds): a later entry 6.3 to 7.0 ms off, 4.5 to 5.8 on; the 12 entries 102 to 140 ms off, 82 to
+109 on. Tests: `units2.test.ts` "a page whose first pass is its output…" (the units tests' live pages, both orders,
+two rounds, canonically equal), "under the type check a first pass that is its output…" (byte for byte, no unit),
+"a template's entries with only a live tree…".
+
+## 6. What is left
+
+- **Making a unit costs two to three compiles** (the recorder: page 1 of the components route 1,666 ms against 1,270
+  without A1, the unit's making 625 ms where compiling in place was 234). A unit compiler with fresh tables of its
+  own (stage 4's plan step 2) would make it one: about 400 ms more a build on this route. The same holds for the first
+  pass's units, and a build whose only page with definitions is one page (realworld's `article.html`) pays the
+  recording for nothing (144 to 169 ms against 71 to 81 compiled in place): stage 4 makes a unit on the first page
+  that needs it.
+- **Per page, what a unit's part of `finishPage` still costs** (a later components-route page): `groupStyles` 5.4 ms,
+  the rows' `find`/`make`, `compactTables` over the unit's templates. Each depends on the unit alone but for the
+  numbers, and could be done once per unit (`groupStyles`' list order is a table order the canonicalizer would have
+  to number: not done).
+- **With a source map** a page places no second-pass unit (section 5): a function both write would have the unit's
+  site. To route those pages, the page's first write of a code the unit has would have to win where the old walk would
+  have reached the code before the definition.
+- **A2 under the type check**: a first pass that is its output keeps today's recompile without units there (its
+  check unit ships; a finished unit keeps no check part). The check-data workstream's parts by reference would let a
+  finished unit keep one.
+- `VARIANTS` (3 units by one key) is exercised by no app now (it was by the file pages before units were limited to
+  the points left in the tree) and by no test: I found no small page whose reads differ that way.
+- Found and recorded, not mine: `test/vite/trusted-types.test.ts` failed once under the suite's load (passed in every
+  other run); a one-page build's unit recording (above).
+- The linker: what it still covers is in stage4-units.md ("Where stage 4 stands"), updated: A1's and A2's fallbacks,
+  the type check's finished first passes, `describeOnly` past `LINK_DESCRIPTIONS`, definitions first reached from a
+  fill's case after the walk, and `SN_UNITS2=0`. Not deleted (the owner's review).
 
 ## Log
 
 - 19:10 UTC: suite plain and canonical, sinter-mail baseline and canonical (`--suite --bench`), per-phase timings.
 - 20:20 UTC: A1 built and verified (sections 3, 4), committed (89f70f1).
+- 23:50 UTC: merged the integration branch again (50eb4c7: A1 merged there, B1, which runs its second passes through
+  `unitPass` and the units tests with B1 off). On the merged tree: the suite 2,980 passed; `SN_UNITS2_AUDIT=1
+  SN_UNITS_VERIFY=1` no difference (52 failures, the counting tests); CI's link-audit job 2,980 passed; every app the
+  same raw and canonical, `pass-audit` the same; sinter-mail's 48 files canonically identical, gzip −24 B (worst file
+  +1 B); size check passes.
+- 23:10 UTC: A2 built; its audit's two findings fixed (section 5). The suite 2,950 passed; `SN_UNITS2_AUDIT=1
+  SN_UNITS_VERIFY=1` (the whole suite): no difference, no unit object changed (52 failures, the tests that count
+  compiles); CI's link-audit job (the whole suite, `SN_LINK_AUDIT=1 --testTimeout=60000`): 2,950 passed; the four
+  audits on test/compiler at the integration head's failures (and `units.test.ts` timing out at 5 s under
+  `SN_LINK_AUDIT`, passing at CI's 60 s); every app the same raw and canonical, `pass-audit` the same; sinter-mail's 48
+  files canonically identical under VERIFY, gzip −24 B (worst file +1 B); size check passes.
 - 21:40 UTC: merged d64bc0b; the template entries' crash and the name check fixed (section 4b). On the merged tree:
   the suite 2,945 passed; under `SN_UNITS2_AUDIT=1 SN_UNITS_VERIFY=1` no difference and no unit object changed (53
   failures, all tests that count compiles: link-review-3/4/5, one-pass, render-rows, as the other audits have them);
