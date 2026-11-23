@@ -95,11 +95,17 @@ test('with a build\'s shared definitions, linked into each page with their check
   for (const share of [false, true]) expect(run(root, PAGES, { share, definitions: true }).diagnostics).toEqual(whole.diagnostics);
 }, 60_000);
 
-test('a broken expression on one page: TypeScript reports no type error anywhere, shared or not', () => {
-  const root = app({ ...FILES, 'e.html': page('<p data-sn-text="1 +"></p><div data-sn-state="{ z: 3 }"><x-bad data-sn-with="{ n: z, label: \'e\' }"></x-bad></div>') });
+test('a broken expression on one page: the compiler reports it, and every page is type-checked as without it, shared or not', () => {
+  const e = (p: string) => page(`<p data-sn-text="${p}"></p><div data-sn-state="{ z: 3 }"><x-bad data-sn-with="{ n: z, label: 'e' }"></x-bad><p data-sn-text="z.nope"></p></div>`);
+  const root = app({ ...FILES, 'e.html': e('1 +') });
   const pages = [...PAGES, 'e.html'];
   const whole = run(root, pages, { share: false }), shared = run(root, pages, { share: true });
   expect(whole.compile.map((d) => d.code)).toEqual(['SN401']);
-  expect(whole.diagnostics).toEqual([]);
+  // (the same app with that expression whole: the same type errors, on that page too)
+  const fixed = run(app({ ...FILES, 'e.html': e('1  ') }), pages, { share: false });
+  expect(fixed.compile).toEqual([]);
+  expect(text(whole.diagnostics)).toContain("e.html:5:127 error SN208 Property 'nope' does not exist on type 'number'. (TS2339)");
+  expect(text(whole.diagnostics)).toContain("src/components/x-bad.html:3:28 error SN208 Property 'nope' does not exist on type 'string'. (TS2339) (included from e.html:5)");
+  expect(text(whole.diagnostics)).toEqual(text(fixed.diagnostics));
   expect(shared.diagnostics).toEqual(whole.diagnostics);
 }, 60_000);

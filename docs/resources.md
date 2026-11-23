@@ -290,8 +290,13 @@ the results into one collection:
   `<sn-event>`s. `select` picks a part of one JSON file.
 - Bindings over it are written into the page at build time, and so are helper calls over it (when the
   helper can run at build time: [static pages](static-pages.md#helpers-and-files-at-build-time)). What
-  still runs in the browser reads it from embedded data in the page's head, so the first frame has it
-  and no request is made; a file nothing in the browser reads is not in the page at all. It is not a
+  still runs in the browser gets only what it reads, without a request: a number, a boolean, `null` or a
+  string of up to 120 characters that it reads (`{post.slug}` in a live resource's URL) is written into the
+  page module as a literal; anything else it reads comes from embedded data in the page's head, so the first
+  frame has it, with only the fields the code reads at each depth (`post.author.name` embeds
+  `{"author":{"name":…}}`). A value the code may take whole (passed to a helper or a component's script,
+  spread, held in state, sent as a body, read with a computed key) and a list are embedded whole, as is
+  everything in `vite dev`. A file nothing in the browser reads is not in the page at all. It is not a
   placeholder for a server to fill (not in `sinter-embed.json`).
 - The dev server reloads the page when a file it read changes, and when a file a glob matches is added or
   removed. The editor does the same: it checks the pages that read a file again when it changes or appears,
@@ -355,7 +360,8 @@ export const tags = collection({
   those fields of each entry. Without `fields` that is [SN344](diagnostics.md#sn344-content-fields), so what a CMS
   returns and no page shows never ships by accident. Fields left out are `undefined` in the browser (`sinter check`
   does not narrow the type to them). A page per entry (`data-sn-for` on `<html>`) follows its list's `fields`. A `file:` resource takes
-  `fields` too, and without it ships whole. `fields` and `drafts` are a build-time source's only: on a fetched
+  `fields` too. Of what is left, the page embeds only what its code reads, as for a `file:` resource ([Files](#files)):
+  an entry's fields read at run time, a list whole. `fields` and `drafts` are a build-time source's only: on a fetched
   resource they would do nothing, and are `SN332`.
 - **`vite dev`** runs the loaders at startup and again when the content module or a file `files()` read changes,
   then reloads the page. A change in the CMS needs a restart, or a rebuild in production (a webhook to the CI).

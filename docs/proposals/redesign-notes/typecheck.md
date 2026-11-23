@@ -19,7 +19,7 @@ the native compiler), Node 22.23.
   60,000 lines) are parsed on every run.
 - `tsc` prints its errors sorted by file, then position (checked: `a.js` before `b.js` whatever the order of
   `files`), and prints no semantic error at all when any file of the program has a syntax error (a broken
-  expression, which the compiler has reported already).
+  expression, which the compiler has reported already). (Since [bugs.md](bugs.md) §3 the program's shadows leave the broken expressions out.)
 
 ## Where the time went (before)
 

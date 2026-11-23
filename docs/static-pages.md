@@ -43,7 +43,8 @@ browser ([build-time constants](first-paint.md#build-time-constants)):
   renders. A list has no length limit of its own: its rows count against the page's (below).
 - trees over constants: a component used inside itself, and the component an `<sn-component use>`
   renders, given constant props (a `file:./doc.json` content tree, each node dispatched to its
-  component) are expanded at build time, per node, and a link fill is written into every node that
+  component; a prop that reads state a handler writes is not constant, and that choice renders in the
+  browser, as the component used by its tag would) are expanded at build time, per node, and a link fill is written into every node that
   places it: an element, an if/else chain, a component tag, and a fill whose `<slot>` places the
   node's own children. The page is plain HTML, and a component nothing renders leaves it. Two fills
   render in the browser: one that holds a component with slots of its own (a tree inside the fill),
@@ -83,7 +84,9 @@ and `structuredClone`, not `Date`, `Intl`, `Math.random`, `fetch`, `window` or `
   any build plugin or dependency does. Keep untrusted code out of your helpers' imports.
 - `src="file:./intro.txt"` resources ([resources.md](resources.md#files)) are constants too: bindings
   over them, and helpers called over them, are written into the page, and a file nothing in the
-  browser reads leaves the page. A page whose files and helpers all fold ships no JavaScript.
+  browser reads leaves the page. A page whose files and helpers all fold ships no JavaScript. Code that
+  still runs gets the small values it reads as literals, and the rest embedded with only the fields it reads
+  ([resources.md](resources.md#files)).
 
 ## What needs JavaScript
 
