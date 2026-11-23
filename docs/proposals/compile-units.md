@@ -708,3 +708,21 @@ decision of their own (stage 7). A step that can stay byte-identical does.
   second pass compiles a loop), measured part by part first, target the compiler under 4 ms a page on the static
   template variant, and was asked to commit its measuring tools. Outside the compiler the two decisions not taken
   (the SN534 cross check, Vite's HTML step) are now a larger share of what is left.
+- 2026-11-23, 23:25 UTC: **the full suite passes at `246d90e`: 3,005 tests, 314 files**; `pass-audit` nine apps
+  the same. The stage 6 session's measuring tools are committed (`bench/tools/`, with a README: the method wrapper,
+  the interleaved A/B, the profile readers, the byte comparison, sinter-mail's apps) and merged (`0ca7df5`). Whole
+  process, 100 posts, seven interleaved rounds on the coordinating machine, median: static 2.38 s, with the type
+  check 2.46 s, live 2.67 s, a page file per post 2.80 s static and 3.30 s live; Astro 1.72 s.
+- 2026-11-23, 23:35 UTC: **stage 5's B1 continued, second milestone merged** (`redesign-notes/stage5-b1.md` §11 to
+  §15; `2e00858`). Rendered rows under the minifier with a layout take the route from the first pass's walk
+  (`respaceRows`: the minifier's white-space rule applied again at the rows' edges, the rows' paints shown as
+  bindings; refused where a bound element is around or beside the rows). A bug of the route it exposed is fixed: an
+  embedded resource's id (its `<sn-resource>` removed by the walk) was not renumbered and could collide with an
+  element's; it is numbered where its element stood. In the suite 320 second passes take the route (193 when the
+  session started), "rows and a layout" as a refusal 48 to 8; a template's entry compiled alone routes. Its checks:
+  suite 3,008 plain and under `SN_FROM_WALK_AUDIT=1`, the render, link and one-pass audits. Checked on the
+  coordinating machine after the merge: 1,567 tests of test/compiler, test/vite, test/check pass; `render-audit
+  --switch SN_FROM_WALK --canon` eight apps the same; `mail-audit --switch SN_FROM_WALK` under `SN_CANON=1` 48
+  files byte for byte. Still refused: a page whose own layout reads it without the rows (styles and images:
+  `planSpace`, the image pipeline, the dry run), which is the examples' 12 pages. Next there: that written up
+  precisely, then loops unrolled the old way (100 in the suite).

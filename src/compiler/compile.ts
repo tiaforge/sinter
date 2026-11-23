@@ -9212,7 +9212,7 @@ class Compiler {
       const odd = names.some((n) => !/^[\w$]+$/.test(n));
       rowFns = { names: names.join(','), pure: (code) => !odd && !re.test(code), make: (L, parts) => rowProgram(names, values, L, parts), audit: proc?.env.SN_ROW_FN_AUDIT === '1' };
     }
-    const work = this.worklist(fnOf, known, fixed, schemes, ROW, keep ? this.evalProgram!.walk : undefined, rowFns);
+    const work = this.worklist(fnOf, known, fixed, schemes, ROW, keep ? this.evalProgram!.walk : undefined, rowFns, written);
     for (const c of cands) {
       own = c.b.k === 'model' && c.b.p !== undefined ? (c.b.w![0] as string).split('.').slice(0, 2).join('.') : null;
       let v = known(strs(c.b.d)) ? run(this.fns[c.f]!) : FAIL;
@@ -9548,7 +9548,7 @@ class Compiler {
    * instances per page, any list's rows counted (`SN536` past it, at the loop or the tree that crosses it).
    */
   /** `memo`: what the walk reads of the program, kept with a kept template's program (`evalProgram`) for its next entry */
-  worklist(fnOf: FnTable, known: (deps: string[]) => boolean, fixed: (ds: PathRef[] | undefined) => boolean, schemes: Set<string>, ROW: Set<string>, memo: WalkMemo = newWalkMemo(), rowFns: RowFns | null = null) {
+  worklist(fnOf: FnTable, known: (deps: string[]) => boolean, fixed: (ds: PathRef[] | undefined) => boolean, schemes: Set<string>, ROW: Set<string>, memo: WalkMemo = newWalkMemo(), rowFns: RowFns | null = null, writtenNow?: Set<string>) {
     // (`recs`: the top rows of a loop as `rowRenderer` reads them, `RowRec`; recorded only when rows are rendered)
     // (`decided`: a key and what it is decided, or the candidates a choice in a row does not render, as one entry: each of
     // `keys` but `picked` decided false at `prefix` + its key, in the order of `keys`; `decidedEntries` spells it out)
@@ -9559,7 +9559,8 @@ class Compiler {
     /** `pick`: a choice's case expanded (decided true), else a loop unrolled (`tid`, its rows' template) */
     const pending = new Map<string, { items: unknown[]; d: PathRef[] | undefined; found: Found; pick?: true; el: P5Element; tid?: number; picked?: PickedCase } | null>();
     const placementOf = new Map(this.runtimePlacements.map((P) => [P.node, P] as const));
-    const written = this.writtenState();
+    // (the state written: the evaluation's, `prerender`'s)
+    const written = writtenNow ?? this.writtenState();
     /**
      * Item 6: a handler a static tree keeps, which the page module adopts: it writes nothing and reads only
      * constants and its own `$el` (no data, URL, clock or state something writes)
@@ -9579,10 +9580,13 @@ class Compiler {
     const chosen = new Set<string>();
     /** the bindings whose paints in rows the layout and the images read (`constantSources`), for this evaluation: the program's, which the walk does not change */
     let constB: Set<Binding> | null = null;
+    // (`constantSources`, once for the walk and its renderer: neither changes what it reads)
+    let constList: ReturnType<Compiler['constantSources']> | null = null;
+    const constSources = () => (constList ??= this.constantSources());
     // (a plan's binding in `constB`, asked once per evaluation: `cstOf` is the evaluation it was asked for)
     const asked = {};
     const constOf = (p: BindPlan): boolean => {
-      if (p.cstOf !== asked) { p.cst = (constB ??= new Set(this.constantSources().flatMap((x) => x.s.bindings))).has(p.b); p.cstOf = asked; }
+      if (p.cstOf !== asked) { p.cst = (constB ??= new Set(constSources().flatMap((x) => x.s.bindings))).has(p.b); p.cstOf = asked; }
       return p.cst!;
     };
     const limit = this.opts.expansionLimit ?? EXPANSION_LIMIT;
@@ -9645,8 +9649,8 @@ class Compiler {
     };
     // (a row's item is shared with the data it is a part of, frozen once; a helper's result is copied, as a call takes it by value)
     const isResult = (x: object) => this.folding?.isResult(x) ?? false;
-    // (the heights of the frozen data `plainData` measured, for this evaluation; a file's frozen value's, for the build:
-    // `FROZEN_HEIGHTS`)
+    // (the heights of the frozen data `plainData` measured, for this evaluation, of what was frozen without them; the
+    // rest's are where it was frozen, `DEEP_FROZEN`)
     const heights = new Map<object, number>();
     const listOf = (v: unknown): unknown[] | null => (Array.isArray(v) && v.every((x) => plainData(x, heights)) ? v : null);
     // (a placement's element is its `<slot>`; an anchor's, its template)
@@ -9963,7 +9967,7 @@ class Compiler {
           this.foldReads.set(key, this.stateSites(p.d));
           // rows rendered here (`rowRenderer`): the second pass splices them in, and reads nothing decided in them by
           // key; the state they read is the loop's, for `foldedState`
-          const done = rendering && (render ??= this.rowRenderer(handlerOnly, ROW, placementOf, memo))(key, p);
+          const done = rendering && (render ??= this.rowRenderer(handlerOnly, ROW, placementOf, memo, constSources))(key, p);
           if (done) {
             this.rendered.set(key, done);
             const reads = this.foldReads.get(key)!;
@@ -9981,7 +9985,7 @@ class Compiler {
             for (const x of done.state) reads.add(x);
             // what the layout and the images read of the rows (an image's attributes, a class or a style): collected as
             // the old route collects it (`collectConstants`), which decides what the second pass is handed
-            constB ??= new Set(this.constantSources().flatMap((x) => x.s.bindings));
+            constB ??= new Set(constSources().flatMap((x) => x.s.bindings));
             if (constB.size) for (const [b, prefix, w] of paintsOf(paintsFor(p, key, constB))) {
               if (!constB.has(b)) continue;
               let m = this.rowPaint.get(b);
@@ -10013,7 +10017,7 @@ class Compiler {
    * component's tag attributes, diagnostics in its templates), and a page whose layout, images or scoped styles read
    * the rows, is left to the second pass as before: the reason is counted (`SN_RENDER_LOG=1`).
    */
-  rowRenderer(handlerOnly: (b: Binding) => boolean, ROW: Set<string>, placementOf: Map<NodeDef, Compiler['runtimePlacements'][number]>, memo: WalkMemo = newWalkMemo()):
+  rowRenderer(handlerOnly: (b: Binding) => boolean, ROW: Set<string>, placementOf: Map<NodeDef, Compiler['runtimePlacements'][number]>, memo: WalkMemo = newWalkMemo(), constSources: () => ReturnType<Compiler['constantSources']> = () => this.constantSources()):
     (key: string, p: { items: unknown[]; found: { recs?: RowRec[]; rows: number }; pick?: true; tid?: number; el: P5Element; picked?: PickedCase }) => RenderedRows | null {
     // scoped styles: the minifier leaves their components' markup as written (`SCOPED`), and the walk marks the roots of
     // the uses it sees (`data-sn-c`/`-r`/`-s`, after the walk); in dev builds every root's `data-sn-c`, for devtools
@@ -10039,7 +10043,7 @@ class Compiler {
       if (folds) return folds;
       folds = new Map();
       const keys = new Map<string, number>();
-      const list = this.constantSources().filter((x) => FOLDED.includes(x.s.attr));
+      const list = constSources().filter((x) => FOLDED.includes(x.s.attr));
       for (const { key } of list) keys.set(key, (keys.get(key) ?? 0) + 1);
       for (const { s, key } of list) {
         let l = folds.get(s.node);
@@ -10122,6 +10126,17 @@ class Compiler {
      */
     type CloneList = { ops: Array<{ n: P5Node; up: number; content: boolean }>; at: Map<P5Node, number> };
     const cloneLists = new Map<number, CloneList>();
+    /** what each node of a template is for `fill`, the same in every row: a choice or recursion point, a tree placement, a text, an element */
+    type NodeInfo = { point: ReturnType<Compiler['pointOf']['get']>; P: ReturnType<typeof placementOf.get>; text: boolean; el: P5Element | undefined };
+    const nodeInfos = new Map<NodeDef[], NodeInfo[]>();
+    const nodeInfo = (nodes: NodeDef[]): NodeInfo[] => {
+      let l = nodeInfos.get(nodes);
+      if (!l) nodeInfos.set(nodes, l = nodes.map((n) => ({ point: this.pointOf.get(n), P: placementOf.get(n), text: this.textMarks.has(n), el: this.tplEls.get(n) })));
+      return l;
+    };
+    /** an `if`'s `else` and what it folds (`fill`), by binding; a loop's list as written (null: no loop head), by binding */
+    const ifInfo = new Map<Binding, { other: NodeDef | undefined; otherTid: number | undefined; otherEl: P5Element | undefined; src: string; empty: string }>();
+    const forInfo = new Map<Binding, string | null>();
     /** the component files of a case's markup, in the order a walk of it meets them (its elements' files and their CSS): the same in every row */
     const caseFileLists = new Map<number, string[]>();
     const caseFilesOf = (tid: number): string[] => {
@@ -10366,11 +10381,11 @@ class Compiler {
         return f!;
       };
       const fill = (nodes: NodeDef[], map: { get(x: P5Node): P5Node | undefined }, rec: RowRec) => {
-        // (the record's places: by node, its bindings after it, `rowLayout`)
-        const L = rowLayout(memo, nodes);
+        // (the record's places: by node, its bindings after it, `rowLayout`; what each node is: `nodeInfo`)
+        const L = rowLayout(memo, nodes), info = nodeInfo(nodes);
         for (let i = 0; i < nodes.length; i++) {
-          const n = nodes[i]!, pos = L.base[i]!;
-          const point = this.pointOf.get(n);
+          const n = nodes[i]!, pos = L.base[i]!, ni = info[i]!;
+          const point = ni.point;
           if (point) {
             const cl = map.get(this.anchorEls.get(n)!);
             if (!cl) no('markup');
@@ -10387,7 +10402,7 @@ class Compiler {
             replace(cl, cl, instance(point.el, this.points.get(point.el), b!.x!, rows![0], rows![0]![0]));
             continue;
           }
-          const P = placementOf.get(n);
+          const P = ni.P;
           if (P) {
             const c = rec[pos] as { k: number; rec?: RowRec } | undefined;
             if (!c) no('placement');
@@ -10421,7 +10436,7 @@ class Compiler {
             try { replace(cl, cl, render(P.cases[c!.k]!, c!.rec)); } finally { for (const t of tops) fillMarks.delete(t); if (root !== undefined) for (const t of contentOf(P.cases[0]!)?.childNodes ?? []) fillMarks.delete(t); }
             continue;
           }
-          if (this.textMarks.has(n)) {
+          if (ni.text) {
             // (a text's value as it was, `UNDEFINED` for undefined; none: not recorded)
             const b = n.b[0], m = b && n.b.length === 1 ? rec[pos + 1] : undefined;
             if (m === undefined) no('text');
@@ -10440,7 +10455,7 @@ class Compiler {
             st.ids++;
             continue;
           }
-          const el = this.tplEls.get(n), cl = el && map.get(el) as P5Element | undefined;
+          const el = ni.el, cl = el && map.get(el) as P5Element | undefined;
           if (!el || !cl) no('markup');
           let bound = false;
           // (the element's style, when its style bindings alone write it: their declarations at once, `StyleWrites`)
@@ -10477,10 +10492,10 @@ class Compiler {
             if (WRITTEN.get(cl!) === 'opaque' && host && !host.attrs.some((a) => /^data-sn-(class|style|show|attr)$/.test(a.name) && !hostGone.has(a.name))) WRITTEN.delete(cl!);
           }
           // (an axis list's link: marked as the walk meets it, after `prefold`'s writes)
-          const pt = axisMark.get(cl!);
+          const pt = axisMark.size ? axisMark.get(cl!) : undefined;
           if (pt) cl!.attrs.push(pt);
           // (the marks of scoped styles, after `prefold`'s writes and before the paints)
-          const marks = MARKED.get(cl!);
+          const marks = marking ? MARKED.get(cl!) : undefined;
           if (marks && cl!.tagName === 'img' && !n.b.some((b) => !defAttr.has(b) && b.k !== 'else' && !folded.has(b))) late.push([cl!, marks]);
           else if (marks) for (const m of marks) setAttr(cl!, m.name, m.value);
           const plan = fillPlan(n, folded);
@@ -10489,24 +10504,34 @@ class Compiler {
             if (b.k === 'if') {
               const v = rec[pos + 1 + j] as boolean | undefined;
               if (v === undefined || b.x === undefined) no('if');
-              const other = b.y !== undefined ? nodes[b.y] : undefined, otherTid = other?.b.find((x) => x.k === 'else')?.x;
-              const otherEl = other && (this.tplEls.get(other) ?? this.anchorEls.get(other));
+              // (its `else`, and what it folds: the node's, `ifInfo`)
+              let fi = ifInfo.get(b);
+              if (!fi) {
+                const other = b.y !== undefined ? nodes[b.y] : undefined;
+                ifInfo.set(b, fi = { other, otherTid: other?.b.find((x) => x.k === 'else')?.x, otherEl: other && (this.tplEls.get(other) ?? this.anchorEls.get(other)), src: this.snSource.get(el!) ?? '', empty: this.emptyOf.get(el!)?.list ?? '' });
+              }
+              const { other, otherTid, otherEl } = fi;
               if (other && (otherTid === undefined || !otherEl || !map.get(otherEl))) no('else');
-              st.folded.push(this.snSource.get(el!) ?? '', this.emptyOf.get(el!)?.list ?? '');
+              st.folded.push(fi.src, fi.empty);
               const kept = v ? b.x : otherTid;
               read(b.d);
               replace(cl, otherEl ? map.get(otherEl) : cl, kept !== undefined ? render(kept, rec[pos] as RowRec | undefined) : []);
               continue;
             }
             if (b.k === 'for') {
-              const rows = rec[pos + 1 + j] as RowRec[] | undefined, src = this.snSource.get(el!) ?? '';
-              const head = LOOP_HEAD.exec(src);
-              if (!rows || b.x === undefined || !head) no('for');
-              if (!rows!.length) st.folded.push(src.slice(head![0].length));
+              const rows = rec[pos + 1 + j] as RowRec[] | undefined;
+              // (its list as written: the node's, `forInfo`)
+              let fo = forInfo.get(b);
+              if (fo === undefined) {
+                const src = this.snSource.get(el!) ?? '', head = LOOP_HEAD.exec(src);
+                forInfo.set(b, fo = head ? src.slice(head[0].length) : null);
+              }
+              if (!rows || b.x === undefined || fo === null) no('for');
+              if (!rows!.length) st.folded.push(fo!);
               read(b.d);
               const out: P5Node[] = [], was = live;
               live = false;
-              const list = src.slice(head![0].length);
+              const list = fo!;
               try {
                 for (const r of rows!) { loops.push({ list, value: r[0] }); try { out.push(...render(b.x!, r)); } finally { loops.pop(); } }
               } finally { live = was; }
@@ -13927,18 +13952,9 @@ export function plainData(v: unknown, heights?: Heights): boolean {
 
 /** the heights of frozen data (`plainHeight`'s `frozen`): only of data frozen at every depth, whose height cannot change */
 type Heights = Map<object, number>;
-/**
- * The heights of a `file:` value's frozen copy (`frozenCopy`), measured once for the build: frozen data cannot change,
- * and every page reads the same copy, every row of it a part (sinter-mail's 2,012-element email: each level of the tree a
- * list `plainData` measures on every page). `SN_FROZEN_HEIGHTS=0`: measured by each evaluation, as before
- */
-const FROZEN_HEIGHTS = new WeakMap<object, number>();
-function measureFrozen(v: object): number {
-  let h = 0;
-  for (const c of Array.isArray(v) ? v : Object.values(v)) if (c && typeof c === 'object') h = Math.max(h, measureFrozen(c) + 1);
-  FROZEN_HEIGHTS.set(v, h);
-  return h;
-}
+/** frozen data's heights read where it was frozen (`DEEP_FROZEN`) unless `SN_FROZEN_HEIGHTS=0` (measured by each evaluation, as before) */
+let heightsFlag: boolean | undefined;
+const heightsOn = () => (heightsFlag ??= proc?.env.SN_FROZEN_HEIGHTS !== '0');
 /**
  * How deep plain data nests below `x` (0: no object in it) when every path through it stays within `PLAIN_DEPTH` of
  * the root `plainData` was asked about (`depth`: how deep `x` is), else -1 (not plain data, too deep, or a cycle).
@@ -13946,7 +13962,8 @@ function measureFrozen(v: object): number {
  * `seen`: this walk's other objects (-2 while on the path).
  */
 function plainHeight(x: object, depth: number, frozen: Heights, seen: Map<object, number>): number {
-  const known = frozen.get(x) ?? seen.get(x) ?? FROZEN_HEIGHTS.get(x);
+  const fh = heightsOn() ? DEEP_FROZEN.get(x) : undefined;
+  const known = fh !== undefined && fh !== UNMEASURED ? fh : frozen.get(x) ?? seen.get(x);
   if (known !== undefined) return known >= 0 && depth + known <= PLAIN_DEPTH ? known : -1;
   if (depth > PLAIN_DEPTH || typeof x !== 'object') return -1;
   seen.set(x, -2);
@@ -13993,7 +14010,15 @@ function pickFields(v: unknown, fields: string[]): unknown {
 }
 
 /** values `deepFreeze` froze at every depth: build-time constants may share them without a copy */
-const DEEP_FROZEN = new WeakSet<object>();
+/**
+ * Data frozen at every depth, with its height as `plainHeight` measures it (how deep objects nest below it; `UNMEASURED`
+ * when not known): frozen data cannot change, so its height is known where it is frozen, and `plainData` reads it there
+ * instead of walking it again (a helper's tree is a list at every level, measured by every list the walk checks)
+ */
+const DEEP_FROZEN = new WeakMap<object, number>();
+const UNMEASURED = -2;
+/** the height of children: one more than the highest object among them, `UNMEASURED` if one is */
+const above = (h: number, ch: number) => (h === UNMEASURED || ch === UNMEASURED ? UNMEASURED : Math.max(h, ch + 1));
 
 /**
  * Whether `v` is what `deepFreeze(structuredClone(v))` would make of it, as it is: frozen at every depth, every object a
@@ -14003,32 +14028,35 @@ const DEEP_FROZEN = new WeakSet<object>();
  * (`DEEP_FROZEN`), as `deepFreeze` marks its copy, once the whole of it is known to be.
  */
 export function frozenPlain(v: object): boolean {
-  const done = new Set<object>(), path = new Set<object>(), all: object[] = [];
-  const walk = (x: object): boolean => {
-    if (done.has(x) || DEEP_FROZEN.has(x)) return true;
-    if (path.has(x) || !Object.isFrozen(x)) return false;
+  // (with each object's height, `DEEP_FROZEN`: -1 is not plain)
+  const done = new Map<object, number>(), path = new Set<object>(), all: object[] = [];
+  const walk = (x: object): number => {
+    const known = done.get(x) ?? DEEP_FROZEN.get(x);
+    if (known !== undefined) return known;
+    if (path.has(x) || !Object.isFrozen(x)) return -1;
     const proto = Object.getPrototypeOf(x), array = Array.isArray(x);
-    if (proto !== (array ? Array.prototype : Object.prototype)) return false;
+    if (proto !== (array ? Array.prototype : Object.prototype)) return -1;
     path.add(x);
     const keys = Reflect.ownKeys(x);
-    if (array && keys.length !== (x as unknown[]).length + 1) return false;
+    if (array && keys.length !== (x as unknown[]).length + 1) return -1;
+    let h = 0;
     for (const k of keys) {
-      if (typeof k !== 'string') return false;
+      if (typeof k !== 'string') return -1;
       if (array && k === 'length') continue;
-      if (array && (String(+k >>> 0) !== k || +k >= (x as unknown[]).length)) return false;
+      if (array && (String(+k >>> 0) !== k || +k >= (x as unknown[]).length)) return -1;
       const d = Object.getOwnPropertyDescriptor(x, k)!;
-      if (!('value' in d) || !d.enumerable) return false;
+      if (!('value' in d) || !d.enumerable) return -1;
       const c = d.value;
-      if (c !== null && typeof c === 'object' && !walk(c)) return false;
-      if (typeof c === 'function' || typeof c === 'symbol' || typeof c === 'bigint') return false;
+      if (c !== null && typeof c === 'object') { const ch = walk(c); if (ch === -1) return -1; h = above(h, ch); }
+      if (typeof c === 'function' || typeof c === 'symbol' || typeof c === 'bigint') return -1;
     }
     path.delete(x);
-    done.add(x);
+    done.set(x, h);
     all.push(x);
-    return true;
+    return h;
   };
-  if (!walk(v)) return false;
-  for (const x of all) DEEP_FROZEN.add(x);
+  if (walk(v) === -1) return false;
+  for (const x of all) DEEP_FROZEN.set(x, done.get(x)!);
   return true;
 }
 
@@ -14045,15 +14073,22 @@ function frozenCopy(v: object): object {
   let c = FROZEN_COPY.get(v);
   if (!c) {
     FROZEN_COPY.set(v, c = deepFreeze(structuredClone(v) as object));
-    if (proc?.env.SN_FROZEN_HEIGHTS !== '0') measureFrozen(c);
   }
   return c;
 }
 
 function deepFreeze<T extends object>(v: T): T {
-  DEEP_FROZEN.add(v);
-  for (const x of Object.values(v)) if (x && typeof x === 'object') deepFreeze(x);
-  return Object.freeze(v);
+  freezeDeep(v);
+  return v;
+}
+/** `deepFreeze`, its height the result (`DEEP_FROZEN`) */
+function freezeDeep(v: object): number {
+  DEEP_FROZEN.set(v, UNMEASURED);
+  let h = 0;
+  for (const x of Object.values(v)) if (x && typeof x === 'object') h = above(h, freezeDeep(x));
+  DEEP_FROZEN.set(v, h);
+  Object.freeze(v);
+  return h;
 }
 
 /**
@@ -14082,7 +14117,9 @@ export function frozenData(v: unknown, fresh?: (x: object) => boolean): unknown 
   const copy = (x: unknown): unknown => {
     if (!x || typeof x !== 'object' || DEEP_FROZEN.has(x)) return x;
     const out = Array.isArray(x) ? x.map(copy) : Object.fromEntries(Object.entries(x).map(([k, c]) => [k, copy(c)]));
-    DEEP_FROZEN.add(out);
+    let h = 0;
+    for (const c of Object.values(out)) if (c && typeof c === 'object') h = above(h, DEEP_FROZEN.get(c as object) ?? UNMEASURED);
+    DEEP_FROZEN.set(out, h);
     return Object.freeze(out);
   };
   return copy(v);
