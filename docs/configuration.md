@@ -44,7 +44,6 @@ fixture pages, in `fixtures/` ([docs/libraries.md](libraries.md)).
 
 | Option | Default | Purpose |
 | --- | --- | --- |
-| `messages` | `project.inlang`, if it exists | the inlang project for [messages](messages.md); `false` turns them off |
 | `apis` | none | the APIs the app calls: base URL, OpenAPI spec, credentials, headers, and what each endpoint returns. Pages then write paths relative to them (`src="/contacts"`), checked against the spec ([docs/apis.md](apis.md)) |
 | `libraries` | `[]` | component libraries, by package name (`['@acme/ui']`): packages whose `package.json` names a folder of sinter components (`"sinter": "./sinter"`). Their public components are tags in the app; their helpers come in through a namespace re-export in your helpers module ([docs/libraries.md](libraries.md)) |
 | `openapi` | none | deprecated: one OpenAPI file or a list of them; give each API its spec in `apis` instead ([docs/type-checking.md](type-checking.md#openapi)) |
@@ -152,7 +151,7 @@ configure({
 | `request` | `Middleware[]` | the [request layer](#the-request-layer) |
 | `sessionProbe` | URL | a cheap authenticated endpoint. After a network error, and before a stream reconnects, sinter requests it: a 2xx means go on, a 401 goes to your login handler, anything else waits and tries again ([docs/retry.md](retry.md), [docs/sync.md](sync.md)) |
 | `onError` | `(error, element) => void` | called for an action or load error nothing else handled. `element` is the element that started it, or `null` |
-| `locale` | `{ get(), set(locale) }` | connects your own locale source to `$locale` and the date and number helpers. Not needed with [built-in messages](messages.md) |
+| `locale` | `{ get(), set(locale) }` | connects your own locale source to `$locale` and the date and number helpers (a message library that switches language in place). Not needed with [`inlang()`](messages.md), whose pages each have one language |
 | `origins` | `string[]` | allowed origins besides the page's own. Replaces the list; prefer `sinter({ origins })` |
 | `urlSchemes` | `string[]` | extra URL schemes allowed in bound `href` and `src`, e.g. `['sms']`. `http`, `https`, `mailto` and `tel` are always allowed; `javascript:`, `vbscript:` and `data:` never are |
 | `transport` | `(url) => Transport \| undefined` | the connection for a `<sn-sync src>`. Return `undefined` for the default `EventSource` ([docs/sync.md](sync.md)) |
@@ -211,4 +210,4 @@ A request to an origin that is neither the page's nor listed in `origins` is ref
 
 ## Moved
 
-Helpers, built-in formatters, state and what belongs in markup are in [expressions.md](expressions.md); built-in messages in [messages.md](messages.md).
+Helpers, built-in formatters, state and what belongs in markup are in [expressions.md](expressions.md); messages (`inlang()`, a content namespace) in [messages.md](messages.md).

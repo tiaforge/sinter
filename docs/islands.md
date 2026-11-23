@@ -133,8 +133,7 @@ A small component can keep its script in its file, in a top-level `<script>` bes
 
 ## `src/sinter.components.d.ts`
 
-The types of every component with a script go in one generated file, beside
-`src/sinter.messages.d.ts`. It is written on every build and `sinter check`, and `sinter lsp` rewrites
+The types of every component with a script go in one generated file, in `src/`. It is written on every build and `sinter check`, and `sinter lsp` rewrites
 it when a component's HTML changes, so the editor's types are current without the dev server. An app
 may commit it or git-ignore it; the starter template commits it. Types it names come from
 `src/sinter.types.ts`.
