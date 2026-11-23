@@ -210,6 +210,12 @@ Found by the research, not changed:
   state through a `<sn-component use>` prop is folded to a static `<picture>`; the same component used by its tag keeps
   its binding (`decisions.md` §7.3).
 - **Linking is off whenever the build type-checks** (`contract.md` §4), which is every build with TypeScript installed.
+- **Found by the type-check work, recorded and not changed** (`redesign-notes/typecheck.md`): a number-literal prop
+  read with a member (`n.toFixed()` with `n: 1`) is pasted as `1.toFixed()`, a syntax error in the bundler; a broken
+  expression on any page silences every type error on every page; a recursive component used both inline and as a
+  definition on one page reports its errors twice; the build counts warnings in "type error(s)". And a correction to
+  `contract.md` §5: components see the page's resources, so some of a component's functions are typed per page
+  (`$meta`, `refresh`, `upsert`); those stay on their pages when the check shares functions.
 - **Dev builds and the old route.** Dev compiles (the dev server, `render()` from the testing module) run both
   passes and never render rows: dev does not compact its function table, so every function the old route compiles
   for a row and drops stays as a `0` slot, and rendering would number the functions after it otherwise (nothing at
@@ -317,3 +323,32 @@ Found by the research, not changed:
   4.8, the worklist 4, rendering 3.8), the second pass 14 (`walkChildren` 3.1, `minify` 2.9, `expandComponents`
   1.8), garbage 8.3; outside the compiler, Vite's HTML parse 3.5 and the end-of-build cross check running the
   helpers again 2.9. Started: stage 3, one walk per page (`redesign-notes/stage3-one-pass.md`).
+- 2026-11-23, 17:00 UTC: dev may render (decided): dev's function numbering may change, an agent is on it. The
+  type check (merged, `redesign-notes/typecheck.md`, "Where it stands"): the first pass stops at its decisions under
+  the check too; shared definitions link under the check, their check data with them; `sinter check` links its
+  pages' definitions as the build does; shadows written faster. From 4c3e26c to now, with the check on (the agent's
+  medians, load 9 to 16): 100 posts with a page file each 30.0 s to 13.9 s, one template 5.3 s to 4.6 s,
+  sinter-mail's 12 API pages with TypeScript 38.8 s to 9.2 s; `sinter check` on the blog 12.8 s to 8.7 s. The
+  diagnostics corpus is byte for byte the reference. Stage 3, first change (merged,
+  `redesign-notes/stage3-one-pass.md`): the minifier's layout questions over rendered rows are linear, the second
+  pass's `minify` 2.7 to 0.7 ms a page.
+- 2026-11-23, 17:10 UTC: **the type-check work is in** (five changes; `redesign-notes/typecheck.md`). What is left
+  there is stage 4's: check data is still copied into each page by the linker's replay (12 ms a page on sinter-mail)
+  and each page's whole shadow is still written in memory (50 ms a page); a unit kept per build would carry its
+  check data once. Four things it found are under "For a decision".
+- 2026-11-23, 17:20 UTC: the bugs under "For a decision" are to be fixed (decided): a choice's props not checked
+  for being constant, `1.toFixed()`, a broken expression silencing every type error, a recursive component's errors
+  twice, warnings counted as type errors, and the error in unrendered markup that stops unrolling without being
+  reported. An agent has them, one commit each, a failing test first (`redesign-notes/bugs.md`); these change the
+  output for the affected cases on purpose and leave the rest byte for byte.
+- 2026-11-23, 17:45 UTC: embedding (decided, an agent has it; `redesign-notes/embed-fields.md`): a run-time
+  expression that reads a value the build knows gets the value written into its code, so nothing is embedded for
+  it; what cannot be written as a literal is embedded with only the paths read; what can escape stays whole. Today
+  a post with a live section embeds the whole post as JSON (8,481 bytes of 20,345) for one read of `post.slug`.
+  Stage 3, second change (merged): pages' and layouts' documents parsed once per process. Stage 4 has units on its
+  branch (`units-spike`, not merged: it conflicts with the type check's changes to the check unit, one of its
+  tests fails after a hand merge; the agent has the details): a first pass's definitions compiled once per build
+  and placed on each page, the unit's objects shared. Its measurements, CPU ms per later page, linker's replay and
+  placement: sinter-mail API 25.7 and 5.6, file email 34.7 and 7.4, blog with a page file per post 3.7 and under
+  0.1; a sinter-mail API page's compile 67 to 38 ms. Compiling the unit's functions once per build bought little
+  (20 to 18.5 ms): the evaluation's cost is collecting candidates and the worklist's run, which is stage 6.

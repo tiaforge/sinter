@@ -12,6 +12,7 @@
 //   --keep dir   keep both output trees in <dir>/off and <dir>/on
 //   --only a,b   build only these pages (e.g. `--only file-gen` to time one file email)
 //   --gen N      the generated newsletter (`file-gen`) of about N elements (default 200)
+//   --switch X   the switch the two builds differ in (default SN_RENDER; SN_ONE_PASS for stage 3), `X=0` in the first
 //
 // The checkout must be installed (`npm install`) with its `@tiaforge-ui/sinter` resolving to this repository (its
 // devDependency is `file:../sinter`: a link `../sinter` -> this repo does it), and this repository built (`npm run
@@ -96,6 +97,7 @@ if (argv[0] === '--child') {
 // ── Parent ────────────────────────────────────────────────────────────────────────────────────────────────────────
 const flag = (f) => { const i = argv.indexOf(f); if (i < 0) return undefined; const v = argv[i + 1]; argv.splice(i, 2); return v; };
 const bool = (f) => { const i = argv.indexOf(f); if (i < 0) return false; argv.splice(i, 1); return true; };
+const SWITCH_ARG = flag('--switch');
 const BENCH = bool('--bench'), SUITE = bool('--suite'), RUNS = +(flag('--runs') ?? 9), KEEP = flag('--keep');
 const ONLY = flag('--only')?.split(','), GEN = +(flag('--gen') ?? 200);
 if (ONLY) for (const k of Object.keys(PAGES)) if (!ONLY.includes(k)) delete PAGES[k];
@@ -129,17 +131,18 @@ const outs = { off: join(work, 'off'), on: join(work, 'on') };
 console.log(`mail-audit: sinter ${git(REPO, 'rev-parse', '--short', 'HEAD')}${git(REPO, 'status', '--porcelain', '--untracked-files=no') ? ' (modified)' : ''}, sinter-mail ${git(PKG, 'rev-parse', '--short', 'HEAD')}; ${Object.keys(PAGES).length} pages; app in ${root}`);
 
 const times = {};
+const SWITCH = SWITCH_ARG ?? 'SN_RENDER';
 // off first: SN_RENDER=0; then the default. Each a fresh process, the same root (so paths in the output agree)
 for (const v of ['off', 'on']) {
   const env = { ...process.env };
-  if (v === 'off') env.SN_RENDER = '0'; else delete env.SN_RENDER;
+  if (v === 'off') env[SWITCH] = '0'; else delete env[SWITCH];
   const r = spawnSync(process.execPath, [import.meta.filename, '--child', PKG, root, outs[v]], { env, encoding: 'utf8', maxBuffer: 1 << 26 });
-  if (r.status !== 0) { console.error(r.stdout, r.stderr); die(`the build with ${v === 'off' ? 'SN_RENDER=0' : 'no SN_RENDER'} failed`); }
+  if (r.status !== 0) { console.error(r.stdout, r.stderr); die(`the build with ${v === 'off' ? `${SWITCH}=0` : `no ${SWITCH}`} failed`); }
   times[v] = JSON.parse(r.stdout.trim().split('\n').at(-1)).ms;
   // with SN_RENDER_LOG=1: what the build rendered and what it left to the second pass, by reason
-  for (const l of r.stderr.split('\n')) if (l.startsWith('sinter render:')) console.log(`${v === 'off' ? 'SN_RENDER=0' : 'default'}: ${l}`);
+  for (const l of r.stderr.split('\n')) if (l.startsWith('sinter render:') || l.startsWith('sinter passes:')) console.log(`${v === 'off' ? `${SWITCH}=0` : 'default'}: ${l}`);
 }
-console.log(`builds: SN_RENDER=0 ${times.off} ms, default ${times.on} ms`);
+console.log(`builds: ${SWITCH}=0 ${times.off} ms, default ${times.on} ms`);
 
 // ── The diff ──────────────────────────────────────────────────────────────────────────────────────────────────────
 let differs = 0;

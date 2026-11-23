@@ -119,9 +119,13 @@ export function minifyMarkup(doc: P5Parent, hooks: MinifyHooks): { comments: num
   /** the white space of `p`'s text children, in `box` */
   const spaces = (p: P5Parent, box: P5Element, l: Layout) => {
     const kids = p.childNodes as P5Node[];
+    // (no text in it: nothing to do, and nothing to ask the layout)
+    if (!kids.some(isText)) return;
     const kind = l.childLayout(box);
     // the edges of a template's content are not the box's: what is around the template is not known here
-    const edges = kind === 'block' && isEl(p as P5Node) && l.edgesStartLines(box);
+    // (asked when a text reaches one)
+    let edgesKnown: boolean | undefined;
+    const edges = () => (edgesKnown ??= kind === 'block' && isEl(p as P5Node) && l.edgesStartLines(box));
     /**
      * What is past the text at `i` in direction `d`, through white space, comments, the elements the compiler
      * removes and templates that render blocks or nothing: a block-level box, the box's edge, or other content.
@@ -135,7 +139,7 @@ export function minifyMarkup(doc: P5Parent, hooks: MinifyHooks): { comments: num
         if (n.tagName === 'template') { if (isSinterTemplate(n) && rendersBlocks(n, l)) continue; return 'other'; }
         return l.blockLevel(n) ? 'block' : 'other';
       }
-      return edges ? 'edge' : 'other';
+      return edges() ? 'edge' : 'other';
     };
     /**
      * In a flex, grid or table container: whether the text at `i` meets the end of its item in direction `d` (an

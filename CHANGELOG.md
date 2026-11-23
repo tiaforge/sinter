@@ -59,7 +59,7 @@ How to write an entry (from 0.21.0 on; older sections keep their own form):
 - A build no longer gzips every page's scripts for size lines that `logLevel: 'warn'` does not print, and gzips a script that several pages share once: 1.4 ms less per page with a page module (0.7 s at 400 such pages).
 - A build with a page per entry (`data-sn-for` on `<html>`) lists the entries from a description of the template instead of compiling it: about 150 ms off every such build.
 - A build no longer remakes its list of pages for every page it compiles, which grew with the square of the pages: a build of 400 pages, each its own file, is 4 s faster outside the compiler (0.5 s at 100).
-- The type check of a build (`typecheck`, on with TypeScript installed) and `sinter check` give TypeScript what pages repeat once, such as a component's markup, instead of once per page and per use, and report the same diagnostics: 100 posts, each its own page file, build in 8.4 s instead of 12.6 s, `tsc` taking 0.9 s instead of 9.8 s ([docs/type-checking.md](docs/type-checking.md)).
+- The type check of a build (`typecheck`, on with TypeScript installed) and `sinter check` give TypeScript what pages repeat once, such as a component's markup, instead of once per page and per use, and report the same diagnostics; and the pages share their components' compiled definitions under the check, as they did without it. On a loaded 4-core machine, 100 posts, each its own page file, build in 14 s instead of 30 s, and sinter-mail's 12 pages from an API in 9 s instead of 39 s (without TypeScript: 6.5 s and 4 s) ([docs/type-checking.md](docs/type-checking.md)).
 
 ## 0.21.0 (2026-11-21)
 

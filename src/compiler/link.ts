@@ -60,7 +60,12 @@ export const LINK_FIELDS: Record<string, { kinds: string[]; how: 'table' | 'weak
   caseInst: { kinds: ['WeakMap'], how: 'weak' },
   caseScopes: { kinds: ['WeakMap'], how: 'weak' },
   chainCopyOf: { kinds: ['WeakMap'], how: 'weak' },
+  // (the unit the type check reads, the page's whatever the definitions: its lists are `checkFrames`, `checkExprs` and `checkResources`)
   check: { kinds: ['empty', 'object'], how: 'fixed' },
+  checking: { kinds: ['boolean'], how: 'fixed' },
+  checkFrames: { kinds: ['Array'], how: 'table' },
+  checkExprs: { kinds: ['Array'], how: 'table' },
+  checkResources: { kinds: ['Array'], how: 'table' },
   childrenOf: { kinds: ['WeakMap'], how: 'weak' },
   choiceGroups: { kinds: ['Array'], how: 'table' },
   choiceDiags: { kinds: ['WeakMap'], how: 'weak' },

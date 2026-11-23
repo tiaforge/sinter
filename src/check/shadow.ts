@@ -80,6 +80,9 @@ function jsLiteral(v: unknown): string {
   return JSON.stringify(v).replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
 }
 
+/** `libTyped`'s work, by library (the objects of one check's `Support`): its names, and each text it typed */
+const LIB_TYPED = new WeakMap<LibraryTypes, { of: string[]; names: Set<string>; texts: Map<string, string> }>();
+
 export function shadow(o: ShadowOptions): Shadow {
   const { unit } = o;
   const out: string[] = [];
@@ -91,9 +94,13 @@ export function shadow(o: ShadowOptions): Shadow {
     regions.push({ start: out.length + 1, lines: lines.length, loc });
     out.push(...lines);
   };
+  const relSpecs = new Map<string, string>();
   const spec = (target: string) => {
-    let s = relative(dirname(o.file), target).split('\\').join('/');
+    let s = relSpecs.get(target);
+    if (s !== undefined) return s;
+    s = relative(dirname(o.file), target).split('\\').join('/');
     if (!s.startsWith('.')) s = './' + s;
+    relSpecs.set(target, s);
     return s;
   };
   const moduleSpec = (m: string) => (m.startsWith('/') ? spec(o.root + m) : m);
@@ -269,9 +276,18 @@ export function shadow(o: ShadowOptions): Shadow {
     const lib = o.libraries?.find((l) => loc.file.startsWith(l.folder.replace(/[\\/]$/, '') + '/'));
     if (!lib?.names.length) return text;
     const at = spec(lib.file).replace(/\.(d\.)?ts$/, '');
-    const names = new Set(lib.names);
-    // not inside a string, not a property (`.Item`, `Item:`)
-    return text.replace(/'[^']*'|"[^"]*"|(?<![\w$.])[A-Za-z_$][\w$]*(?![\w$]|\s*\??:)/g, (m) => (names.has(m) ? `import('${at}').${m}` : m));
+    // (a component's props type is written in every function that opens its frame, on every page: once per text)
+    let done = LIB_TYPED.get(lib);
+    if (!done || done.of !== lib.names) LIB_TYPED.set(lib, done = { of: lib.names, names: new Set(lib.names), texts: new Map() });
+    const key = `${at}\0${text}`;
+    let typed = done.texts.get(key);
+    if (typed === undefined) {
+      const names = done.names;
+      // not inside a string, not a property (`.Item`, `Item:`)
+      typed = text.replace(/'[^']*'|"[^"]*"|(?<![\w$.])[A-Za-z_$][\w$]*(?![\w$]|\s*\??:)/g, (m) => (names.has(m) ? `import('${at}').${m}` : m));
+      done.texts.set(key, typed);
+    }
+    return typed;
   };
   /** a JSDoc tag with a type; a type the app wrote maps its errors to where it was written */
   const tagged = (tag: string, t: TypeRef, after = '') => {
