@@ -95,6 +95,41 @@ examples: `finishPage` never changed a check unit (`JSON` before and after). 12.
 | blog, a page file per post, check on: wall | 8.80 s | 8.17 s |
 | the same, CPU (user + sys, `tsc` included) | 14.5 s | 13.6 s |
 
+### 3. Shared definitions linked under check (`definition()`, `LINK_FIELDS`)
+
+Why `definition()` did not link under check: the check unit's lists (`check.frames`, `check.exprs`,
+`check.resources`) were inside `check`, a field the linker holds `fixed`, so a recorded definition's expressions
+went into the recording page and nowhere else; and every `if (this.check)` in the walk read the whole unit, which
+names the page, so no plan would have held on another page.
+
+- The lists are compiler fields of their own (`checkFrames`, `checkExprs`, `checkResources`, the same arrays as
+  `check`'s), classified as tables: a unit's pushes are recorded and replayed like any table's. The walk tests
+  `checking` (a boolean) instead of `check`.
+- A plan's key gains the lists' lengths: the frames and expressions a definition records refer to each other by
+  number, and a plan links only into a page numbered alike, as for templates and functions.
+- The include chain of a definition's expressions names the page (`post-3.html:1`): the linker already gives each
+  page its own (`Line`), as it does for the origins.
+- The one place that removed an expression (`exprs.pop()`, a choice's `use`, whose key is checked instead) does not
+  record it in the first place (`expr(…, kept = false)`); lists are only pushed to in a unit.
+- `SN_LINK_AUDIT` now runs under check too (it compiled the page once, unlinked, so it compared nothing there), and
+  compares the check unit with the rest.
+
+This does teach the linker something, which [stage4-units.md](stage4-units.md) rejects as stage 4's design (a plan
+copies everything a definition wrote; on sinter-mail its replay is a third of a later page). It was measured first:
+what it buys under check is the whole of the linker's gain (below), now, and what is the linker's in it is three
+`LINK_FIELDS` entries and the key's lengths. The rest is what stage 4's step 5 needs whatever replaces the linker:
+the check unit's lists as fields a unit's merge can append to and offset (`CheckExpr.frames`, `init`), and a walk
+that tests whether it checks without reading the page's unit.
+
+On the files variant 1,304 `definition` calls a page and 38 compiled, as without check (26,000 and 1,900 before).
+
+| median of 3, interleaved (load 11 to 15) | before | after |
+|---|---:|---:|
+| blog, a page file per post, check on: CPU (wall) | 12.8 s (18.3 s) | 10.7 s (14.2 s) |
+| sinter-mail, 12 API pages with TypeScript: warm build (CPU of cold and warm) | 9.7 s (19.4 s) | 7.8 s (16.0 s) |
+What is left of the check in the compile: the two pages that compile and record the library (on sinter-mail the
+recording is 0.7 s more with check data), and the check data each later page replays (12 ms a page on sinter-mail).
+
 ## The diagnostics corpus
 
 `scratchpad/typecheck-agent/corpus/` (`gen.mjs` writes the apps, `run.mjs <out>` builds each and runs `sinter

@@ -1405,6 +1405,15 @@ class Compiler {
   nextId = 0;
   nextSid = 0;
   readonly check: CheckUnit | null;
+  /** whether `check` is recorded: what the walk tests (`check` names the page, which a shared definition must not read) */
+  readonly checking: boolean;
+  /**
+   * `check`'s lists, as fields of their own: a shared definition's are recorded and linked as any table of the
+   * compiler's (`LINK_FIELDS`), so a build that type-checks links its definitions too
+   */
+  readonly checkFrames: CheckUnit['frames'] = [];
+  readonly checkExprs: CheckUnit['exprs'] = [];
+  readonly checkResources: CheckUnit['resources'] = [];
   /** StateEntry / LoopEntry → frame index in `check.frames` */
   readonly frameOf = new Map<object, number>();
   /** `sinter check`: the condition a branch is checked under, when it is not its own `data-sn-if` (the `data-sn-else` of a choice); and each `if` binding's, for its `data-sn-else` */
@@ -1609,7 +1618,8 @@ class Compiler {
   readonly remoteWidths = new Set<number>();
 
   constructor(readonly opts: CompileOptions) {
-    this.check = opts.check ? { file: opts.file, resources: [], frames: [], exprs: [] } : null;
+    this.check = opts.check ? { file: opts.file, resources: this.checkResources, frames: this.checkFrames, exprs: this.checkExprs } : null;
+    this.checking = !!opts.check;
     const ns = new Map<string, Set<string>>();
     for (const [k, v] of Object.entries(opts.helpers.namespaces)) ns.set(k, new Set(v.members));
     this.page = {
@@ -2215,7 +2225,7 @@ class Compiler {
     }
     const open = text.indexOf('(', callee.end);
     const r = this.expr(el, attrName, scope, { mode: 'value', ...(magic ? { magic } : {}) }, `[${text.slice(open + 1, ast.end - 1)}]`, open);
-    if (this.check) this.typeLast({ returns: { kind: 'call', name, args: true } });
+    if (this.checking) this.typeLast({ returns: { kind: 'call', name, args: true } });
     if (deps) for (const d of r.deps) deps.add(d);
     if (!r.ok) return null;
     this.calls.add(name);
@@ -4169,9 +4179,9 @@ class Compiler {
     const cs: ComponentScope = { name, outer, runtime, id: this.useIds, ...(fills ? { fills } : {}), ...(use.late || caller.component?.late ? { late: true } : {}), ...(use.emitsText === null ? { emits: null } : use.emits ? { emits: use.emits.map((m) => m.name) } : {}) };
     use.scope = cs;
     this.useById.set(this.useIds++, use);
-    if (this.check) {
-      this.frameOf.set(cs, this.check.frames.length);
-      this.check.frames.push({ kind: 'props', component: name, type: { kind: 'ts', text: use.propsText.trim() || '{}', loc: this.locOf(use.template, use.layout ? 'data-sn-layout' : use.head ? 'data-sn-head' : 'data-sn-component') }, names: declared ?? [...passed], ...(!use.props && !use.layout ? { alias: true } : {}) });
+    if (this.checking) {
+      this.frameOf.set(cs, this.checkFrames.length);
+      this.checkFrames.push({ kind: 'props', component: name, type: { kind: 'ts', text: use.propsText.trim() || '{}', loc: this.locOf(use.template, use.layout ? 'data-sn-layout' : use.head ? 'data-sn-head' : 'data-sn-component') }, names: declared ?? [...passed], ...(!use.props && !use.layout ? { alias: true } : {}) });
     }
     return { loops: [], states: [], lets, component: cs };
   }
@@ -4233,7 +4243,7 @@ class Compiler {
     const known = typeMembers(T);
     if (src !== undefined) {
       const r = this.expr(el, 'data-sn-with', scope, { mode: 'value', object: 'literal-keys' });
-      if (this.check) this.typeLast({ returns: { kind: 'ts', text: T, loc: this.locOf(p.use.template, 'data-sn-component', p.member.offset) } });
+      if (this.checking) this.typeLast({ returns: { kind: 'ts', text: T, loc: this.locOf(p.use.template, 'data-sn-component', p.member.offset) } });
       for (const e of r.entries ?? []) {
         if (known && !known.some((m) => m.name === e.key)) {
           const names = known.map((m) => m.name);
@@ -4253,9 +4263,9 @@ class Compiler {
       deps: [...new Set(all.flatMap((l) => l.deps))], usesEl: all.some((l) => l.usesEl), usesIndex: all.some((l) => l.usesIndex), resource: null,
     };
     const out: SlotScope = { name: p.name, component: p.use.name, whole, members };
-    if (this.check) {
-      this.frameOf.set(out, this.check.frames.length);
-      this.check.frames.push({ kind: 'slot', type: { kind: 'ts', text: T, loc: this.locOf(p.use.template, 'data-sn-component', p.member.offset) }, name: p.name, component: p.use.name });
+    if (this.checking) {
+      this.frameOf.set(out, this.checkFrames.length);
+      this.checkFrames.push({ kind: 'slot', type: { kind: 'ts', text: T, loc: this.locOf(p.use.template, 'data-sn-component', p.member.offset) }, name: p.name, component: p.use.name });
     }
     return out;
   }
@@ -4290,12 +4300,12 @@ class Compiler {
       node.state = this.fn(r.code);
       node.sid = sid;
       const entry = { sid, names: new Set(r.entries!.map((e) => e.key)) };
-      if (this.check) {
-        this.frameOf.set(entry, this.check.frames.length);
+      if (this.checking) {
+        this.frameOf.set(entry, this.checkFrames.length);
         const first = [...entry.names].map((n) => r.entries!.find((e) => e.key === n)!);
         const locs = first.map((e) => this.locOf(el, 'data-sn-state', e.offset));
         const nested = first.filter((e) => e.nested).map((e) => `${JSON.stringify(e.key)}: ${e.nested}`);
-        this.check.frames.push({ kind: 'state', names: [...entry.names], init: this.lastExpr, locs, ...(nested.length ? { nested: `{ ${nested.join('; ')} }` } : {}) });
+        this.checkFrames.push({ kind: 'state', names: [...entry.names], init: this.lastExpr, locs, ...(nested.length ? { nested: `{ ${nested.join('; ')} }` } : {}) });
       }
       this.checkNames(el, 'data-sn-state', scope, [...entry.names]);
       scope = { ...scope, states: [...scope.states, entry] };
@@ -4328,7 +4338,7 @@ class Compiler {
       // so `undefined` fits only an optional one (`at: last?.tick` for `at: number` is an error under strictNullChecks;
       // a given undefined is passed, over a default of the root's state). (`& Partial<…>`: a key it does not declare
       // is an error there too, as when it is given alone)
-      if (this.check) {
+      if (this.checking) {
         const given = [...new Set((r.entries ?? []).map((e) => e.key).filter((k) => declared?.includes(k)))];
         const props = use.propsText.trim() || '{}';
         this.typeLast({ returns: { kind: 'ts', text: use.props ? `Pick<${props}, ${given.map((k) => JSON.stringify(k)).join(' | ') || 'never'}> & Partial<${props}>` : use.propsText, loc: this.locOf(use.template, use.layout ? 'data-sn-layout' : use.head ? 'data-sn-head' : 'data-sn-component') } });
@@ -4394,7 +4404,7 @@ class Compiler {
     // `<sn-component use>`: the name, checked once against `ComponentName` (the app's components)
     let pick: ExprResult | null = null;
     if (choice) {
-      if (choice.first) pick = this.expr(host, 'use', ctx.scope, { mode: 'value' });
+      if (choice.first) pick = this.expr(host, 'use', ctx.scope, { mode: 'value' }, undefined, 0, !(this.checking && choice.keys));
       else {
         // the candidates are clones of one tag, walked in one scope: `use` reads the same there for each
         const src = attr(host, 'use')!, l = choice.group.later;
@@ -4402,17 +4412,16 @@ class Compiler {
       }
       // a map in the markup: TypeScript types its values as strings, so the key is what must fit (its keys); the values are checked above.
       // With a `data-sn-else` after it, any other key renders the else: the key is checked, of any value
-      if (choice.first && this.check && choice.keys) {
-        if (this.lastExpr !== null) this.check.exprs.pop();
+      if (choice.first && this.checking && choice.keys) {
         const src = attr(host, 'use')!;
         this.expr(host, 'use', ctx.scope, { mode: 'value' }, choice.keySrc!, src.lastIndexOf(choice.keySrc!));
         if (!choice.hasElse) this.typeLast({ returns: { kind: 'ts', text: choice.keys.map((k) => JSON.stringify(k)).join(' | ') || 'never', loc: this.locOf(host, 'use') } });
-      } else if (choice.first && this.check) this.typeLast({ returns: { kind: 'ts', text: [...new Set([...(choice.pool ?? this.opts.componentNames ?? []), ...choice.names])].sort().map((n) => JSON.stringify(n)).join(' | ') || 'never', loc: this.locOf(host, 'use') } });
+      } else if (choice.first && this.checking) this.typeLast({ returns: { kind: 'ts', text: [...new Set([...(choice.pool ?? this.opts.componentNames ?? []), ...choice.names])].sort().map((n) => JSON.stringify(n)).join(' | ') || 'never', loc: this.locOf(host, 'use') } });
     }
     const { lets } = this.propLets(use, ctx.scope);
     // each candidate's props, checked with the data narrowed to its value (convention, map; a helper hides the link)
-    if (choice?.key != null && this.check && this.lastExpr !== null && attr(host, 'data-sn-with') !== undefined) {
-      const e = this.check.exprs[this.lastExpr]!;
+    if (choice?.key != null && this.checking && this.lastExpr !== null && attr(host, 'data-sn-with') !== undefined) {
+      const e = this.checkExprs[this.lastExpr]!;
       // (in parentheses when there are several keys: the guard is joined with others)
       e.guard = choice.also?.length ? `(${[choice.key, ...choice.also].map((k) => `(${choice.keySrc}) === ${JSON.stringify(k)}`).join(' || ')})` : `(${choice.keySrc}) === ${JSON.stringify(choice.key)}`;
       e.guardAt = { name: choice.name, key: choice.key, loc: this.locOf(host, 'use', choice.keyAt ?? 0) };
@@ -4629,10 +4638,10 @@ class Compiler {
           const mark = (ns: readonly P5Node[]) => { for (const c of ns) if (isElement(c)) { this.caseInst.set(c, `#case${tid}/`); mark(c.childNodes); if (c.tagName === 'template') mark((c as P5Template).content.childNodes); } };
           mark(tpl.content.childNodes);
           const slot: SlotScope = { name: P.k, component: F.use.name, members: new Map([...P.members].map(([key, l]) => [key, { ...l, code: `$.${rt}.${key}`, deps: [] }])), whole: { name: '$slot', code: `$.${rt}`, deps: [], usesEl: false, usesIndex: false, resource: null } };
-          if (this.check) {
+          if (this.checking) {
             const m = F.use.slots!.get(F.k)!;
-            this.frameOf.set(slot, this.check.frames.length);
-            this.check.frames.push({ kind: 'slot', type: { kind: 'ts', text: m.slot!, loc: this.locOf(F.use.template, 'data-sn-component', m.offset) }, name: P.k, component: F.use.name });
+            this.frameOf.set(slot, this.checkFrames.length);
+            this.checkFrames.push({ kind: 'slot', type: { kind: 'ts', text: m.slot!, loc: this.locOf(F.use.template, 'data-sn-component', m.offset) }, name: P.k, component: F.use.name });
           }
           const scope: Scope = { ...F.use.caller, slot };
           // (a fill forwarded from further out compiles its placements' data from here, as the walk does for any fill)
@@ -4932,11 +4941,13 @@ class Compiler {
     const L = this.defLink;
     const cache = this.opts.definitions as Map<string, (Plan | Refused) & { slot?: number } | { seen: number }> | undefined;
     // compiled in place unless the build links (a unit compiles only to be recorded); in a unit, its definitions are its own
-    if (!cache || L.depth > 0 || L.off || this.check || this.opts.dev) return this.compileDefinition(name);
+    if (!cache || L.depth > 0 || L.off || this.opts.dev) return this.compileDefinition(name);
     const stats = (globalThis as { __snLink?: { hits: number; recorded: number; refused: string[]; missed?: number } }).__snLink;
     // (the chain: the ids of the units before it on this page, short whatever their keys; and how the page is numbered
     // before it, which a plan is not renumbered for: a page numbered otherwise has a plan of its own)
-    const numbered = [this.templates.length, this.nextSid, this.useIds, this.nextId, this.fns.length, this.actions.length].join(',');
+    // (and the type check's frames and expressions, which a definition's refer to by number)
+    const numbered = [this.templates.length, this.nextSid, this.useIds, this.nextId, this.fns.length, this.actions.length,
+      ...(this.checking ? [this.checkFrames.length, this.checkExprs.length, this.checkResources.length] : [])].join(',');
     const key = [this.opts.decided || this.opts.unrolled || this.opts.constants ? 2 : 1, L.chain.join(','), name, [...this.defs.keys()].join(','), numbered].join('\u0002');
     const u = cache.get(key);
     if (u && 'ops' in u) {
@@ -5075,13 +5086,13 @@ class Compiler {
    * A form is submitted (`requestSubmit()`), so its `$event` is a real `SubmitEvent`.
    */
   runTargets() {
-    if (!this.check) return;
+    if (!this.checking) return;
     const ids = new Set(this.flows.flatMap((f) => f.runs.map((r) => r.id)));
     for (const id of ids) {
       const el = this.idEls.get(id);
       if (!el || el.tagName === 'form') continue;
       for (const { attr: a, i } of this.exprsOf.get(el) ?? []) {
-        if (TRIGGER_TIME.has(a) && this.check.exprs[i]!.event !== null) this.check.exprs[i]!.run = true;
+        if (TRIGGER_TIME.has(a) && this.checkExprs[i]!.event !== null) this.checkExprs[i]!.run = true;
       }
     }
   }
@@ -5485,11 +5496,11 @@ class Compiler {
         scope = { ...scope, states: [...scope.states, entry] };
         this.stateInits.push({ sid, fields: [{ key: '$error', code: '($) => (null)', deps: [] }], persist: null });
       }
-      if (this.check) {
+      if (this.checking) {
         // its own frame, inside the state's: typed as the error or null
         const e2 = { sid: entry.sid, names: new Set(['$error']) };
-        this.frameOf.set(e2, this.check.frames.length);
-        this.check.frames.push({ kind: 'formError' });
+        this.frameOf.set(e2, this.checkFrames.length);
+        this.checkFrames.push({ kind: 'formError' });
         scope = { ...scope, states: [...scope.states, e2] };
       }
     }
@@ -5580,7 +5591,7 @@ class Compiler {
       else {
         result = { node, binding: b };
         const cond = this.branchGuard.get(el) ?? `(${get('if')})`;
-        if (this.check) this.branchGuard.set(b, cond);
+        if (this.checking) this.branchGuard.set(b, cond);
         content = { tid, scope: this.guarded(scope, cond) };
       }
     } else if (isTemplate && has('else')) {
@@ -5989,7 +6000,8 @@ class Compiler {
     return { fns: fns.map(at), content };
   }
 
-  expr(el: P5Element, attrName: string, scope: Scope, o: Omit<ExprOptions, 'report'>, value?: string, shift = 0): ExprResult {
+  /** `kept: false`: the check keeps the expression only when it is broken (a choice's `use`, whose key it checks instead) */
+  expr(el: P5Element, attrName: string, scope: Scope, o: Omit<ExprOptions, 'report'>, value?: string, shift = 0, kept = true): ExprResult {
     const src = value ?? attr(el, attrName) ?? '';
     // a handler on a component's tag: its event's detail has the source of what the component emits
     const host = this.hostUse.get(el)?.scope;
@@ -6006,12 +6018,12 @@ class Compiler {
     if (r.ok && r.ast) this.complexity(el, attrName, o, r.ast);
     if (r.runs || r.refreshes) this.flows.push({ el, attr: attrName, shift, runs: r.runs ?? [], refreshes: r.refreshes ?? [] });
     this.lastExpr = null;
-    if (this.check) {
+    if (this.checking && (kept || !r.ok)) {
       // resources named by value (`refresh(people)`) are checked as their names, which the store's types take
       const i = this.recordExpr(el, attrName, scope, o, r.nameEdits ? applyEdits(src, r.nameEdits) : src, shift, r);
       // a broken expression is there for editor completion only; nothing refers to it
       if (r.ok) this.lastExpr = i;
-      else this.check.exprs[i]!.broken = true;
+      else this.checkExprs[i]!.broken = true;
     }
     return r;
   }
@@ -6209,9 +6221,9 @@ class Compiler {
           if (n.ok) Object.assign(entry, { names: [...new Set(leaves.map((c) => c.name))], from, nameSrc, nameCode: n.inner, nameDeps: n.deps });
         }
       }
-      if (this.check) {
-        this.frameOf.set(entry, this.check.frames.length);
-        this.check.frames.push({ kind: 'let', name, init: r.ok ? this.lastExpr : null, loc: this.locOf(el, 'data-sn-let', p.key.start), ...(waiting?.waits ? { waits: true as const } : {}) });
+      if (this.checking) {
+        this.frameOf.set(entry, this.checkFrames.length);
+        this.checkFrames.push({ kind: 'let', name, init: r.ok ? this.lastExpr : null, loc: this.locOf(el, 'data-sn-let', p.key.start), ...(waiting?.waits ? { waits: true as const } : {}) });
       }
       scope = { ...scope, lets: [...(scope.lets ?? []), entry] };
     }
@@ -6263,8 +6275,8 @@ class Compiler {
 
   /** Adds type information to the expression `expr()` recorded last. */
   typeLast(info: Partial<Pick<CheckExpr, 'resultType' | 'returns'>> & { payload?: TypeRef | null }) {
-    if (!this.check || this.lastExpr === null) return;
-    const e = this.check.exprs[this.lastExpr]!;
+    if (!this.checking || this.lastExpr === null) return;
+    const e = this.checkExprs[this.lastExpr]!;
     if (info.resultType) e.resultType = info.resultType;
     if (info.returns) e.returns = info.returns;
     if (info.payload && e.payload) e.payload.type = info.payload;
@@ -6284,10 +6296,10 @@ class Compiler {
 
   /** `sinter check`: the scope of a branch, whose expressions are checked where `cond` holds */
   guarded(scope: Scope, cond: string): Scope {
-    if (!this.check) return scope;
+    if (!this.checking) return scope;
     const g = { cond };
-    this.frameOf.set(g, this.check.frames.length);
-    this.check.frames.push({ kind: 'guard', cond });
+    this.frameOf.set(g, this.checkFrames.length);
+    this.checkFrames.push({ kind: 'guard', cond });
     return { ...scope, guards: [...(scope.guards ?? []), g] };
   }
 
@@ -6317,11 +6329,11 @@ class Compiler {
       e.detail = { kind: 'ts', text: `(${use.emitsText})[${JSON.stringify(event)}]`, loc: this.locOf(use.template, 'data-sn-emits') };
     }
     if (o.payload) e.payload = { as: o.payloadAs ?? '$event', type: null };
-    this.check!.exprs.push(e);
+    this.checkExprs.push(e);
     const list = this.exprsOf.get(el) ?? [];
-    list.push({ attr: attrName, i: this.check!.exprs.length - 1 });
+    list.push({ attr: attrName, i: this.checkExprs.length - 1 });
     this.exprsOf.set(el, list);
-    return this.check!.exprs.length - 1;
+    return this.checkExprs.length - 1;
   }
 
   // ---- bindings
@@ -6345,7 +6357,7 @@ class Compiler {
 
   attrBinding(el: P5Element, node: NodeDef, scope: Scope) {
     const r = this.expr(el, 'data-sn-attr', scope, { mode: 'value', object: 'literal-keys' });
-    if (this.check) this.typeLast({ returns: { kind: 'decl', name: 'Attrs' } });
+    if (this.checking) this.typeLast({ returns: { kind: 'decl', name: 'Attrs' } });
     if (!r.entries) return;
     for (const e of r.entries) {
       const key = e.key.toLowerCase();
@@ -6515,7 +6527,7 @@ class Compiler {
     const r = this.expr(el, name, scope, { mode: 'value', object: k === 'class' ? 'any-keys' : 'literal-keys' });
     // a custom element's properties, from the app's HTMLElementTagNameMap: each one given, with its type (so `undefined`
     // fits only one typed with it, under strictNullChecks)
-    if (this.check && k === 'prop') {
+    if (this.checking && k === 'prop') {
       const given = [...new Set((r.entries ?? []).map((e) => JSON.stringify(e.key)))];
       this.typeLast({ returns: { kind: 'decl', name: `Props<${JSON.stringify(el.tagName)}, ${given.join(' | ') || 'never'}>` } });
     }
@@ -6847,12 +6859,12 @@ class Compiler {
     if (index) loops.push({ name: index, kind: 'index', alias: null, resource: null, of: alias, ...rt(index) });
     if (scope.component && clash(item)) t.item = `${item}$${tid}`;
     if (scope.component && index && clash(index)) t.index = `${index}$${tid}`;
-    if (this.check) {
-      for (const l of loops.slice(scope.loops.length)) this.frameOf.set(l, this.check.frames.length);
+    if (this.checking) {
+      for (const l of loops.slice(scope.loops.length)) this.frameOf.set(l, this.checkFrames.length);
       const itemAt = value.indexOf(item, value.indexOf('(') >= 0 && value.indexOf('(') < m[0].length ? value.indexOf('(') : 0);
       const frame: CheckFrame = { kind: 'loop', item, index, init: listExpr, loc: this.locOf(el, 'data-sn-for', itemAt) };
       if (index) frame.indexLoc = this.locOf(el, 'data-sn-for', value.indexOf(index, itemAt + item.length));
-      this.check.frames.push(frame);
+      this.checkFrames.push(frame);
     }
     this.checkNames(el, 'data-sn-for', scope, index ? [item, index] : [item]);
     const inner: Scope = { ...scope, loops };
@@ -7126,9 +7138,9 @@ class Compiler {
         const listExpr = this.lastExpr;
         for (const d of list.deps) deps.add(d);
         const loop: LoopEntry = { name: m[1]!, kind: 'item', alias: null, resource: list.resource };
-        if (this.check) {
-          this.frameOf.set(loop, this.check.frames.length);
-          this.check.frames.push({ kind: 'loop', item: m[1]!, index: null, init: listExpr, loc: this.locOf(el, 'for', eachAttr.indexOf(m[1]!)) });
+        if (this.checking) {
+          this.frameOf.set(loop, this.checkFrames.length);
+          this.checkFrames.push({ kind: 'loop', item: m[1]!, index: null, init: listExpr, loc: this.locOf(el, 'for', eachAttr.indexOf(m[1]!)) });
         }
         srcScope = { ...ctx.scope, loops: [...ctx.scope.loops, loop] };
         if (list.ok) each = { item: m[1]!, list: this.fn(list.code), ...(list.resource ? { of: list.resource } : {}) };
@@ -7298,12 +7310,12 @@ class Compiler {
     // `type="Comment[]"`: what a change to one item of it does is SN542's (`checkListWrites`)
     const t = type?.replace(/\s*\|\s*(?:null|undefined)\b/g, '').trim();
     if (t && !info.key && !each && (/\[\]$/.test(t) || /^(?:Readonly)?Array\s*</.test(t))) this.listTyped.set(name, `its \`type\` is \`${type!.trim()}\``);
-    if (this.check) {
+    if (this.checking) {
       const r: CheckResource = { name, type, loc: this.locOf(el, type ? 'type' : null), nameLoc: this.locOf(el, 'name') };
       if (openapi && 'schema' in openapi) r.openapi = openapi;
       if (call) r.call = { name: call.name, select };
       if (paginate?.mode === 'keyset' && !paginate.skipParam) r.directions = true;
-      this.check.resources.push(r);
+      this.checkResources.push(r);
       // a resource fed by an action is typed by the action's result
       if (!type && !r.openapi && !r.call) {
         const hint = target
@@ -7521,7 +7533,7 @@ class Compiler {
     this.page.resources.get(name)!.used = true;
     const listInfo = this.page.resources.get(d.of);
     if (listInfo) listInfo.used = true;
-    if (this.check) this.check.resources.push({ name, type: null, loc: this.locOf(el, null), nameLoc: this.locOf(d.html, 'data-sn-for'), item: d.of });
+    if (this.checking) this.checkResources.push({ name, type: null, loc: this.locOf(el, null), nameLoc: this.locOf(d.html, 'data-sn-for'), item: d.of });
     this.resources.push({ name, src: [], key: null, select: null, total: null, order: null, when: null, paginate: null, deps: [], scope, data: null, fx: 1 });
     this.declAt.set(this.resources[this.resources.length - 1]!, el);
   }
@@ -7575,10 +7587,10 @@ class Compiler {
     const id = this.nextId++;
     this.fileData.set(name, { id, value, at: el, fields: this.fieldsOf(el), content: true });
     this.embedded.set(name, id);
-    if (this.check) {
+    if (this.checking) {
       const type = attr(el, 'type')?.trim() || null;
       const typed = !type && this.opts.contentModule ? { content: { module: this.opts.contentModule, name: cname } } : {};
-      this.check.resources.push({ name, type: type ? `(${type})[]` : null, loc: this.locOf(el, type ? 'type' : null), nameLoc: this.locOf(el, 'name'), ...typed });
+      this.checkResources.push({ name, type: type ? `(${type})[]` : null, loc: this.locOf(el, type ? 'type' : null), nameLoc: this.locOf(el, 'name'), ...typed });
       if (!type && !this.opts.contentModule) this.report(el, null, 'SN504', `resource \`${name}\` has no type: expressions using it are not checked`, 0, 'add `type="…"`, one entry\'s type from the types module, or `type="any"` to leave it unchecked');
     }
     this.resources.push({ name, src: [], key: info.key, select: null, total: null, order: null, when: null, paginate: null, deps: [], scope, data: null, fx: 1, ...(info.key ? {} : { ls: 1 as const }) });
@@ -7624,7 +7636,7 @@ class Compiler {
     // the list is read: by the build, for its entries, whatever the page reads of it
     const listInfo = this.page.resources.get(d.of);
     if (listInfo) listInfo.used = true;
-    if (this.check) this.check.resources.push({ name, type: null, loc: this.locOf(el, null), nameLoc: this.locOf(d.html, 'data-sn-for'), item: d.of });
+    if (this.checking) this.checkResources.push({ name, type: null, loc: this.locOf(el, null), nameLoc: this.locOf(d.html, 'data-sn-for'), item: d.of });
     this.resources.push({ name, src: [], key: null, select: null, total: null, order: null, when: null, paginate: null, deps: [], scope, data: null, fx: 1 });
     this.declAt.set(this.resources[this.resources.length - 1]!, el);
   }
@@ -7731,7 +7743,7 @@ class Compiler {
     const id = this.nextId++;
     this.fileData.set(name, { id, value, at: el, fields: this.fieldsOf(el) });
     this.embedded.set(name, id);
-    if (this.check) {
+    if (this.checking) {
       const type = attr(el, 'type')?.trim() || null;
       // a markdown file: its frontmatter's type (`type`) and the `body` sinter writes; a glob: one entry's, and the fields
       // sinter writes beside it (`slug`, `dir`, `path`, and `body` of a markdown or text file); JSON entries need `type`
@@ -7746,7 +7758,7 @@ class Compiler {
         if (picked !== undefined) values.push({ file: where.path, json: JSON.stringify(blank(picked)) });
       }
       const fileInfo = list || isMd || values.length ? { file: { list, adds, values } } : {};
-      this.check.resources.push({ name, type: type ?? (!list && !isMd && typeof value === 'string' ? 'string' : null), loc: this.locOf(el, type ? 'type' : null), nameLoc: this.locOf(el, 'name'), ...fileInfo });
+      this.checkResources.push({ name, type: type ?? (!list && !isMd && typeof value === 'string' ? 'string' : null), loc: this.locOf(el, type ? 'type' : null), nameLoc: this.locOf(el, 'name'), ...fileInfo });
       const md = bodied;
       if (!type && typeof value !== 'string' && !md) this.report(el, null, 'SN504', `resource \`${name}\` has no type: expressions using it are not checked`, 0, 'add `type="…"` with a type from the types module, or `type="any"` to leave it unchecked');
     }
@@ -7872,7 +7884,7 @@ class Compiler {
     const scope = ctx.scope;
     const typeAttr = attr(el, 'type')?.trim() || null;
     const payloadType: TypeRef | null = typeAttr && typeAttr !== 'any' ? { kind: 'ts', text: typeAttr, loc: this.locOf(el, 'type') } : null;
-    if (this.check && !typeAttr && ['value', 'when', 'then'].some((n) => attr(el, n) != null)) {
+    if (this.checking && !typeAttr && ['value', 'when', 'then'].some((n) => attr(el, n) != null)) {
       this.report(el, null, 'SN506', `event \`${name}\` has no type: expressions reading its payload are not checked`, 0,
         `add \`type="${this.payloadTypeHint(el, resource)}"\`, the payload's fields (a type from the types module may be named), or \`type="any"\` to leave it unchecked`);
     }
