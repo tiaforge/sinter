@@ -622,3 +622,15 @@ decision of their own (stage 7). A step that can stay byte-identical does.
   script 4,683 to 248 bytes, the page identical apart from that script; 1,538 tests of test/compiler, test/vite,
   test/check pass. Next from that session: the fold check's cache. Stage 6 has four changes on its branch (a row's
   values in one call per template, its record an array; styles written at once; a `file:` value frozen once).
+- 2026-11-24, 00:40 UTC: **stage 6's evaluation, first milestone merged** (`redesign-notes/stage6-eval.md`;
+  `SN_ROW_FN=0` off, `SN_ROW_FN_AUDIT=1` compares every value, paint list and compile; `SN_FILE_COPY=0`). It measured
+  first and found the evaluation proper was not the cost on the 2,012-element email: 131,520 compiled calls with
+  their proxy are 22 of 355 ms; the style writes 88, the renderer's lookups 60, the walk's records 52. So: styles
+  written once per element, a row's values from one function per template (a helper-calling code stays a call of
+  its own), a row's record an array by the template's layout, paints read from the records, a `file:` value copied
+  and frozen once per file. The session's numbers on an idle machine, ms a call, median: that email's first-pass
+  evaluation 223 to 88, its compile 286 to 136, its second pass's prerender 8.2 to 0.24; the blog's evaluation
+  unchanged (6.8 and 6.7: its cost is cloning and filling rows and the walk). Checked on the coordinating machine
+  after the merge: 1,546 tests of test/compiler, test/vite, test/check pass; `render-audit` eight apps the same;
+  `mail-audit --gen 2000` 48 files identical (that build 31.2 s with rendering off, 6.2 s as it is now). Next there:
+  a render plan per template for the blog's rendering, the unit's candidates kept on the unit, the `own` bug.
