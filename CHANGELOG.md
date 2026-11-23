@@ -55,6 +55,7 @@ How to write an entry (from 0.21.0 on; older sections keep their own form):
 
 ### Performance
 
+- Builds of pages over data the build knows (a markdown post through sinter-markdown's components, a list over a `file:` source) render that content at build time from the compiled templates instead of compiling every component instance a second time, and do less per page besides (each component file read once per build, a page's first pass stopping at its decisions): the benchmark blog's 100 posts build in about 3 s instead of 11.6 s (400 posts: 9 s instead of 45 s; a page file per post: 4.4 s instead of 14.4 s), with the same output.
 - Pages whose early script has the same source (on a blog, every post's) share one nested build of it instead of one each: a build of 100 posts with a live section is 1.6 s faster (8.3 s at 400 posts), with the same output.
 - A build no longer gzips every page's scripts for size lines that `logLevel: 'warn'` does not print, and gzips a script that several pages share once: 1.4 ms less per page with a page module (0.7 s at 400 such pages).
 - A build with a page per entry (`data-sn-for` on `<html>`) lists the entries from a description of the template instead of compiling it: about 150 ms off every such build.
