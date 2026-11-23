@@ -155,6 +155,22 @@ Whole builds, wall clock, ms, median of 5 rounds (3 at 400):
 Rows on the old route (templates, swaps) move by their noise (about ±8 %). sinter-mail gains most: its descriptions
 walked the library's 65 components on every page.
 
+### The five blog variants at 100 posts, on the merged tree (`6a3283d`, integration branch at `68aae20`)
+
+Same machine, idle, median of 5 rounds back to back, wall clock (`ab.sh`):
+
+| app | ms | rounds |
+| --- | ---: | --- |
+| static | 2000 | 1994 2036 2080 1989 2000 |
+| static with the type check | 2135 | 2102 2140 2133 2224 2135 |
+| live | 2385 | 2406 2564 2371 2385 2336 |
+| static-files (a page file per post) | 2401 | 2344 2470 2433 2401 2397 |
+| live-files | 2957 | 2759 3038 2797 2970 2957 |
+| Astro 7, 100 posts (`measure.mjs --only astro`, 3 runs) | 1726 | 1755 1726 1716 |
+
+On `6a3283d`: the suite passes (2,934); test/compiler and test/vite pass under the describe, one-pass, render and link
+audits (1,413); the units audit fails the base commit's 62 tests and the two count-based render-rows tests.
+
 ## Checks
 
 - `scripts/pass-audit.mjs --switch SN_LATE_DESCRIBE` (a switch it now takes): the nine apps the same, before and after
