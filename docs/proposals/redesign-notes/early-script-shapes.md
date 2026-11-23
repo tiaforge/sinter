@@ -1,8 +1,12 @@
 # Early scripts that differ only in literals: one build per shape
 
-**Where it stands (2026-11-23):** built, on by default, byte-identical on every app checked, the self-check clean;
-measured (below). Also: a page's entry chunk found through an index (was ~140 ms of `generateBundle` at 400 pages).
-Next: merge `ccr-9ebf49d5-gpdej8`, rebuild, re-run the identity checks and the audit.
+**Where it stands (2026-11-23): done.** Pages whose early scripts differ only in supported literals share one nested
+build (`src/early-shapes.ts`, `generateBundle` in `src/vite.ts`), on by default, `SN_EARLY_SHAPES=0` off,
+`SN_EARLY_SHAPES_AUDIT=1` the self-check. Merged with `ccr-9ebf49d5-gpdej8` at 1e08657 and checked again there:
+vitest 2,923 passed; `render-audit.mjs` (default and `--switch SN_EARLY_SHAPES` with the audit), `pass-audit.mjs`,
+`baseline.mjs --keep` both ways, the bench 400s and `static-typecheck`, sinter-mail (42 files): same. Also: a page's
+entry chunk through one index per bundle (−250 ms of `generateBundle` at 400 pages). Left: nothing required; see
+"What is left".
 
 ## The problem
 
@@ -169,3 +173,13 @@ live-files-400), the four examples and the seven baseline apps built with both `
 - **Fewer checked pages** (one instead of two): one build less per group (5 instead of 7 at 100). Kept at two: the
   check is what catches a value-dependent fold, and a second page with another value makes a coincidence (the fold's
   answer the same for the placeholder and the first page) less likely for the cost of ≈13 ms a group.
+
+## What is left
+
+- The soundness gap above (a fold the minifier reaches through a value it carried, whose answer is the same for the
+  placeholder and the two checked pages): closed only by the audit, which the bench apps pass page for page.
+  If it ever matters, a second shape build with another placeholder alphabet would catch most such folds for
+  ≈13 ms a group.
+- Sources with a short or escaped varying literal (a one-letter id, a title with a quote) build page by page, as
+  before; the log line (`SN_EARLY_SHAPES_LOG=1`) names them.
+- At 400 posts, `generateBundle` is now ≈190 ms: 10 nested builds (≈120 ms), the tokenizer (≈25 ms), GC.
