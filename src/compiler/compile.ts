@@ -1043,6 +1043,34 @@ function parsedText(text: string): DefaultTreeAdapterMap['documentFragment'] {
   return f;
 }
 
+/**
+ * Pages' and layouts' documents (`parseDocument`), parsed once per process by text, as `parsedText` keeps
+ * components': each compile takes a copy (`copyParsed`), which it may change. A template's entries, and the passes
+ * and the description of one page, parse the same text.
+ */
+const PARSED_DOCS = new Map<string, DefaultTreeAdapterMap['document']>();
+function parsedDocument(html: string): DefaultTreeAdapterMap['document'] {
+  let d = PARSED_DOCS.get(html);
+  if (!d) {
+    if (PARSED_DOCS.size >= 500) PARSED_DOCS.clear();
+    PARSED_DOCS.set(html, (d = parseDocument(html)));
+  }
+  return copyParsed(d, null) as unknown as DefaultTreeAdapterMap['document'];
+}
+
+/**
+ * A parsed tree as the parser gives it, again: every node and attribute a new object (the positions shared, which
+ * nothing changes), each property where the parser put one (a fragment or a document has no `parentNode`).
+ */
+function copyParsed(n: P5Node | P5Parent, parent: P5Parent | null): P5Node {
+  const copy = { ...n } as P5Node;
+  if ('parentNode' in n) (copy as { parentNode: P5Parent | null }).parentNode = parent;
+  if ('attrs' in n) (copy as P5Element).attrs = n.attrs.map((a) => ({ ...a }));
+  if ('childNodes' in n) (copy as P5Element).childNodes = n.childNodes.map((c) => copyParsed(c, copy as P5Parent)) as never[];
+  if ('content' in n && n.content) (copy as P5Template).content = copyParsed(n.content as never, null) as never;
+  return copy;
+}
+
 /** what a field of the compiler holds: a container's type, a class's name, or a value's type (`compilerFields`) */
 export function fieldKind(v: unknown): string {
   if (v === null || v === undefined) return 'empty';
@@ -1713,7 +1741,7 @@ class Compiler {
   /** The page parsed, expanded and walked: its program, up to evaluating it (`prerender`). */
   walkPage(html: string): NonNullable<Compiler['walk']> {
     this.keepsAttrs = this.collecting() && renderOn() && !this.opts.dev;
-    let doc = parseDocument(html);
+    let doc = parsedDocument(html);
     this.tag(doc, { file: this.opts.file, src: html, chain: [] });
     if (this.isLayoutFile(this.opts.file)) this.diagnostics.push({ severity: 'error', code: 'SN318', message: 'a layout is not a page: a page uses it by its tag. Leave `src/layouts/` out of the build\'s inputs', file: this.opts.file, line: 1, col: 1 });
     else doc = this.mergeLayout(doc) ?? doc;
@@ -2761,7 +2789,7 @@ class Compiler {
       try { this.opts.readFile(f); } catch { continue; }
       this.diagnostics.push({ severity: 'error', code: 'SN318', message: `the layout \`<${name}>\` has a script (\`${f.startsWith(lroot + '/') ? f.slice(lroot.length + 1) : f}\`); layouts have none, its components may`, file: lf.file, line: 1, col: 1 });
     }
-    const ldoc = parseDocument(lf.text);
+    const ldoc = parsedDocument(lf.text);
     const at = host.sourceCodeLocation ? this.lineCol(pageOrigin.src, host.sourceCodeLocation.startOffset) : { line: 1, col: 1 };
     this.tag(ldoc, { file: lf.file, src: lf.text, chain: [`${basename(this.opts.file)}:${at.line}`] });
     this.files.add(lf.file);
