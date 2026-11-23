@@ -244,3 +244,21 @@ own call). The program of a template is found on its layout for the evaluation (
 
 blog static, 9 rounds, base `35bed5c` → this: `decideFor` 5.21 / 6.76 / 7.35 → 5.36 / 6.71 / 7.55 (the same within
 the rounds). mail gen against change 4 (3 rounds): pass-1 `prerender` 83.2 / 94.2 → 79.6 / 95.0.
+
+### 6. The render plan: a template's content copied from a flat list, a node's copy found by its place
+
+- **`cloneList`**: a template's content as `render` copies it, made once per renderer (per evaluation) and template:
+  its nodes in the order a walk meets them (an element, its children, then a template's content unless it is an
+  anchor's), each with where its copy goes (the node whose copy holds it, or the row's fragment; in a template's
+  content or not), and each node's place in the list. `render` copies the list in a loop (`clone` makes one node, with
+  everything it did before: the attributes before paint, the ids, the uses, the links, the marks of scoped styles,
+  `shownOf`, `WRITTEN`, `RENDERED_FILE`, in the same order, the same preorder), and `fill` finds a node's copy by its
+  place (a `Map` per row with every node's copy, built as it went, before). An image the first pass rewrote in the
+  template (its `<picture>`) is the image it was, at the picture's place too, as before.
+- **A case's component files** (a placement's case, which the old route's expansion reads where it renders): listed
+  once per template (`caseFilesOf`), not walked again in every row.
+- **`StyleWrites`** only for an element with a style binding (it was made for every bound element).
+
+A/B against change 5 (9 rounds blog; 3 the email), wall ms a call, p25 / median / mean: blog static `decideFor` 5.41 /
+6.70 / 7.40 → 5.19 / 6.31 / 7.30 (`compile()` 8.27 / 9.69 → 8.00 / 9.51); mail gen pass-1 `prerender` 78.1 / 85.4 →
+77.5 / 85.1. Byte for byte the base's; test/compiler 1,140 passed, also under `SN_RENDER_AUDIT=1`.

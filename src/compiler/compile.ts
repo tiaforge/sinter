@@ -9672,6 +9672,56 @@ class Compiler {
      */
     type ClonePlan = { sinter: boolean; pre: P5Element['attrs'] | undefined; base: P5Element['attrs']; id: string | undefined; use: ReturnType<Compiler['useOf']['get']>; marks: P5Element['attrs']; marksOut: P5Element['attrs']; scoped: boolean; opaque: boolean };
     const clonePlans = new Map<P5Element, ClonePlan>();
+    /**
+     * A template's content as `render` copies it, the same in every row: its nodes in the order a walk of it meets them
+     * (an element, then its children, then a template's content, unless it is an anchor's, whose content is not
+     * copied), each with where its copy goes (`up`: the node whose copy holds it, -1 the row's own fragment; `content`:
+     * in that template's content), and each node's place in the list (`at`), by which `fill` finds a node's copy. An
+     * image the first pass rewrote in the template (its `<picture>`) is the image it was, at the picture's place too
+     */
+    type CloneList = { ops: Array<{ n: P5Node; up: number; content: boolean }>; at: Map<P5Node, number> };
+    const cloneLists = new Map<number, CloneList>();
+    /** the component files of a case's markup, in the order a walk of it meets them (its elements' files and their CSS): the same in every row */
+    const caseFileLists = new Map<number, string[]>();
+    const caseFilesOf = (tid: number): string[] => {
+      let l = caseFileLists.get(tid);
+      if (l) return l;
+      l = [];
+      const walk = (p: P5Parent | undefined) => {
+        for (const x of p?.childNodes ?? []) {
+          if (!isElement(x)) continue;
+          const f = this.origins.get(x)?.file;
+          if (f && f !== this.opts.file) { l!.push(f); const css = cssOf.get(f); if (css) l!.push(css); }
+          walk(x);
+          if (x.tagName === 'template') walk((x as P5Template).content);
+        }
+      };
+      walk(contentOf(tid));
+      caseFileLists.set(tid, l);
+      return l;
+    };
+    const cloneList = (tid: number, src: P5Parent): CloneList => {
+      let l = cloneLists.get(tid);
+      if (l) return l;
+      const ops: CloneList['ops'] = [], at = new Map<P5Node, number>();
+      const visit = (n: P5Node, up: number, content: boolean) => {
+        if (isElement(n) && n.tagName === 'picture' && !this.origins.has(n) && REWROTE.has(n.childNodes.at(-1) as P5Element)) {
+          const img = n.childNodes.at(-1)!;
+          visit(img, up, content);
+          at.set(n, at.get(img)!);
+          return;
+        }
+        const i = ops.length;
+        ops.push({ n, up, content });
+        at.set(n, i);
+        if (!isElement(n)) return;
+        for (const c of n.childNodes) visit(c, i, false);
+        if (n.tagName === 'template' && !anchors.has(n)) for (const c of (n as P5Template).content.childNodes) visit(c, i, true);
+      };
+      for (const c of src.childNodes) visit(c, -1, false);
+      cloneLists.set(tid, l = { ops, at });
+      return l;
+    };
     const foldPlans = new Map<NodeDef, { fold: Compiler['attrSources']; folded: Set<Binding> } | null>();
     const clonePlan = (n: P5Element): ClonePlan => {
       let cp = clonePlans.get(n);
@@ -9700,7 +9750,7 @@ class Compiler {
       let f = fillPlans.get(n);
       if (f) return f;
       const acts = n.b.flatMap((b, j) => (defAttr.has(b) || b.k === 'else' || folded.has(b) ? [] : [{ b, j, why: b.k === 'if' || b.k === 'for' ? null : handlerOnly(b) ? 'handler' : !ROW.has(b.k) ? `a binding of kind ${b.k}` : null }]));
-      fillPlans.set(n, f = { acts, styles: styleBatchOn() && !acts.some(({ b }) => b.k === 'attr' && b.n?.toLowerCase() === 'style') });
+      fillPlans.set(n, f = { acts, styles: styleBatchOn() && acts.some(({ b }) => b.k === 'style') && !acts.some(({ b }) => b.k === 'attr' && b.n?.toLowerCase() === 'style') });
       return f;
     };
     return (key, p) => {
@@ -9770,15 +9820,12 @@ class Compiler {
        * (`rootCopies`), slot content's copy none
        */
       let live = false;
-      const clone = (n: P5Node, parent: P5Parent, map: Map<P5Node, P5Node>): P5Node => {
+      /** a copy of one node of a template's content, its children not yet (`render` copies them in `cloneList`'s order) */
+      const clone = (n: P5Node, parent: P5Parent): P5Node => {
         let c: P5Node;
         if (n.nodeName === '#text') c = { nodeName: '#text', value: (n as DefaultTreeAdapterMap['textNode']).value, parentNode: parent } as unknown as P5Node;
         else if (n.nodeName === '#comment') c = { nodeName: '#comment', data: (n as DefaultTreeAdapterMap['commentNode']).data, parentNode: parent } as unknown as P5Node;
-        else if (isElement(n) && n.tagName === 'picture' && !this.origins.has(n) && REWROTE.has(n.childNodes.at(-1) as P5Element)) {
-          // an image the first pass rewrote in the template: the image it was, which the second pass rewrites in the
-          // row as it would rewrite the row's image (eager or not, in its box)
-          c = clone(n.childNodes.at(-1)!, parent, map);
-        } else if (isElement(n)) {
+        else if (isElement(n)) {
           const cp = clonePlan(n);
           // (one the walk keeps for the runtime, `data-sn-options`, `-navigate`, …: the walk adds what it needs)
           // (the first pass's marks of scoped styles aside: below)
@@ -9818,15 +9865,9 @@ class Compiler {
           if (pre) shownOf.set(e, pre);
           // a component's root whose tag binds what it shows: the minifier leaves it as written (`minify`'s `opaque`)
           if (cp.opaque) WRITTEN.set(e, 'opaque');
-          e.childNodes = n.childNodes.map((x) => clone(x, e, map)) as never[];
-          if (n.tagName === 'template') {
-            const content = { nodeName: '#document-fragment', childNodes: [] } as unknown as P5Template['content'];
-            if (!anchors.has(n)) content.childNodes = (n as P5Template).content.childNodes.map((x) => clone(x, content, map)) as never[];
-            (e as P5Template).content = content;
-          }
+          if (n.tagName === 'template') (e as P5Template).content = { nodeName: '#document-fragment', childNodes: [] } as unknown as P5Template['content'];
           c = e;
         } else c = { ...n, parentNode: parent } as P5Node;
-        map.set(n, c);
         return c;
       };
       /** `from` through `to` (siblings) replaced by `nodes` */
@@ -9857,9 +9898,15 @@ class Compiler {
         const t = this.templates[tid], src = contentOf(tid);
         if (!t || !src || !rec) no('no template');
         const frag = { nodeName: '#document-fragment', childNodes: [] } as unknown as P5Parent;
-        const map = new Map<P5Node, P5Node>();
-        frag.childNodes = src!.childNodes.map((c) => clone(c, frag, map)) as never[];
-        fill(t!.nodes, map, rec!);
+        // (the content copied node by node in the order a walk of it meets them, each into its place: `cloneList`)
+        const list = cloneList(tid, src!), ops = list.ops, out = new Array<P5Node>(ops.length);
+        for (let i = 0; i < ops.length; i++) {
+          const op = ops[i]!, up = op.up < 0 ? frag : op.content ? (out[op.up] as P5Template).content as unknown as P5Parent : out[op.up] as P5Parent;
+          const c = clone(op.n, up);
+          out[i] = c;
+          (up.childNodes as P5Node[]).push(c);
+        }
+        fill(t!.nodes, { get: (x: P5Node) => { const i = list.at.get(x); return i === undefined ? undefined : out[i]; } }, rec!);
         return frag.childNodes as P5Node[];
       };
       /** the attributes `prefold` writes on the element, in its order (its own attributes', then its tag's, each in `FOLDED` order) */
@@ -9875,7 +9922,7 @@ class Compiler {
         if (f === null) no('constants');
         return f!;
       };
-      const fill = (nodes: NodeDef[], map: Map<P5Node, P5Node>, rec: RowRec) => {
+      const fill = (nodes: NodeDef[], map: { get(x: P5Node): P5Node | undefined }, rec: RowRec) => {
         // (the record's places: by node, its bindings after it, `rowLayout`)
         const L = rowLayout(memo, nodes);
         for (let i = 0; i < nodes.length; i++) {
@@ -9927,16 +9974,7 @@ class Compiler {
             }
             // (the files of the markup it renders: a default's components are a template of their own, and so are the
             // default's children a fill's `<slot>` places, which the old route's expansion reads where they render)
-            const caseFiles = (p: P5Parent | undefined) => {
-              for (const x of p?.childNodes ?? []) {
-                if (!isElement(x)) continue;
-                const f = this.origins.get(x)?.file;
-                if (f && f !== this.opts.file) { st.files.add(f); const css = cssOf.get(f); if (css) st.files.add(css); }
-                caseFiles(x);
-                if (x.tagName === 'template') caseFiles((x as P5Template).content);
-              }
-            };
-            caseFiles(contentOf(P.cases[c!.k]!));
+            for (const f of caseFilesOf(P.cases[c!.k]!)) st.files.add(f);
             try { replace(cl, cl, render(P.cases[c!.k]!, c!.rec)); } finally { for (const t of tops) fillMarks.delete(t); if (root !== undefined) for (const t of contentOf(P.cases[0]!)?.childNodes ?? []) fillMarks.delete(t); }
             continue;
           }
