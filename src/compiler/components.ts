@@ -142,6 +142,19 @@ export function isArrayType(text: string): boolean {
 export const COMPONENT_NAME = /^[a-z][a-z0-9]*(-[a-z0-9]+)+$/;
 
 /**
+ * Where a component's HTML can be, relative to its components folder, in the order they are looked for: `<tag>.html`,
+ * or `<tag>/<tag>.html` in a folder of its own with the files that go with it (component-files.ts).
+ */
+export const componentPaths = (tag: string): [string, string] => [`${tag}.html`, `${tag}/${tag}.html`];
+
+/** The component an HTML file is, from its `/`-separated path relative to a components folder, or null. */
+export function componentOfPath(rel: string): string | null {
+  const m = /^(?:([^/]+)\/)?([^/]+)\.html$/.exec(rel);
+  if (!m || !COMPONENT_NAME.test(m[2]!) || (m[1] !== undefined && m[1] !== m[2])) return null;
+  return m[2]!;
+}
+
+/**
  * DOM events a component's root may dispatch itself, which a caller handles without the
  * component declaring them in `data-sn-emits`.
  */

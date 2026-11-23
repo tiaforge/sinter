@@ -126,6 +126,39 @@ describe('the packages', () => {
 });
 
 describe('the components', () => {
+  test('a component in a folder of its own, public and internal, with its script beside it; an app component in one too', () => {
+    const root = app({
+      'src/components/app-box/app-box.html': '<template data-sn-props=""><div class="box"><f-panel></f-panel></div></template>',
+    }, {
+      '@t/folders': {
+        'package.json': pkgJson({ name: '@t/folders', sinter: './s' }),
+        's/components/f-panel/f-panel.html': '<template data-sn-props=""><section class="panel" data-sn-state="{ n: 0 }"><f-row></f-row></section></template>',
+        's/components/f-panel/f-panel.ts': 'import { FPanelComponent } from \'./f-panel.html\';\nexport class FPanel extends FPanelComponent {}\n',
+        's/components/f-panel/util.ts': 'export const x = 1;\n',
+        's/components/internal/f-row/f-row.html': '<template data-sn-props=""><p class="row">row</p></template>',
+      },
+    });
+    const { p, out, diagnostics } = build(root, page('<app-box></app-box>'), { libraries: ['@t/folders'] });
+    expect(diagnostics).toEqual([]);
+    const [l] = p.libraries;
+    expect([l!.public, l!.internal]).toEqual([['f-panel'], ['f-row']]);
+    expect(p.componentNames).toEqual(['app-box', 'app-frame', 'f-panel']);
+    // the app's, the public and the internal component, each from its folder
+    expect(out.html).toMatch(/<div class="box"><section class="panel"[^>]*><p class="row">row<\/p><\/section><\/div>/);
+    // the script beside the HTML in its folder runs per instance
+    expect(out.module).toContain('/s/components/f-panel/f-panel.ts');
+    expect(readFileSync(join(root, 'src/sinter.components.d.ts'), 'utf8')).toContain('components/f-panel/f-panel.ts`');
+  });
+
+  test('SN349 in a library: a stray HTML file in a component\'s folder', () => {
+    const root = app({}, {
+      '@t/stray': { 'package.json': pkgJson({ name: '@t/stray', sinter: './s' }), 's/components/s-a/s-a.html': '<template data-sn-props=""><p></p></template>', 's/components/s-a/s-b.html': '<template data-sn-props=""><p></p></template>' },
+    });
+    const ds = project(root, { libraries: ['@t/stray'] }).diagnostics;
+    expect(codes(ds)).toEqual(['SN349']);
+    expect(ds[0]!.file).toMatch(/s\/components\/s-a\/s-b\.html$/);
+  });
+
   test('a page uses public components and a tree with a fill; the scripts, styles and layer', () => {
     const { diagnostics, out } = build(app(), readFileSync(resolve(__dirname, 'fixtures/ui-app/index.html'), 'utf8'));
     expect(diagnostics).toEqual([]);

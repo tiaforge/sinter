@@ -11,11 +11,12 @@ import { formatDiagnostic } from './compiler/index.js';
 import { componentBase } from './components-build.js';
 import { pagePaths } from './page-paths.js';
 import { lazyReachOf, project as readProject, viteProject } from './project.js';
-import { isComponentScript } from './lazy-build.js';
+import { componentOfHtml } from './lazy-build.js';
 import { segments, segsMatch } from './runtime/url.js';
 import { withInertPlugin } from './helpers-node.js';
 import { args } from './args.js';
 import { componentScript } from './components-build.js';
+import { componentHtml } from './component-files.js';
 import type { Library } from './libraries.js';
 import type { HistoryWrite, MockStream, RecordedCall, Rendered, RouteResponse } from './testing/index.js';
 
@@ -241,7 +242,8 @@ export async function appLoader(root: string, libs: readonly Library[] = []): Pr
       // a component's script imports its base class from its HTML file, as the Vite plugin gives it
       if (importer && id.endsWith('.html') && !importer.endsWith('.html')) {
         const file = resolve(dirname(importer.replace(/[?#].*$/, '')), id);
-        if (dirname(file) === resolve(root, 'src/components') || isComponentScript(root, file.slice(0, -5) + '.ts', libs)) return `\0sinter-base:${basename(file, '.html')}`;
+        const name = componentOfHtml(root, file, libs);
+        if (name) return `\0sinter-base:${name}`;
       }
       return null;
     },
@@ -633,7 +635,8 @@ export async function renderPage(a: RenderArgs): Promise<RenderReport> {
     };
     for (const name of [...p.componentNames, ...p.libraries.flatMap((l) => l.internal)]) {
       // (any of the script extensions the compiler takes: `.ts`, `.js`, `.mts`, `.mjs`)
-      const f = componentScript(join(dirOf(name), name + '.html'));
+      const html = componentHtml(dirOf(name), name);
+      const f = html ? componentScript(html) : null;
       if (f) scripts[name] = await load(f);
     }
 

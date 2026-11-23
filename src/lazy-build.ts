@@ -7,6 +7,7 @@
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { libraryOf, type Library } from './libraries.js';
+import { componentOfFile } from './component-files.js';
 import { appModule, isSelfReference, resolveImport } from './fold-check.js';
 import { lineCol } from './line-col.js';
 import { parseModule } from './compiler/index.js';
@@ -292,14 +293,23 @@ export function chainText(root: string, r: Reach): string {
   return [...r.chain.map((f) => relative(root, f).split(sep).join('/')), r.spec].join(' → ');
 }
 
-/** whether a file is a component's script (`src/components/<name>.ts` beside its `<name>.html`) */
+/** the app's and the libraries' components folders, a library's under its own path and its real one (a workspace link) */
+export function componentDirs(root: string, libs: readonly Library[] = []): string[] {
+  return [resolve(root, 'src/components'), ...libs.flatMap((l) => [l.folder, l.real + l.folder.slice(l.dir.length)].flatMap((f) => [join(f, 'components'), join(f, 'components', 'internal')]))];
+}
+
+/** the component an HTML file is (`<dir>/<name>.html` or `<dir>/<name>/<name>.html` in a components folder), or null */
+export function componentOfHtml(root: string, file: string, libs: readonly Library[] = []): string | null {
+  return componentOfFile(componentDirs(root, libs), file);
+}
+
+/** whether a file is a component's script (`src/components/<name>.ts` beside its `<name>.html`, in a folder of its own or not) */
 export function isComponentScript(root: string, file: string, libs: readonly Library[] = []): boolean {
-  const dirs = [resolve(root, 'src/components'), ...libs.flatMap((l) => [l.folder, l.real + l.folder.slice(l.dir.length)].flatMap((f) => [join(f, 'components'), join(f, 'components', 'internal')]))];
-  const dir = dirname(file);
-  if (!dirs.includes(dir)) return false;
   // the extensions the compiler takes a component's script with (components-build.ts SCRIPT_EXTS)
-  const m = /^([a-z][a-z0-9]*-[a-z0-9-]*)\.m?[jt]s$/.exec(file.slice(dir.length + 1));
-  return !!m && existsSync(resolve(dir, `${m[1]}.html`));
+  const m = /\.m?[jt]s$/.exec(file);
+  if (!m) return false;
+  const html = file.slice(0, m.index) + '.html';
+  return componentOfHtml(root, html, libs) !== null && existsSync(html);
 }
 
 /** a module of a component library an import names (`@acme/ui`, `@acme/ui/x`), resolved as the build resolves it */

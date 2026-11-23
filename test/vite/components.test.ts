@@ -144,3 +144,97 @@ export class TaskRing extends TaskRingComponent {
     rmSync(app, { recursive: true, force: true });
   }
 }, 120_000);
+
+test('a component in a folder of its own: its HTML, script, early renderer and modules together, beside a component that is one file', async () => {
+  const app = mkdtempSync(join(tmpdir(), 'sinter-component-folder-'));
+  try {
+    mkdirSync(join(app, 'src/components/task-ring'), { recursive: true });
+    writeFileSync(join(app, 'src/components/task-ring/task-ring.html'), `<template data-sn-props="{ done: number; open: number }" data-sn-emits="{ pick: 'done' | 'open' }">
+  <figure class="ring" data-sn-state="{ share: '' }">
+    <canvas data-sn-ref="canvas"></canvas>
+    <figcaption data-sn-text="done + ' of ' + (done + open) + ', ' + share"></figcaption>
+    <ring-legend></ring-legend>
+  </figure>
+</template>
+<style>.ring { margin: 3px; }</style>
+`);
+    // a module of the component's own, imported by its script: bundled with it
+    writeFileSync(join(app, 'src/components/task-ring/ring-math.ts'), 'export const share = (done: number, open: number) => `${Math.round((100 * done) / (done + open))}%`;\n');
+    writeFileSync(join(app, 'src/components/task-ring/task-ring.ts'), `import { TaskRingComponent } from './task-ring.html';
+import { share } from './ring-math.js';
+export class TaskRing extends TaskRingComponent {
+  connected() { this.draw(); this.refs.canvas.addEventListener('click', () => this.emit('pick', 'done')); }
+  propsChanged() { this.draw(); }
+  draw() { this.state.share = share(this.props.done, this.props.open); }
+}
+`);
+    // a component that is one file, used from inside the folder's
+    writeFileSync(join(app, 'src/components/ring-legend.html'), '<template><p class="legend">legend</p></template>\n');
+    writeFileSync(join(app, 'index.html'), `<!doctype html><html><head><title>t</title></head><body>
+<div data-sn-state="{ done: 1, open: 3, picked: '' }">
+  <task-ring data-sn-with="{ done, open }" data-sn-on-pick="picked = $event.detail"></task-ring>
+  <button data-sn-on-click="done = done + 1">add</button>
+  <output data-sn-text="picked"></output>
+</div>
+</body></html>`);
+    const out = join(app, 'dist');
+    await build({ root: app, logLevel: 'silent', plugins: [sinter()], resolve: { alias }, build: { outDir: out, emptyOutDir: true, minify: false } });
+    const html = readFileSync(join(out, 'index.html'), 'utf8');
+    expect(html).toMatch(/<figure class="ring"[^>]* data-sn-c="task-ring">/);
+    expect(html).toContain('<p class="legend"');
+    const css = readdirSync(join(out, 'assets')).filter((f) => f.endsWith('.css')).map((f) => readFileSync(join(out, 'assets', f), 'utf8')).join('\n');
+    expect(css).toContain('@scope ([data-sn-c="task-ring"]');
+    // the types: the component's base, under its file in the folder
+    const dts = readFileSync(join(app, 'src/sinter.components.d.ts'), 'utf8');
+    expect(dts).toContain("declare module '*/task-ring.html' {");
+    expect(dts).toContain('the base of `src/components/task-ring/task-ring.ts`');
+    expect(dts).toContain('type ComponentName = "ring-legend" | "task-ring";');
+    const { findTsc } = await import('../../src/check/index.js');
+    const { spawnSync } = await import('node:child_process');
+    writeFileSync(join(app, 'tsconfig.json'), JSON.stringify({ compilerOptions: { strict: true, noEmit: true, target: 'es2022', module: 'esnext', moduleResolution: 'bundler', lib: ['es2023', 'dom', 'dom.iterable'], skipLibCheck: true,
+      paths: { '@tiaforge-ui/sinter/runtime/components': [join(src, 'components.ts')] } }, files: ['src/sinter.components.d.ts', 'src/components/task-ring/task-ring.ts'] }));
+    expect(spawnSync(process.execPath, [findTsc(process.cwd()), '-p', app], { encoding: 'utf8' }).stdout).toBe('');
+    const { preview } = await import('vite');
+    const server = await preview({ root: app, logLevel: 'silent', preview: { port: 0 }, build: { outDir: out } });
+    const [engine] = await engines();
+    const browser = await engine!.type.launch(engine!.executablePath ? { executablePath: engine!.executablePath } : {});
+    try {
+      const tab = await browser.newPage();
+      await tab.goto(server.resolvedUrls!.local[0]!);
+      await tab.waitForFunction(() => document.querySelector('figcaption')?.textContent === '1 of 4, 25%');
+      await tab.click('button');
+      await tab.waitForFunction(() => document.querySelector('figcaption')?.textContent === '2 of 5, 40%');
+      await tab.click('canvas');
+      await tab.waitForFunction(() => document.querySelector('output')?.textContent === 'done');
+    } finally {
+      await browser.close();
+      await new Promise((r) => server.httpServer.close(r));
+    }
+  } finally {
+    rmSync(app, { recursive: true, force: true });
+  }
+}, 120_000);
+
+test('SN349: a component in both places, and HTML in a folder where no component can be, fail the build', async () => {
+  const app = mkdtempSync(join(tmpdir(), 'sinter-component-place-'));
+  try {
+    mkdirSync(join(app, 'src/components/x-card'), { recursive: true });
+    mkdirSync(join(app, 'src/components/forms'), { recursive: true });
+    mkdirSync(join(app, 'src/components/shared'), { recursive: true });
+    writeFileSync(join(app, 'src/components/x-card.html'), '<template><p>flat</p></template>\n');
+    writeFileSync(join(app, 'src/components/x-card/x-card.html'), '<template><p>folder</p></template>\n');
+    writeFileSync(join(app, 'src/components/x-card/x-part.html'), '<template><p>part</p></template>\n');
+    writeFileSync(join(app, 'src/components/forms/text-input.html'), '<template><input></template>\n');
+    // a folder of modules only is fine
+    writeFileSync(join(app, 'src/components/shared/util.ts'), 'export const x = 1;\n');
+    writeFileSync(join(app, 'index.html'), '<!doctype html><html><head><title>t</title></head><body><x-card></x-card></body></html>');
+    const err = await build({ root: app, logLevel: 'silent', plugins: [sinter()], resolve: { alias }, build: { outDir: join(app, 'dist'), emptyOutDir: true } }).then(() => null, (e: Error) => e);
+    expect(err?.message).toContain('SN349');
+    expect(err?.message).toContain('`<x-card>` is both `x-card.html` and `x-card/x-card.html`');
+    expect(err?.message).toContain('`x-card/x-part.html` is not a component: in a component\'s folder, only `x-card.html` is its HTML');
+    expect(err?.message).toContain('`forms/text-input.html` is not a component: a component in a folder of its own is `<name>/<name>.html`, and folders do not group components');
+    expect(err?.message).not.toContain('util.ts');
+  } finally {
+    rmSync(app, { recursive: true, force: true });
+  }
+}, 60_000);

@@ -13,6 +13,7 @@ import { checkLocale } from './locales-build.js';
 import { snapshotOptions } from './content-node.js';
 import { args } from './args.js';
 import { componentScript } from './components-build.js';
+import { componentHtml, findComponents } from './component-files.js';
 import { CODES, severityOf, strictPromotes, type Code } from './compiler/diagnostics.js';
 
 const USAGE = 'usage: sinter check [--root <dir>] [--strict [--allow SN501,…]] [page.html …]\n       sinter docs [topic | data-sn-… | SN318 | words]\n       sinter render <page.html> [--url …] [--api mocks.json | http://…] [--click …] (sinter render --help)\n       sinter migrate [--root <dir>] [--write]\n       sinter lsp [--stdio]';
@@ -82,8 +83,9 @@ async function main(argv: string[]): Promise<number> {
   if (p.lazy.length) {
     const mod = (url: string | null) => (url ? resolveFile(url, resolve(root, 'index.html'), root) : null);
     // each component's script, with any extension the compiler takes (componentScript)
-    const scripts = [...p.componentNames.filter((n) => !p.libraries.some((l) => l.public.includes(n))).map((n) => join(root, 'src/components', n)),
-      ...p.libraries.flatMap((l) => [...l.public.map((n) => join(l.folder, 'components', n)), ...l.internal.map((n) => join(l.folder, 'components', 'internal', n))])].map((b) => componentScript(b + '.html')).filter((f): f is string => !!f);
+    const at = (dir: string) => (n: string) => componentHtml(dir, n);
+    const scripts = [...p.componentNames.filter((n) => !p.libraries.some((l) => l.public.includes(n))).map(at(join(root, 'src/components'))),
+      ...p.libraries.flatMap((l) => [...l.public.map(at(join(l.folder, 'components'))), ...l.internal.map(at(join(l.folder, 'components', 'internal')))])].map((f) => (f ? componentScript(f) : null)).filter((f): f is string => !!f);
     diagnostics.push(...lazyDiagnostics(root, p.lazy, [p.helpersFile, p.actionsFile, mod(p.config), mod(p.early)], lazyReachOf(p).whole(p.helpers), scripts, p.libraries, p.helpersFile));
   }
   const r = check({ ...checkOptionsOf(p), helpers, units });
@@ -138,7 +140,7 @@ async function migrate(argv: string[]): Promise<number> {
   // 0. the renames, until a pass finds none (a fix can uncover the next, as an old attribute inside an old one)
   {
     const p = project(root, options);
-    const files = new Set([...pages, ...html('src/components'), ...html('src/layouts')]);
+    const files = new Set([...pages, ...findComponents(join(root, 'src/components')).files.values(), ...html('src/layouts')]);
     const texts = new Map<string, string>();
     const read = (f: string) => texts.get(f) ?? p.readFile(f);
     let total = 0;
@@ -180,7 +182,7 @@ async function migrate(argv: string[]): Promise<number> {
   const p = project(root, options);
   const errors = p.diagnostics.filter((d) => d.severity === 'error');
   if (errors.length || !p.apis) { for (const d of errors) console.error(formatDiagnostic(d)); return 1; }
-  const files = [...new Set([...pages, ...html('src/components'), ...html('src/layouts')])];
+  const files = [...new Set([...pages, ...findComponents(join(root, 'src/components')).files.values(), ...html('src/layouts')])];
   // 1. the URLs, in memory
   const texts = new Map<string, string>(), changed = new Set<string>();
   const uses = [];

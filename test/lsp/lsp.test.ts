@@ -663,6 +663,18 @@ export default { plugins: [sinter({ apis: {
     });
   });
 
+  test('a component in a folder of its own: hover and go to definition find its file; an error inside it is reported on it', async () => {
+    const card = '<template data-sn-props="{ title: string }"><h2 data-sn-text="title"></h2></template>\n';
+    const page = '<x-card data-sn-with="{ title: \'a\' }"></x-card>\n';
+    const root = project({ 'src/components/x-card/x-card.html': card, 'index.html': page });
+    const e = await editor(root);
+    e.open('index.html', page);
+    expect((await e.hover('index.html', 0, 3))!.contents.value).toContain('Props: `{ title: string }`');
+    expect((await e.definition('index.html', 0, 3))![0]!.uri).toBe(e.uri('src/components/x-card/x-card.html'));
+    e.open('src/components/x-card/x-card.html', card.replace('data-sn-text="title"', 'data-sn-text="titel"'));
+    expect((await e.diagnostics('src/components/x-card/x-card.html', (d) => d.length > 0)).map((x) => x.code)).toEqual(['SN201 unknown-identifier']);
+  });
+
   test('quick fixes apply the suggestion of compiler and type errors', async () => {
     const root = project({ 'src/sinter.types.ts': TYPES, 'index.html': PAGE('c.name') });
     const e = await editor(root);

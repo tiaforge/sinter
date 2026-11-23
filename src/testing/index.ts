@@ -537,8 +537,10 @@ function compilePage(html: string, options: RenderOptions, strict: Strict = { on
   const files: Record<string, string> = { ...options.files };
   for (const [name, text] of Object.entries(options.components ?? {})) files[`src/components/${name}.html`] = text;
   for (const [name, text] of Object.entries(options.layouts ?? {})) files[`src/layouts/${name}.html`] = text;
-  for (const name of Object.keys(options.scripts ?? {})) files[`src/components/${name}.ts`] ??= 'export default class {}';
-  for (const name of Object.keys(options.earlyRenderers ?? {})) files[`src/components/${name}.early.ts`] ??= 'export default () => {};';
+  // a script's and an early renderer's stand-ins go beside the component's HTML: in a folder of its own when it is in one
+  const base = (name: string) => (files[`src/components/${name}/${name}.html`] !== undefined ? `src/components/${name}/${name}` : `src/components/${name}`);
+  for (const name of Object.keys(options.scripts ?? {})) files[`${base(name)}.ts`] ??= 'export default class {}';
+  for (const name of Object.keys(options.earlyRenderers ?? {})) files[`${base(name)}.early.ts`] ??= 'export default () => {};';
   const proj = options.project;
   const apis = proj ? { specs: proj.openapi, apis: proj.apis } : options.apis ? testApis(options) : null;
   // the messages: compiled in the page's one language, as a build compiles them

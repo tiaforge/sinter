@@ -301,6 +301,11 @@ export const DIAGNOSTIC_DOCS: Record<Code, DiagnosticDoc> = {
     means: 'The Vite config gives the plugin an option that sinter no longer has. Before 1.0, an option can be removed; the message names what replaces it.',
     fix: 'Follow the message, then remove the option. `npx sinter migrate --write` writes the replacement where it can (for `messages`, `inlang()` and `languages()` in the content module).',
   },
+  SN349: {
+    example: '`<task-ring>` is both `task-ring.html` and `task-ring/task-ring.html`: a component\'s HTML is in one place',
+    means: 'A component\'s HTML is `<name>.html` in the components folder (`src/components/`, a library\'s `components/` or `components/internal/`), or `<name>/<name>.html` in a folder of its own, beside the files that go with it: its script, its early renderer, and modules and tests of its own. Only those two places name a component, so an HTML file anywhere else in the folder would silently not be one: a component in both places, another HTML file in a component\'s folder, and HTML in a folder that is not named after a component inside it (folders do not group components: the tag is the file\'s name). A folder with no HTML, of modules only, is fine.',
+    fix: 'Keep one of the two places for the component. Move another HTML file out of the component\'s folder: a component of its own goes to `<name>.html` or `<name>/<name>.html` beside it.',
+  },
   SN401: {
     example: '`data-sn-for` takes `item in list` or `(item, i) in list`',
     means: 'An attribute value has the wrong form: a JavaScript syntax error (the column points inside the attribute), or a value outside what the attribute accepts, such as `paginate` or `data-sn-concurrency`.',

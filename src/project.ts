@@ -9,7 +9,8 @@ import { strictOf, type Strict } from './compiler/diagnostics.js';
 import type { OpenApiSpec } from './compiler/openapi.js';
 import { defaultApiRenamed, resolveApis, type ApiOptions, type ApisDef } from './compiler/apis.js';
 import { COMPLEXITY_LIMITS, type ComplexityOptions } from './compiler/complexity.js';
-import { componentNames, writeComponentTypes } from './components-build.js';
+import { writeComponentTypes } from './components-build.js';
+import { findComponents } from './component-files.js';
 import { typeExports } from './check/index.js';
 import { librariesOf, libraries as findLibraries, libraryOf, modulesDir, ownLibrary, type Library } from './libraries.js';
 import { isSelfReference, resolveImport, setAppAliases } from './fold-check.js';
@@ -181,7 +182,8 @@ export function project(root: string, options: ProjectOptions = {}): Project {
   };
   // the component libraries: their files are read wherever they really are (a workspace link)
   const configFile = configFileOf(root);
-  const appComponents = componentNames(root);
+  const appFound = findComponents(join(root, 'src', 'components'));
+  const appComponents = appFound.names;
   retiredOptions(options);
   const libs = findLibraries(root, librariesOf(options.libraries), appComponents, configFile);
   let realRoot: string | undefined;
@@ -246,7 +248,7 @@ export function project(root: string, options: ProjectOptions = {}): Project {
   const earlyRel = find(undefined, `${at}/sinter.early`);
   const typesRel = find(undefined, `${at}/sinter.types`, ['.ts', '.d.ts', '.js']);
   const openapi: OpenApiSpec[] = [];
-  const diagnostics: Diagnostic[] = [...libs.diagnostics];
+  const diagnostics: Diagnostic[] = [...appFound.problems, ...libs.diagnostics];
   const loadSpec = (rel: string): number | null => {
     const file = resolve(root, rel);
     const fail = (why: string) => { diagnostics.push({ severity: 'error', code: 'SN307', message: `OpenAPI spec \`${rel}\` ${why}`, file, line: 1, col: 1 }); return null; };

@@ -8,6 +8,7 @@ import { check, findTsc, typeExports } from '../check/index.js';
 import { Connection } from './rpc.js';
 import { existsSync, readdirSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
+import { componentHtml, componentPaths, findComponents } from '../component-files.js';
 import { componentKinds } from '../compiler/head.js';
 import { offsetOf, slotCompletions, slotDefinition, tagCompletions, tagHover, type TagFile } from './markup.js';
 import { didYouMeanEdit } from './quickfix.js';
@@ -212,20 +213,23 @@ export function startServer(input: Readable, output: Writable, o: ServerOptions 
 
   /** The component or layout a tag names in a project, with its file's text (open buffers first). */
   const tagFile = (root: string, tag: string): TagFile | null => {
-    for (const [dir, layout] of [['src/components', false], ['src/layouts', true]] as const) {
-      const file = join(root, dir, `${tag}.html`);
-      let text: string;
-      try { text = workspace.read(file); } catch { continue; }
-      return { kind: layout ? 'layout' : componentKinds((t) => { try { return workspace.read(join(root, 'src/components', `${t}.html`)); } catch { return null; } })(tag) === 'head' ? 'head' : 'component', file, text };
-    }
-    return null;
+    /** a component's file and text (`<tag>.html` or `<tag>/<tag>.html`), open buffers first */
+    const component = (t: string): { file: string; text: string } | null => {
+      for (const p of componentPaths(t)) { const file = join(root, 'src/components', ...p.split('/')); try { return { file, text: workspace.read(file) }; } catch { /* not here */ } }
+      return null;
+    };
+    const c = component(tag);
+    if (c) return { kind: componentKinds((t) => component(t)?.text ?? null)(tag) === 'head' ? 'head' : 'component', ...c };
+    const file = join(root, 'src/layouts', `${tag}.html`);
+    try { return { kind: 'layout', file, text: workspace.read(file) }; } catch { return null; }
   };
   /** every component and layout of a project */
   const tagFiles = (root: string) => {
     const out: Array<{ name: string } & Omit<TagFile, 'text'>> = [];
     for (const dir of ['src/components', 'src/layouts']) {
       let names: string[] = [];
-      try { names = readdirSync(join(root, dir)).filter((f) => /^[a-z][a-z0-9]*(-[a-z0-9]+)+\.html$/.test(f)).map((f) => f.slice(0, -5)); } catch { /* none */ }
+      if (dir === 'src/components') names = findComponents(join(root, dir)).names;
+      else try { names = readdirSync(join(root, dir)).filter((f) => /^[a-z][a-z0-9]*(-[a-z0-9]+)+\.html$/.test(f)).map((f) => f.slice(0, -5)); } catch { /* none */ }
       for (const n of names) { const t = tagFile(root, n); if (t) out.push({ name: n, kind: dir === 'src/layouts' ? 'layout' : t.kind, file: t.file }); }
     }
     return out;
@@ -306,9 +310,8 @@ export function startServer(input: Readable, output: Writable, o: ServerOptions 
     const root = (await workspace.projectFor(file)).root;
     const tag = componentAt(text, p.position.line, p.position.character);
     if (tag !== null) {
-      for (const dir of ['src/components', 'src/layouts']) {
-        const target = join(root, dir, `${tag}.html`);
-        if (existsSync(target)) return [{ uri: pathToUri(target), range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } } }];
+      for (const target of [componentHtml(join(root, 'src/components'), tag), join(root, 'src/layouts', `${tag}.html`)]) {
+        if (target && existsSync(target)) return [{ uri: pathToUri(target), range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } } }];
       }
     }
     const at = pathDefinition(text, offsetOf(text, p.position.line, p.position.character), (await workspace.projectFor(file)).project, (f) => workspace.read(f));

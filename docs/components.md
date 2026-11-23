@@ -45,6 +45,40 @@ runtime.
 - `data-sn-emits` (optional) declares the events the component emits, with their detail types.
 - Together, these two attributes are the component's whole contract.
 
+## Where its files go
+
+A component is `src/components/<name>.html`, with its [script](#a-script) and
+[early renderer](#early-renderers), if it has them, beside it under the same name. When a component grows,
+give it a folder of its own, named after it, and move its files in unchanged:
+
+```
+src/components/                 src/components/
+  app-header.html                 app-header.html
+  task-ring.html                  task-ring/
+  task-ring.ts                      task-ring.html
+                                    task-ring.ts
+                                    task-ring.early.ts
+                                    ring-math.ts        ← a module of its own: import './ring-math.js'
+                                    ring-math.test.ts
+```
+
+- **The tag is still the file's name.** `task-ring/task-ring.html` is `<task-ring>`, used as before.
+  Nothing in the files changes when they move: the script's `import … from './task-ring.html'` is
+  beside it in either place.
+- **Only the files named after the component are its parts** (`<name>.html`, `<name>.ts`,
+  `<name>.early.ts`). Any other module in the folder is an ordinary module: the script imports it, and it is
+  bundled with the pages that use the component, like any import. That makes it the place for the logic
+  you want to unit-test without a page: functions that turn props into what the script draws, kept apart
+  from the class that hands their result to a canvas or a library.
+- **Folders do not group components.** `src/components/forms/text-input.html` is not `<text-input>`:
+  tags are one namespace, named after the file.
+- **One place each.** The build fails (`SN349`) for a component in both places
+  (`task-ring.html` and `task-ring/task-ring.html`), another HTML file in a component's folder, and HTML in a
+  folder that is not named after a component inside it, so a file never silently stops being a component. A
+  folder of modules only (`src/components/shared/`) is fine.
+- A [library's](libraries.md) components take the same two places, in its `components/` and
+  `components/internal/`.
+
 ## The tag is replaced by the root
 
 Each use is replaced by the component's root element, so a parent's layout reaches it as a direct

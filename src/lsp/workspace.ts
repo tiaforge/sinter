@@ -9,6 +9,7 @@ import { compileOptionsOf, modulesDir, project, VITE_CONFIGS, viteProject, type 
 import { loadHelpers, unloadedDiagnostic, type NodeHelpers } from '../helpers-node.js';
 import { FoldCache } from '../fold-check.js';
 import { writeComponentTypes } from '../components-build.js';
+import { componentHtml, componentOfPath } from '../component-files.js';
 import { componentKinds } from '../compiler/head.js';
 import { checkLocale } from '../locales-build.js';
 import { snapshotOptions } from '../content-node.js';
@@ -50,12 +51,12 @@ export interface WorkspaceHooks {
   compiled?(state: ProjectState, pages: string[]): void;
 }
 
-/** The component a file is (`src/components/<name>.html`), or null. */
+/** The component a file is (`src/components/<name>.html` or `src/components/<name>/<name>.html`), or the layout (`src/layouts/<name>.html`); else null. */
 function componentName(root: string, file: string, dir = 'components'): string | null {
   const d = join(root, 'src', dir) + sep;
-  if (!file.startsWith(d) || file.slice(d.length).includes(sep)) return null;
-  const name = basename(file).replace(/\.html$/, '');
-  return /^[a-z][a-z0-9]*(-[a-z0-9]+)+$/.test(name) ? name : null;
+  if (!file.startsWith(d)) return null;
+  const rel = file.slice(d.length).split(sep).join('/');
+  return dir === 'components' ? componentOfPath(rel) : rel.includes('/') ? null : componentOfPath(rel);
 }
 
 export class Workspace {
@@ -254,7 +255,7 @@ export class Workspace {
       // a component or layout no page uses: compiled through a use of its own, which reports what is wrong inside it
       const component = componentName(state.root, page) ?? componentName(state.root, page, 'layouts');
       if (component) {
-        const kinds = componentKinds((t) => { try { return t === component ? html : readFileSync(join(state.root, 'src/components', `${t}.html`), 'utf8'); } catch { return null; } });
+        const kinds = componentKinds((t) => { try { return t === component ? html : readFileSync(componentHtml(join(state.root, 'src/components'), t) ?? '', 'utf8'); } catch { return null; } });
         html = kinds(component) === 'head' ? `<!doctype html><html><head><${component}></${component}></head><body></body></html>` : `<${component}></${component}>`;
       }
       try {

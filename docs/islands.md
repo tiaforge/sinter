@@ -2,7 +2,8 @@
 
 Attributes cover showing and changing API data. For imperative work such as editors, canvases, charts
 or a third-party library, give a [component](components.md) a script: a file beside its HTML with the
-same name. sinter renders the markup (so it is in the first frame, with data); the script does the
+same name (`task-ring.ts` beside `task-ring.html`, in `src/components/` or in the component's
+[own folder](components.md#where-its-files-go), `src/components/task-ring/`). sinter renders the markup (so it is in the first frame, with data); the script does the
 browser work and writes the component's state.
 
 ```html

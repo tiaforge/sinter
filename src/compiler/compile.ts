@@ -14,7 +14,7 @@ import { freeRefs, parseExpression, parseProgram } from './parse.js';
 import type { DefaultTreeAdapterMap } from 'parse5';
 import { type Code, type Diagnostic, didYouMean, severityOf, suggest } from './diagnostics.js';
 import { analyze, applyEdits, nsLocal, refNames, STORE_FNS, throughField, wild, type SlotScope, type ComponentScope, type ExprOptions, type ExprResult, type LetEntry, type LoopEntry, type PageInfo, type Read, type ResourceInfo, type Scope } from './expr.js';
-import { callerAttribute, COMPONENT_NAME, DOM_EVENTS, isArrayType, LIBRARY_LAYER, rootCss, scopeCss, SLOT_TYPE, typeMembers, withoutSlots, type Member } from './components.js';
+import { callerAttribute, COMPONENT_NAME, componentPaths, DOM_EVENTS, isArrayType, LIBRARY_LAYER, rootCss, scopeCss, SLOT_TYPE, typeMembers, withoutSlots, type Member } from './components.js';
 import type { Node } from 'acorn';
 import type * as acorn from 'acorn';
 import { COMPLEXITY_DEFAULTS, COMPLEXITY_LIMITS, measure, type ComplexityOptions } from './complexity.js';
@@ -2340,9 +2340,13 @@ class Compiler {
     const lib = this.libOfTag(tag);
     const internal = !!lib?.internal.includes(tag);
     const dir = lib ? `${normalize(lib.folder).replace(/\/$/, '')}/components${internal ? '/internal' : ''}` : this.opts.components ?? `${normalize(this.opts.root).replace(/\/$/, '')}/src/components`;
-    const file = normalize(`${dir}/${tag}.html`);
-    if (lib && !internal && !lib.public.includes(tag)) c = null;
-    else try { c = { file, text: this.opts.readFile(file) }; } catch { c = null; }
+    // `<tag>.html`, or `<tag>/<tag>.html` in a folder of its own (component-files.ts; both at once is SN349)
+    c = null;
+    if (!lib || internal || lib.public.includes(tag)) for (const p of componentPaths(tag)) {
+      const file = normalize(`${dir}/${p}`);
+      try { c = { file, text: this.opts.readFile(file) }; break; } catch { /* not here */ }
+    }
+    const file = c?.file ?? '';
     if (c && lib) { c.lib = lib; if (internal) c.internal = true; }
     // its kind from its markup; a component's tag in it counts by its own kind (a cycle is a body component)
     if (c) {
