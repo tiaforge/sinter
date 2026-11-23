@@ -235,7 +235,7 @@ export function check(o: CheckOptions): CheckResult {
       const s = shadowOf(unit, support, o.root, o.helpers, o.actions, { broken: false });
       mkdirSync(dirname(file), { recursive: true });
       writeFileSync(file, s.text);
-      shadows.set(resolve(file), { unit, regions: s.regions, brokenFrom: s.brokenFrom });
+      shadows.set(resolve(file), { unit, regions: s.regions, brokenFrom: s.brokenFrom, blocks: s.blocks });
     }
     return run([...shadows.keys()]).flatMap((records) => parseTsc(records, o.root, shadows, scripts));
   })();
@@ -343,7 +343,7 @@ function checkShared(o: CheckOptions, support: Support, scripts: Map<string, str
     // (a page that holds parts: its whole shadow, for where its errors are in the HTML, laid out as it was taken to be)
     const sh = p.whole ?? shadowOf(p.unit, support, o.root, o.helpers, o.actions, { name: marked, broken: false });
     if (!p.whole && (sh.prelude !== p.prelude || sh.blocks.length !== p.block.length || sh.blocks.some((b, k) => b.i !== p.block[k]!.i || b.start !== p.block[k]!.start || b.lines !== p.block[k]!.lines))) return gaveUp('a page whose parts are laid out otherwise than its whole shadow (please report)');
-    shadows.set(p.file, { unit: p.unit, regions: sh.regions, brokenFrom: sh.brokenFrom });
+    shadows.set(p.file, { unit: p.unit, regions: sh.regions, brokenFrom: sh.brokenFrom, blocks: sh.blocks });
   }
   const records = [...files.keys()].sort(pathOrder).flatMap((f) => files.get(f)!);
   if (process.env.SN_CHECK_DEBUG) {
@@ -686,11 +686,13 @@ function tscRecords(stdout: string, outDir: string): TscRecord[] {
   return out;
 }
 
-type ShadowInfo = { unit: CheckUnit; regions: Region[]; brokenFrom: number | null };
+type ShadowInfo = { unit: CheckUnit; regions: Region[]; brokenFrom: number | null; blocks: Shadow['blocks'] };
 
 /** The diagnostics of `tsc`'s records, in their order. */
 function parseTsc(records: TscRecord[], root: string, shadows: Map<string, ShadowInfo>, scripts: Map<string, string> = new Map()): Diagnostic[] {
   const out: Diagnostic[] = [];
+  /** the errors of the pages' other copies, and those of shared definitions' copies, by page and error */
+  const seen = new Set<string>(), defs = new Map<string, Diagnostic[]>();
   const more = (d: Diagnostic, r: TscRecord) => { for (const x of r.more) d.message += '\n  ' + x; };
   for (const r of records) {
     // a component's top-level `<script>`: its shadow has the file's lines and columns
@@ -707,10 +709,21 @@ function parseTsc(records: TscRecord[], root: string, shadows: Map<string, Shado
     const d = typeDiagnostic(s.unit, s.regions, r.line, r.col, r.code, r.message, root);
     if (!d) continue;
     more(d, r);
+    // (a shared definition's copy of a component's markup: reported below only where no other copy on the page is)
+    const b = s.blocks.find((x) => r.line >= x.start && r.line < x.start + x.lines);
+    if (b && s.unit.exprs[b.i]?.def) { const k = `${r.file}\0${sameError(d)}`; let l = defs.get(k); if (!l) defs.set(k, l = []); l.push(d); }
+    else seen.add(`${r.file}\0${sameError(d)}`);
     out.push(d);
   }
-  return out;
+  // a component used inside itself is inlined at its outermost use and shared below it, so its markup is on the
+  // page twice: its errors are reported once per use, by the inlined copy, as any component's (its use's chain)
+  if (!defs.size) return out;
+  const drop = new Set([...defs].flatMap(([k, l]) => (seen.has(k) ? l : [])));
+  return out.filter((d) => !drop.has(d));
 }
+
+/** An error without the chain of the use it is reported for: the same error at the same place of the same file. */
+const sameError = (d: Diagnostic) => `${d.severity} ${d.code} ${d.file}:${d.line}:${d.col} ${d.message.replace(/ \(included from [^)\n]*\)/, '')}`;
 
 /** Shortens absolute module paths in TypeScript's messages to project-relative ones. */
 export function clean(message: string, root: string): string {

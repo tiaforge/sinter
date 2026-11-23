@@ -81,6 +81,11 @@ export interface CheckExpr {
   detail?: TypeRef;
   /** the compiler reported an error in it (it may not even parse); kept for editor completion, never type-checked */
   broken?: boolean;
+  /**
+   * in the markup of a shared definition (a component used inside itself): the copy its deeper uses render, beside
+   * the copy inlined at the outermost use. Its errors are reported only where no other copy on the page reports them
+   */
+  def?: true;
 }
 
 export interface CheckResource {

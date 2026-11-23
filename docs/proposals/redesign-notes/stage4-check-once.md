@@ -10,7 +10,8 @@ Running log, branch `redesign/check-data-once` (from 09d202f). The design is
 
 - part 1 (efb3c08): a page's check unit holds a unit's part by reference;
 - part 2 (f044bce): a part's shadow is written once per build per folder, its functions taken as shared by id;
-- merge (b6f9272), and a per-page map made once (this commit).
+- merge (b6f9272), and a per-page map made once (4740398);
+- merge with the integration branch at 2a88005 (the "once per use" fix, below).
 
 Commits on `redesign/check-data-once`: efb3c08, f044bce, b6f9272, and the last one (log, numbers). Switches:
 `SN_CHECK_PARTS=0` (every page's shadow whole, as before), `SN_CHECK_PARTS_AUDIT=1` (both, compared file by file).
@@ -167,3 +168,28 @@ left out of its layout as of its whole shadow). On the merged tree the corpus is
   again without units, as before); `sinter check` (the CLI) does not place units, so it does not take parts.
 - Left: `tsc` itself (one process, not incremental: about 250 ms here, most of it TypeScript's libs); the CLI could
   place units as builds do and then take parts too.
+
+## Merged with the integration branch again (2a88005)
+
+Three more check fixes landed: de37bb3 (a component used inside itself reports each error once per use: the
+compiler marks a shared definition's copy, `CheckExpr.def`, and `parseTsc` drops a marked copy's error where an
+unmarked copy on the same page reports it, finding the expression by the shadow's `blocks`), aba9144 (the build's
+line counts errors and warnings apart), 78c8450 (an error in markup decided away is reported). The conflict was the
+`ShadowInfo` of `checkShared`, which now takes `blocks`: with parts it is given the page's whole shadow, which
+`checkShared` writes for every page with an error already, so the two rules compose without change:
+
+- `def` is set when the expression is recorded (`defWalk`), so a part carries it, and the page's flat lists (read
+  where the page has an error) have it where the copy had it.
+- The pairing is per page and error, after the records are laid out on the page's whole shadow: an error of a
+  shared function is put at the page's block before `parseTsc` sees it, whichever file (the folder's module, the
+  page) `tsc` reported it in, so a marked copy and its unmarked twin pair as when every page was written whole.
+  The corpus has the case (x-tree inlined on its pages and shared below, its unit's part placed on deep and
+  sub/more): the four duplicate reports per app are gone in the integration branch's reference and in this branch's
+  output, through parts.
+
+The corpus reference is regenerated from 2a88005 again. Checked on the merged tree: the corpus is that reference
+plain and with `SN_CHECK_PARTS_AUDIT=1`, `SN_CHECK_SHARE=0`, `SN_UNITS=0`, `SN_CHECK_PARTS=0`;
+`test/check/check-shared.test.ts` 5 passed; `npx vitest run` 2,923 passed; `SN_LINK_AUDIT`, `SN_RENDER_AUDIT`,
+`SN_ONE_PASS_AUDIT` on `test/compiler` 1,113 each; `SN_UNITS_AUDIT` 64 failures, the same tests as on 2a88005;
+render-audit (both), pass-audit: 25 builds the same; mail-audit 42 files the same; the blog's dist with the check on
+and off the same.

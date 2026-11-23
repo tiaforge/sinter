@@ -63,4 +63,46 @@ What is inside, from the CPU profiles (ms a page under the profiler, which infla
 
 ## Changes
 
-(below, one per commit)
+Numbers: `time` mode, CPU clock, the per-call distribution of each phase over a build's pages (100 blog pages, 12
+sinter-mail pages), p25 / median, the median of the A/B rounds (`pq.mjs`). The 25th percentile is the one to read:
+with the load at 20 to 26 the CPU clock of a call runs long whenever the core's sibling is busy, and the sum over a
+build moved by ±15% from one round to the next.
+
+### 1. The worklist's walk: what a row asks of its template once per evaluation, a row's scope a plain object
+
+- **A node's bindings read once** (`bindPlan`): for every node of a row's template, which of its bindings `nodesOf`
+  skips (a handler that stays, `else`, a value that is neither painted nor a text), which stops the row, which it
+  paints, and an `if`'s or `for`'s key (`instKey`), with their code. Before, every row asked all of it again for every
+  binding (`handlerOnly`'s regexes, `fixed`, `paintable`, `instKey`'s string). `known` is asked per row only for a
+  dependency on a state field: it reads the evaluation's states and the model being evaluated (`own`), which change
+  between `prerender`'s candidates; for anything else its answer is the program's. Likewise per evaluation: a choice's
+  candidates' keys (`choiceKey`, 65 strings a row on sinter-mail), a node's element (`elOf`, which searched
+  `this.paints` for every anchor), a case's props as code (a new string per row, hashed again for the table), and
+  `handlerOnly` by binding (also what `rowRenderer` asks).
+- **A row's scope** was a `Proxy` over the scope it is in, so a name read in a row went through one trap per level
+  above it. It is a plain object now, whose prototype is the evaluation's own scope (which answers its names or throws
+  `NOT`) and which holds the names of every row it is in, the innermost's last: the lookup the proxies made, in one
+  step. (A chain of objects, one per row, each the prototype of the next, was tried first: slower than the proxies at
+  depth, 4 to 8 times at 12 levels in a micro-benchmark, since V8 turns every object used as a prototype into a
+  prototype map.) Writes are not possible in either: an expression that is not a handler cannot assign (SN203), and
+  only handlers that are not evaluated are left in rows.
+- **The candidates a choice in a row does not render** were one `[prefix + key, false, deps]` each (64 a row on
+  sinter-mail, with their strings); they are one entry now (`NotRendered`), spelled out where the decisions are
+  committed (`decidedEntries`, in order) or filtered (`choose`). When the rows are rendered nothing is spelled out:
+  only the dependencies are read, and the state sites of the same dependency list are added to a loop's reads once
+  (`stateSites` was called 130,000 times a page on the same list).
+
+What is decided is unchanged: the same questions in the same order, the same evaluations; the benchmark apps, the
+examples and sinter-mail's 16 pages are byte for byte the base's. Tests: `test/compiler/evaluation.test.ts` (nested
+rows whose names shadow each other, a row named `constructor`, choices in rows rendered and not and through one kept
+template, `decidedEntries`).
+
+| ms a call, p25 / median | base | 1 |
+| --- | ---: | ---: |
+| blog static, `decideFor` | 6.83 / 8.96 | 6.48 / 7.92 |
+| blog static, `compile()` | 11.09 / 13.04 | 9.74 / 11.69 |
+| mail gen, pass-1 `prerender` | 288 / 324 | 225 / 266 |
+| mail gen, `compile()` | 366 / 425 | 285 / 347 |
+| mail API, pass-1 `prerender` | 11.5 / 13.4 | 11.8 / 13.8 (nothing to walk there) |
+
+(3 rounds of the blog, 2 of each sinter-mail app.)

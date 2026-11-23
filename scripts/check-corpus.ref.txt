@@ -3,7 +3,7 @@ BUILD FAILED
 Build failed with 1 error:
 
 [plugin sinter]
-RolldownError: sinter check: 41 type error(s)
+RolldownError: sinter check: 34 type error(s), 2 warning(s)
 <app>/src/components/x-para.html:1:64 error SN208 type-error: Property 'txet' does not exist on type 'Para'. (TS2339) (included from blocks.html:1)
   docs: `npx sinter docs SN208`, https://github.com/tiaforge/sinter/blob/main/docs/diagnostics.md#sn208-type-error
 <app>/blocks.html:7:181 warning SN538 unreachable-candidate: `x-quote` can never be chosen here: `b.type` cannot be `"quote"` where this `<sn-component>` is (a branch around it rules it out)
@@ -23,11 +23,7 @@ RolldownError: sinter check: 41 type error(s)
   docs: `npx sinter docs SN208`, https://github.com/tiaforge/sinter/blob/main/docs/diagnostics.md#sn208-type-error
 <app>/blocks.html:13:95 error SN208 type-error: Property 'lable' does not exist on type 'Item'. Did you mean 'label'? (TS2551)
   docs: `npx sinter docs SN208`, https://github.com/tiaforge/sinter/blob/main/docs/diagnostics.md#sn208-type-error
-<app>/blocks.html:13:95 error SN208 type-error: Property 'lable' does not exist on type 'Item'. Did you mean 'label'? (TS2551)
-  docs: `npx sinter docs SN208`, https://github.com/tiaforge/sinter/blob/main/docs/diagnostics.md#sn208-type-error
 <app>/src/components/x-tree.html:2:46 error SN208 type-error: Property 'lable' does not exist on type 'Node'. Did you mean 'label'? (TS2551) (included from deep.html:7)
-  docs: `npx sinter docs SN208`, https://github.com/tiaforge/sinter/blob/main/docs/diagnostics.md#sn208-type-error
-<app>/src/components/x-tree.html:2:46 error SN208 type-error: Property 'lable' does not exist on type 'Node'. Did you mean 'label'? (TS2551) (included from deep.html:1)
   docs: `npx sinter docs SN208`, https://github.com/tiaforge/sinter/blob/main/docs/diagnostics.md#sn208-type-error
 <app>/src/components/x-res.html:2:30 error SN208 type-error: Property 'name' does not exist on type 'string'. (TS2339) (included from deep.html:8)
   docs: `npx sinter docs SN208`, https://github.com/tiaforge/sinter/blob/main/docs/diagnostics.md#sn208-type-error
@@ -53,8 +49,6 @@ RolldownError: sinter check: 41 type error(s)
   docs: `npx sinter docs SN208`, https://github.com/tiaforge/sinter/blob/main/docs/diagnostics.md#sn208-type-error
 <app>/src/components/x-tree.html:2:46 error SN208 type-error: Property 'lable' does not exist on type 'Node'. Did you mean 'label'? (TS2551) (included from index.html:15)
   docs: `npx sinter docs SN208`, https://github.com/tiaforge/sinter/blob/main/docs/diagnostics.md#sn208-type-error
-<app>/src/components/x-tree.html:2:46 error SN208 type-error: Property 'lable' does not exist on type 'Node'. Did you mean 'label'? (TS2551) (included from index.html:1)
-  docs: `npx sinter docs SN208`, https://github.com/tiaforge/sinter/blob/main/docs/diagnostics.md#sn208-type-error
 <app>/src/components/x-clock.html:7:25 error SN208 type-error: Type 'string' is not assignable to type 'number'. (TS2322)
   docs: `npx sinter docs SN208`, https://github.com/tiaforge/sinter/blob/main/docs/diagnostics.md#sn208-type-error
 <app>/src/components/x-para.html:1:64 error SN208 type-error: Property 'txet' does not exist on type 'Para'. (TS2339) (included from blocks.html:1)
@@ -76,11 +70,7 @@ RolldownError: sinter check: 41 type error(s)
   docs: `npx sinter docs SN208`, https://github.com/tiaforge/sinter/blob/main/docs/diagnostics.md#sn208-type-error
 <app>/sub/blocks.html:13:95 error SN208 type-error: Property 'lable' does not exist on type 'Item'. Did you mean 'label'? (TS2551)
   docs: `npx sinter docs SN208`, https://github.com/tiaforge/sinter/blob/main/docs/diagnostics.md#sn208-type-error
-<app>/sub/blocks.html:13:95 error SN208 type-error: Property 'lable' does not exist on type 'Item'. Did you mean 'label'? (TS2551)
-  docs: `npx sinter docs SN208`, https://github.com/tiaforge/sinter/blob/main/docs/diagnostics.md#sn208-type-error
 <app>/src/components/x-tree.html:2:46 error SN208 type-error: Property 'lable' does not exist on type 'Node'. Did you mean 'label'? (TS2551) (included from more.html:6)
-  docs: `npx sinter docs SN208`, https://github.com/tiaforge/sinter/blob/main/docs/diagnostics.md#sn208-type-error
-<app>/src/components/x-tree.html:2:46 error SN208 type-error: Property 'lable' does not exist on type 'Node'. Did you mean 'label'? (TS2551) (included from more.html:1)
   docs: `npx sinter docs SN208`, https://github.com/tiaforge/sinter/blob/main/docs/diagnostics.md#sn208-type-error
 <app>/sub/more.html:7:43 error SN208 type-error: Type 'string' is not assignable to type 'number'. (TS2322)
   docs: `npx sinter docs SN208`, https://github.com/tiaforge/sinter/blob/main/docs/diagnostics.md#sn208-type-error
@@ -118,13 +108,7 @@ blocks.html:12:68 error SN208 type-error: Property 'size' does not exist on type
 blocks.html:13:95 error SN208 type-error: Property 'lable' does not exist on type 'Item'. Did you mean 'label'? (TS2551)
   docs: `npx sinter docs SN208`, https://github.com/tiaforge/sinter/blob/main/docs/diagnostics.md#sn208-type-error
 
-blocks.html:13:95 error SN208 type-error: Property 'lable' does not exist on type 'Item'. Did you mean 'label'? (TS2551)
-  docs: `npx sinter docs SN208`, https://github.com/tiaforge/sinter/blob/main/docs/diagnostics.md#sn208-type-error
-
 src/components/x-tree.html:2:46 error SN208 type-error: Property 'lable' does not exist on type 'Node'. Did you mean 'label'? (TS2551) (included from deep.html:7)
-  docs: `npx sinter docs SN208`, https://github.com/tiaforge/sinter/blob/main/docs/diagnostics.md#sn208-type-error
-
-src/components/x-tree.html:2:46 error SN208 type-error: Property 'lable' does not exist on type 'Node'. Did you mean 'label'? (TS2551) (included from deep.html:1)
   docs: `npx sinter docs SN208`, https://github.com/tiaforge/sinter/blob/main/docs/diagnostics.md#sn208-type-error
 
 src/components/x-res.html:2:30 error SN208 type-error: Property 'name' does not exist on type 'string'. (TS2339) (included from deep.html:8)
@@ -163,9 +147,6 @@ index.html:13:31 error SN208 type-error: Property 'push' does not exist on type 
 src/components/x-tree.html:2:46 error SN208 type-error: Property 'lable' does not exist on type 'Node'. Did you mean 'label'? (TS2551) (included from index.html:15)
   docs: `npx sinter docs SN208`, https://github.com/tiaforge/sinter/blob/main/docs/diagnostics.md#sn208-type-error
 
-src/components/x-tree.html:2:46 error SN208 type-error: Property 'lable' does not exist on type 'Node'. Did you mean 'label'? (TS2551) (included from index.html:1)
-  docs: `npx sinter docs SN208`, https://github.com/tiaforge/sinter/blob/main/docs/diagnostics.md#sn208-type-error
-
 src/components/x-clock.html:7:25 error SN208 type-error: Type 'string' is not assignable to type 'number'. (TS2322)
   docs: `npx sinter docs SN208`, https://github.com/tiaforge/sinter/blob/main/docs/diagnostics.md#sn208-type-error
 
@@ -197,13 +178,7 @@ sub/blocks.html:12:68 error SN208 type-error: Property 'size' does not exist on 
 sub/blocks.html:13:95 error SN208 type-error: Property 'lable' does not exist on type 'Item'. Did you mean 'label'? (TS2551)
   docs: `npx sinter docs SN208`, https://github.com/tiaforge/sinter/blob/main/docs/diagnostics.md#sn208-type-error
 
-sub/blocks.html:13:95 error SN208 type-error: Property 'lable' does not exist on type 'Item'. Did you mean 'label'? (TS2551)
-  docs: `npx sinter docs SN208`, https://github.com/tiaforge/sinter/blob/main/docs/diagnostics.md#sn208-type-error
-
 src/components/x-tree.html:2:46 error SN208 type-error: Property 'lable' does not exist on type 'Node'. Did you mean 'label'? (TS2551) (included from more.html:6)
-  docs: `npx sinter docs SN208`, https://github.com/tiaforge/sinter/blob/main/docs/diagnostics.md#sn208-type-error
-
-src/components/x-tree.html:2:46 error SN208 type-error: Property 'lable' does not exist on type 'Node'. Did you mean 'label'? (TS2551) (included from more.html:1)
   docs: `npx sinter docs SN208`, https://github.com/tiaforge/sinter/blob/main/docs/diagnostics.md#sn208-type-error
 
 sub/more.html:7:43 error SN208 type-error: Type 'string' is not assignable to type 'number'. (TS2322)
@@ -215,7 +190,7 @@ src/components/x-badge.html:2:46 error SN208 type-error: Property 'toFixed' does
 sub/more.html:8:67 error SN208 type-error: Property 'lenght' does not exist on type 'string'. Did you mean 'length'? (TS2551)
   docs: `npx sinter docs SN208`, https://github.com/tiaforge/sinter/blob/main/docs/diagnostics.md#sn208-type-error
 
-sinter check: 5 page(s), 39 error(s), 2 warning(s); 4 of 4 resources typed
+sinter check: 5 page(s), 34 error(s), 2 warning(s); 4 of 4 resources typed
 to try a page and test what it does without a browser: npx sinter render index.html --api http://localhost:<port> --click '<selector>' (your running API, or --api mocks.json (routes such as { "GET /api/x": … }); prints the requests, the page and what each step changed; sinter render --help)
 ---- stderr
 
@@ -260,13 +235,7 @@ blocks.html:12:68 error SN208 type-error: Property 'size' does not exist on type
 blocks.html:13:95 error SN208 type-error: Property 'lable' does not exist on type 'Item'. Did you mean 'label'? (TS2551)
   docs: `npx sinter docs SN208`, https://github.com/tiaforge/sinter/blob/main/docs/diagnostics.md#sn208-type-error
 
-blocks.html:13:95 error SN208 type-error: Property 'lable' does not exist on type 'Item'. Did you mean 'label'? (TS2551)
-  docs: `npx sinter docs SN208`, https://github.com/tiaforge/sinter/blob/main/docs/diagnostics.md#sn208-type-error
-
 src/components/x-tree.html:2:46 error SN208 type-error: Property 'lable' does not exist on type 'Node'. Did you mean 'label'? (TS2551) (included from deep.html:7)
-  docs: `npx sinter docs SN208`, https://github.com/tiaforge/sinter/blob/main/docs/diagnostics.md#sn208-type-error
-
-src/components/x-tree.html:2:46 error SN208 type-error: Property 'lable' does not exist on type 'Node'. Did you mean 'label'? (TS2551) (included from deep.html:1)
   docs: `npx sinter docs SN208`, https://github.com/tiaforge/sinter/blob/main/docs/diagnostics.md#sn208-type-error
 
 src/components/x-res.html:2:30 error SN208 type-error: Property 'name' does not exist on type 'string'. (TS2339) (included from deep.html:8)
@@ -305,9 +274,6 @@ index.html:13:31 error SN208 type-error: Property 'push' does not exist on type 
 src/components/x-tree.html:2:46 error SN208 type-error: Property 'lable' does not exist on type 'Node'. Did you mean 'label'? (TS2551) (included from index.html:15)
   docs: `npx sinter docs SN208`, https://github.com/tiaforge/sinter/blob/main/docs/diagnostics.md#sn208-type-error
 
-src/components/x-tree.html:2:46 error SN208 type-error: Property 'lable' does not exist on type 'Node'. Did you mean 'label'? (TS2551) (included from index.html:1)
-  docs: `npx sinter docs SN208`, https://github.com/tiaforge/sinter/blob/main/docs/diagnostics.md#sn208-type-error
-
 src/components/x-clock.html:7:25 error SN208 type-error: Type 'string' is not assignable to type 'number'. (TS2322)
   docs: `npx sinter docs SN208`, https://github.com/tiaforge/sinter/blob/main/docs/diagnostics.md#sn208-type-error
 
@@ -339,13 +305,7 @@ sub/blocks.html:12:68 error SN208 type-error: Property 'size' does not exist on 
 sub/blocks.html:13:95 error SN208 type-error: Property 'lable' does not exist on type 'Item'. Did you mean 'label'? (TS2551)
   docs: `npx sinter docs SN208`, https://github.com/tiaforge/sinter/blob/main/docs/diagnostics.md#sn208-type-error
 
-sub/blocks.html:13:95 error SN208 type-error: Property 'lable' does not exist on type 'Item'. Did you mean 'label'? (TS2551)
-  docs: `npx sinter docs SN208`, https://github.com/tiaforge/sinter/blob/main/docs/diagnostics.md#sn208-type-error
-
 src/components/x-tree.html:2:46 error SN208 type-error: Property 'lable' does not exist on type 'Node'. Did you mean 'label'? (TS2551) (included from more.html:6)
-  docs: `npx sinter docs SN208`, https://github.com/tiaforge/sinter/blob/main/docs/diagnostics.md#sn208-type-error
-
-src/components/x-tree.html:2:46 error SN208 type-error: Property 'lable' does not exist on type 'Node'. Did you mean 'label'? (TS2551) (included from more.html:1)
   docs: `npx sinter docs SN208`, https://github.com/tiaforge/sinter/blob/main/docs/diagnostics.md#sn208-type-error
 
 sub/more.html:7:43 error SN208 type-error: Type 'string' is not assignable to type 'number'. (TS2322)
@@ -357,7 +317,7 @@ src/components/x-badge.html:2:46 error SN208 type-error: Property 'toFixed' does
 sub/more.html:8:67 error SN208 type-error: Property 'lenght' does not exist on type 'string'. Did you mean 'length'? (TS2551)
   docs: `npx sinter docs SN208`, https://github.com/tiaforge/sinter/blob/main/docs/diagnostics.md#sn208-type-error
 
-sinter check: 6 page(s), 40 error(s), 2 warning(s); 4 of 4 resources typed
+sinter check: 6 page(s), 35 error(s), 2 warning(s); 4 of 4 resources typed
 to try a page and test what it does without a browser: npx sinter render index.html --api http://localhost:<port> --click '<selector>' (your running API, or --api mocks.json (routes such as { "GET /api/x": … }); prints the requests, the page and what each step changed; sinter render --help)
 ---- stderr
 
@@ -375,7 +335,7 @@ BUILD FAILED
 Build failed with 1 error:
 
 [plugin sinter]
-RolldownError: sinter check: 41 type error(s)
+RolldownError: sinter check: 34 type error(s), 2 warning(s)
 <app>/src/components/x-para.html:1:64 error SN208 type-error: Property 'txet' does not exist on type 'Para'. (TS2339) (included from blocks.html:1)
   docs: `npx sinter docs SN208`, https://github.com/tiaforge/sinter/blob/main/docs/diagnostics.md#sn208-type-error
 <app>/blocks.html:7:181 warning SN538 unreachable-candidate: `x-quote` can never be chosen here: `b.type` cannot be `"quote"` where this `<sn-component>` is (a branch around it rules it out)
@@ -395,11 +355,7 @@ RolldownError: sinter check: 41 type error(s)
   docs: `npx sinter docs SN208`, https://github.com/tiaforge/sinter/blob/main/docs/diagnostics.md#sn208-type-error
 <app>/blocks.html:13:95 error SN208 type-error: Property 'lable' does not exist on type 'Item'. Did you mean 'label'? (TS2551)
   docs: `npx sinter docs SN208`, https://github.com/tiaforge/sinter/blob/main/docs/diagnostics.md#sn208-type-error
-<app>/blocks.html:13:95 error SN208 type-error: Property 'lable' does not exist on type 'Item'. Did you mean 'label'? (TS2551)
-  docs: `npx sinter docs SN208`, https://github.com/tiaforge/sinter/blob/main/docs/diagnostics.md#sn208-type-error
 <app>/src/components/x-tree.html:2:46 error SN208 type-error: Property 'lable' does not exist on type 'Node'. Did you mean 'label'? (TS2551) (included from deep.html:7)
-  docs: `npx sinter docs SN208`, https://github.com/tiaforge/sinter/blob/main/docs/diagnostics.md#sn208-type-error
-<app>/src/components/x-tree.html:2:46 error SN208 type-error: Property 'lable' does not exist on type 'Node'. Did you mean 'label'? (TS2551) (included from deep.html:1)
   docs: `npx sinter docs SN208`, https://github.com/tiaforge/sinter/blob/main/docs/diagnostics.md#sn208-type-error
 <app>/src/components/x-res.html:2:30 error SN208 type-error: Property 'name' does not exist on type 'string'. (TS2339) (included from deep.html:8)
   docs: `npx sinter docs SN208`, https://github.com/tiaforge/sinter/blob/main/docs/diagnostics.md#sn208-type-error
@@ -425,8 +381,6 @@ RolldownError: sinter check: 41 type error(s)
   docs: `npx sinter docs SN208`, https://github.com/tiaforge/sinter/blob/main/docs/diagnostics.md#sn208-type-error
 <app>/src/components/x-tree.html:2:46 error SN208 type-error: Property 'lable' does not exist on type 'Node'. Did you mean 'label'? (TS2551) (included from index.html:15)
   docs: `npx sinter docs SN208`, https://github.com/tiaforge/sinter/blob/main/docs/diagnostics.md#sn208-type-error
-<app>/src/components/x-tree.html:2:46 error SN208 type-error: Property 'lable' does not exist on type 'Node'. Did you mean 'label'? (TS2551) (included from index.html:1)
-  docs: `npx sinter docs SN208`, https://github.com/tiaforge/sinter/blob/main/docs/diagnostics.md#sn208-type-error
 <app>/src/components/x-para.html:1:64 error SN208 type-error: Property 'txet' does not exist on type 'Para'. (TS2339) (included from blocks.html:1)
   docs: `npx sinter docs SN208`, https://github.com/tiaforge/sinter/blob/main/docs/diagnostics.md#sn208-type-error
 <app>/sub/blocks.html:7:181 warning SN538 unreachable-candidate: `x-quote` can never be chosen here: `b.type` cannot be `"quote"` where this `<sn-component>` is (a branch around it rules it out)
@@ -446,11 +400,7 @@ RolldownError: sinter check: 41 type error(s)
   docs: `npx sinter docs SN208`, https://github.com/tiaforge/sinter/blob/main/docs/diagnostics.md#sn208-type-error
 <app>/sub/blocks.html:13:95 error SN208 type-error: Property 'lable' does not exist on type 'Item'. Did you mean 'label'? (TS2551)
   docs: `npx sinter docs SN208`, https://github.com/tiaforge/sinter/blob/main/docs/diagnostics.md#sn208-type-error
-<app>/sub/blocks.html:13:95 error SN208 type-error: Property 'lable' does not exist on type 'Item'. Did you mean 'label'? (TS2551)
-  docs: `npx sinter docs SN208`, https://github.com/tiaforge/sinter/blob/main/docs/diagnostics.md#sn208-type-error
 <app>/src/components/x-tree.html:2:46 error SN208 type-error: Property 'lable' does not exist on type 'Node'. Did you mean 'label'? (TS2551) (included from more.html:6)
-  docs: `npx sinter docs SN208`, https://github.com/tiaforge/sinter/blob/main/docs/diagnostics.md#sn208-type-error
-<app>/src/components/x-tree.html:2:46 error SN208 type-error: Property 'lable' does not exist on type 'Node'. Did you mean 'label'? (TS2551) (included from more.html:1)
   docs: `npx sinter docs SN208`, https://github.com/tiaforge/sinter/blob/main/docs/diagnostics.md#sn208-type-error
 <app>/sub/more.html:7:43 error SN208 type-error: Type 'string' is not assignable to type 'number'. (TS2322)
   docs: `npx sinter docs SN208`, https://github.com/tiaforge/sinter/blob/main/docs/diagnostics.md#sn208-type-error
@@ -490,13 +440,7 @@ blocks.html:12:68 error SN208 type-error: Property 'size' does not exist on type
 blocks.html:13:95 error SN208 type-error: Property 'lable' does not exist on type 'Item'. Did you mean 'label'? (TS2551)
   docs: `npx sinter docs SN208`, https://github.com/tiaforge/sinter/blob/main/docs/diagnostics.md#sn208-type-error
 
-blocks.html:13:95 error SN208 type-error: Property 'lable' does not exist on type 'Item'. Did you mean 'label'? (TS2551)
-  docs: `npx sinter docs SN208`, https://github.com/tiaforge/sinter/blob/main/docs/diagnostics.md#sn208-type-error
-
 src/components/x-tree.html:2:46 error SN208 type-error: Property 'lable' does not exist on type 'Node'. Did you mean 'label'? (TS2551) (included from deep.html:7)
-  docs: `npx sinter docs SN208`, https://github.com/tiaforge/sinter/blob/main/docs/diagnostics.md#sn208-type-error
-
-src/components/x-tree.html:2:46 error SN208 type-error: Property 'lable' does not exist on type 'Node'. Did you mean 'label'? (TS2551) (included from deep.html:1)
   docs: `npx sinter docs SN208`, https://github.com/tiaforge/sinter/blob/main/docs/diagnostics.md#sn208-type-error
 
 src/components/x-res.html:2:30 error SN208 type-error: Property 'name' does not exist on type 'string'. (TS2339) (included from deep.html:8)
@@ -535,9 +479,6 @@ index.html:13:31 error SN208 type-error: Property 'push' does not exist on type 
 src/components/x-tree.html:2:46 error SN208 type-error: Property 'lable' does not exist on type 'Node'. Did you mean 'label'? (TS2551) (included from index.html:15)
   docs: `npx sinter docs SN208`, https://github.com/tiaforge/sinter/blob/main/docs/diagnostics.md#sn208-type-error
 
-src/components/x-tree.html:2:46 error SN208 type-error: Property 'lable' does not exist on type 'Node'. Did you mean 'label'? (TS2551) (included from index.html:1)
-  docs: `npx sinter docs SN208`, https://github.com/tiaforge/sinter/blob/main/docs/diagnostics.md#sn208-type-error
-
 src/components/x-para.html:1:64 error SN208 type-error: Property 'txet' does not exist on type 'Para'. (TS2339) (included from blocks.html:1)
   docs: `npx sinter docs SN208`, https://github.com/tiaforge/sinter/blob/main/docs/diagnostics.md#sn208-type-error
 
@@ -566,13 +507,7 @@ sub/blocks.html:12:68 error SN208 type-error: Property 'size' does not exist on 
 sub/blocks.html:13:95 error SN208 type-error: Property 'lable' does not exist on type 'Item'. Did you mean 'label'? (TS2551)
   docs: `npx sinter docs SN208`, https://github.com/tiaforge/sinter/blob/main/docs/diagnostics.md#sn208-type-error
 
-sub/blocks.html:13:95 error SN208 type-error: Property 'lable' does not exist on type 'Item'. Did you mean 'label'? (TS2551)
-  docs: `npx sinter docs SN208`, https://github.com/tiaforge/sinter/blob/main/docs/diagnostics.md#sn208-type-error
-
 src/components/x-tree.html:2:46 error SN208 type-error: Property 'lable' does not exist on type 'Node'. Did you mean 'label'? (TS2551) (included from more.html:6)
-  docs: `npx sinter docs SN208`, https://github.com/tiaforge/sinter/blob/main/docs/diagnostics.md#sn208-type-error
-
-src/components/x-tree.html:2:46 error SN208 type-error: Property 'lable' does not exist on type 'Node'. Did you mean 'label'? (TS2551) (included from more.html:1)
   docs: `npx sinter docs SN208`, https://github.com/tiaforge/sinter/blob/main/docs/diagnostics.md#sn208-type-error
 
 sub/more.html:7:43 error SN208 type-error: Type 'string' is not assignable to type 'number'. (TS2322)
@@ -587,7 +522,7 @@ sub/more.html:8:67 error SN208 type-error: Property 'lenght' does not exist on t
 src/components/x-clock.html:7:25 error SN208 type-error: Type 'string' is not assignable to type 'number'. (TS2322)
   docs: `npx sinter docs SN208`, https://github.com/tiaforge/sinter/blob/main/docs/diagnostics.md#sn208-type-error
 
-sinter check: 5 page(s), 39 error(s), 2 warning(s); 4 of 4 resources typed
+sinter check: 5 page(s), 34 error(s), 2 warning(s); 4 of 4 resources typed
 to try a page and test what it does without a browser: npx sinter render index.html --api http://localhost:<port> --click '<selector>' (your running API, or --api mocks.json (routes such as { "GET /api/x": … }); prints the requests, the page and what each step changed; sinter render --help)
 ---- stderr
 
@@ -596,7 +531,7 @@ BUILD FAILED
 Build failed with 1 error:
 
 [plugin sinter]
-RolldownError: sinter check: 30 type error(s)
+RolldownError: sinter check: 28 type error(s), 0 warning(s)
 <app>/blocks.html:5:52 error SN208 type-error: Cannot find name 'Block'. Did you mean 'Lock'? (TS2552)
   docs: `npx sinter docs SN208`, https://github.com/tiaforge/sinter/blob/main/docs/diagnostics.md#sn208-type-error
 <app>/blocks.html:9:83 error SN208 type-error: Property 'toFixed' does not exist on type 'string'. Did you mean 'fixed'? (TS2551)
@@ -610,8 +545,6 @@ RolldownError: sinter check: 30 type error(s)
 <app>/blocks.html:12:28 error SN208 type-error: Type 'number' is not assignable to type 'string'. (TS2322)
   docs: `npx sinter docs SN208`, https://github.com/tiaforge/sinter/blob/main/docs/diagnostics.md#sn208-type-error
 <app>/blocks.html:12:68 error SN208 type-error: Property 'size' does not exist on type '{ id: number; label: string; children: { id: number; label: string; }[]; }[]'. (TS2339)
-  docs: `npx sinter docs SN208`, https://github.com/tiaforge/sinter/blob/main/docs/diagnostics.md#sn208-type-error
-<app>/blocks.html:13:95 error SN208 type-error: Property 'lable' does not exist on type 'Item'. Did you mean 'label'? (TS2551)
   docs: `npx sinter docs SN208`, https://github.com/tiaforge/sinter/blob/main/docs/diagnostics.md#sn208-type-error
 <app>/blocks.html:13:95 error SN208 type-error: Property 'lable' does not exist on type 'Item'. Did you mean 'label'? (TS2551)
   docs: `npx sinter docs SN208`, https://github.com/tiaforge/sinter/blob/main/docs/diagnostics.md#sn208-type-error
@@ -649,8 +582,6 @@ RolldownError: sinter check: 30 type error(s)
   docs: `npx sinter docs SN208`, https://github.com/tiaforge/sinter/blob/main/docs/diagnostics.md#sn208-type-error
 <app>/sub/blocks.html:13:95 error SN208 type-error: Property 'lable' does not exist on type 'Item'. Did you mean 'label'? (TS2551)
   docs: `npx sinter docs SN208`, https://github.com/tiaforge/sinter/blob/main/docs/diagnostics.md#sn208-type-error
-<app>/sub/blocks.html:13:95 error SN208 type-error: Property 'lable' does not exist on type 'Item'. Did you mean 'label'? (TS2551)
-  docs: `npx sinter docs SN208`, https://github.com/tiaforge/sinter/blob/main/docs/diagnostics.md#sn208-type-error
 <app>/sub/more.html:7:43 error SN208 type-error: Type 'string' is not assignable to type 'number'. (TS2322)
   docs: `npx sinter docs SN208`, https://github.com/tiaforge/sinter/blob/main/docs/diagnostics.md#sn208-type-error
 <app>/src/components/x-badge.html:2:46 error SN208 type-error: Property 'toFixed' does not exist on type 'string'. Did you mean 'fixed'? (TS2551) (included from more.html:7)
@@ -678,9 +609,6 @@ blocks.html:12:28 error SN208 type-error: Type 'number' is not assignable to typ
   docs: `npx sinter docs SN208`, https://github.com/tiaforge/sinter/blob/main/docs/diagnostics.md#sn208-type-error
 
 blocks.html:12:68 error SN208 type-error: Property 'size' does not exist on type '{ id: number; label: string; children: { id: number; label: string; }[]; }[]'. (TS2339)
-  docs: `npx sinter docs SN208`, https://github.com/tiaforge/sinter/blob/main/docs/diagnostics.md#sn208-type-error
-
-blocks.html:13:95 error SN208 type-error: Property 'lable' does not exist on type 'Item'. Did you mean 'label'? (TS2551)
   docs: `npx sinter docs SN208`, https://github.com/tiaforge/sinter/blob/main/docs/diagnostics.md#sn208-type-error
 
 blocks.html:13:95 error SN208 type-error: Property 'lable' does not exist on type 'Item'. Did you mean 'label'? (TS2551)
@@ -737,9 +665,6 @@ sub/blocks.html:12:68 error SN208 type-error: Property 'size' does not exist on 
 sub/blocks.html:13:95 error SN208 type-error: Property 'lable' does not exist on type 'Item'. Did you mean 'label'? (TS2551)
   docs: `npx sinter docs SN208`, https://github.com/tiaforge/sinter/blob/main/docs/diagnostics.md#sn208-type-error
 
-sub/blocks.html:13:95 error SN208 type-error: Property 'lable' does not exist on type 'Item'. Did you mean 'label'? (TS2551)
-  docs: `npx sinter docs SN208`, https://github.com/tiaforge/sinter/blob/main/docs/diagnostics.md#sn208-type-error
-
 sub/more.html:7:43 error SN208 type-error: Type 'string' is not assignable to type 'number'. (TS2322)
   docs: `npx sinter docs SN208`, https://github.com/tiaforge/sinter/blob/main/docs/diagnostics.md#sn208-type-error
 
@@ -749,7 +674,7 @@ src/components/x-badge.html:2:46 error SN208 type-error: Property 'toFixed' does
 sub/more.html:8:67 error SN208 type-error: Property 'lenght' does not exist on type 'string'. Did you mean 'length'? (TS2551)
   docs: `npx sinter docs SN208`, https://github.com/tiaforge/sinter/blob/main/docs/diagnostics.md#sn208-type-error
 
-sinter check: 5 page(s), 30 error(s), 0 warning(s); 4 of 4 resources typed
+sinter check: 5 page(s), 28 error(s), 0 warning(s); 4 of 4 resources typed
 to try a page and test what it does without a browser: npx sinter render index.html --api http://localhost:<port> --click '<selector>' (your running API, or --api mocks.json (routes such as { "GET /api/x": … }); prints the requests, the page and what each step changed; sinter render --help)
 ---- stderr
 
