@@ -271,7 +271,7 @@ export interface CompileOptions {
   overLimit?: Map<string, number>;
   /**
    * internal, set by `compileParts` for its second pass: the rows of unrolled loops the first pass rendered from its
-   * compiled templates (`renderRows`), by the loop's key (as `unrolled`): spliced in, not compiled again
+   * compiled templates (`rowRenderer`), by the loop's key (as `unrolled`): spliced in, not compiled again
    */
   rendered?: Map<string, RenderedRows>;
   /**
@@ -1534,11 +1534,11 @@ class Compiler {
   private readonly pointOf = new Map<NodeDef, { el: P5Element; group: ChoiceGroup | null; top: boolean; pick: { code: string; deps: PathRef[] } | null }>();
   /** bindings `dropConstants` left out: constant for good */
   private readonly dropped = new Set<Binding>();
-  /** the first pass: the rows of each unrolled loop rendered from its compiled templates, by its key, for the second (`renderRows`) */
+  /** the first pass: the rows of each unrolled loop rendered from its compiled templates, by its key, for the second (`rowRenderer`) */
   readonly rendered = new Map<string, RenderedRows>();
-  /** the diagnostics the walk reported in each template's content (its nested templates' too), by template: rows it renders are not rendered (`renderRows`) */
+  /** the diagnostics the walk reported in each template's content (its nested templates' too), by template: rows it renders are not rendered (`rowRenderer`) */
   private readonly tplDiags = new Map<number, number>();
-  /** a `data-sn-if` or `data-sn-for` template's attribute as written, before the walk strips it (`renderRows`: what the second pass folds) */
+  /** a `data-sn-if` or `data-sn-for` template's attribute as written, before the walk strips it (`rowRenderer`: what the second pass folds) */
   private readonly snSource = new WeakMap<P5Element, string>();
   /** the second pass: the top elements of rendered rows (`RenderedRows`), the first of each block with what the walk does for it */
   private readonly renderedAt = new WeakMap<P5Element, { tpl: P5Element; list: string; offset: number; rows: RenderedRows } | null>();
@@ -5091,7 +5091,7 @@ class Compiler {
         lastIf = null;
         continue;
       }
-      // rows the first pass rendered (`renderRows`): compiled there; what their walk would do is done at the first (the
+      // rows the first pass rendered (`rowRenderer`): compiled there; what their walk would do is done at the first (the
       // loop's list compiled for its diagnostics, at the first row element; the ids their bindings would have taken)
       if (this.renderedAt.has(child)) {
         const r = this.renderedAt.get(child);
@@ -8200,9 +8200,8 @@ class Compiler {
    * instances per page, any list's rows counted (`SN536` past it, at the loop or the tree that crosses it).
    */
   worklist(fnOf: Map<string, ($: unknown) => unknown>, known: (deps: string[]) => boolean, fixed: (ds: PathRef[] | undefined) => boolean, schemes: Set<string>, ROW: Set<string>) {
-    // (`texts`, `picks`, `props`: what rendering the rows needs besides the paints, `renderRows`: a text node's value, the case a
-    // tree placement renders, a choice's case's props; recorded only when rows are rendered)
-    type Found = { unrolls: Array<[string, unknown[], PathRef[] | undefined]>; decided: Array<[string, boolean, PathRef[] | undefined]>; paints: Array<[Binding, string, ConstantWrite | null]>; texts: Array<[Binding, string, unknown]>; picks: Array<[NodeDef, string, number]>; props: Array<[string, unknown]>; rows: number; over?: true };
+    // (`recs`: the top rows of a loop as `rowRenderer` reads them, `RowRec`; recorded only when rows are rendered)
+    type Found = { unrolls: Array<[string, unknown[], PathRef[] | undefined]>; decided: Array<[string, boolean, PathRef[] | undefined]>; paints: Array<[Binding, string, ConstantWrite | null]>; recs?: RowRec[]; rows: number; over?: true };
     const rendering = renderOn() && !this.opts.dev;
     /** `pick`: a choice's case expanded (decided true), else a loop unrolled (`tid`, its rows' template) */
     const pending = new Map<string, { items: unknown[]; d: PathRef[] | undefined; found: Found; pick?: true; el: P5Element; tid?: number } | null>();
@@ -8247,24 +8246,27 @@ class Compiler {
       return u === FAIL ? null : { keys, picked: typeof u === 'string' && keys.has(u) ? u : null };
     };
     /** a choice's case, at `key`: its definition over its props (one row), when that is static markup */
-    const expandCase = (point: NonNullable<ReturnType<typeof this.pointOf.get>>, name: string, key: string, sc: object, prefix: string, out: Found): boolean => {
+    const expandCase = (point: NonNullable<ReturnType<typeof this.pointOf.get>>, name: string, key: string, sc: object, prefix: string, out: Found, rec?: RowRec, n?: NodeDef): boolean => {
       const c = point.group!.cases.find((x) => x.name === name), t = c && this.templates[c.tid];
       const props = c ? run(sc, `($) => (${c.props})`) : FAIL;
       if (!t?.item || props === FAIL || !plainData(props)) return false;
       out.decided.push([prefix + key, true, point.pick!.deps]);
-      if (rendering) out.props.push([prefix + key, props]);
-      return rowsOf(t, [props], prefix + key, sc, out);
+      const recs: RowRec[] | undefined = rec ? [] : undefined;
+      if (rec) rec.set(n!, { name, tid: c!.tid, props, rec: recs });
+      return rowsOf(t, [props], prefix + key, sc, out, recs);
     };
-    const rowsOf = (t: TemplateDef, items: unknown[], key: string, sc: object, out: Found): boolean => {
+    const rowsOf = (t: TemplateDef, items: unknown[], key: string, sc: object, out: Found, recs?: RowRec[]): boolean => {
       if ((out.rows += items.length) > left) { out.over = true; return false; }
       for (let k = 0; k < items.length; k++) {
         const item = deepFreeze({ v: structuredClone(items[k]) }).v;
-        if (!nodesOf(t.nodes, rowScope(sc, t, item, k), `${key}#${k}/`, out)) return false;
+        const rec: RowRec | undefined = recs ? new Map([[ROW_ITEM, item]]) : undefined;
+        if (rec) recs!.push(rec);
+        if (!nodesOf(t.nodes, rowScope(sc, t, item, k), `${key}#${k}/`, out, rec)) return false;
       }
       return true;
     };
-    /** the nodes of a row, or of a branch decided in it: static markup in every copy, what each decides in `out` */
-    const nodesOf = (nodes: NodeDef[], sc: object, prefix: string, out: Found): boolean => {
+    /** the nodes of a row, or of a branch decided in it: static markup in every copy, what each decides in `out` (and in `rec`, for `rowRenderer`) */
+    const nodesOf = (nodes: NodeDef[], sc: object, prefix: string, out: Found, rec?: RowRec): boolean => {
       for (const n of nodes) {
         if (n.state !== undefined || n.sid !== undefined) return false;
         const el = elOf(n);
@@ -8276,8 +8278,8 @@ class Compiler {
           const ch = caseOf(n, el, sc);
           if (!ch) return false;
           for (const [name, ck] of ch.keys) if (name !== ch.picked) out.decided.push([prefix + ck, false, point.pick!.deps]);
-          if (ch.picked === null) continue;
-          if (!expandCase(point, ch.picked, ch.keys.get(ch.picked)!, sc, prefix, out)) return false;
+          if (ch.picked === null) { rec?.set(n, null); continue; }
+          if (!expandCase(point, ch.picked, ch.keys.get(ch.picked)!, sc, prefix, out, rec, n)) return false;
           continue;
         }
         // a tree placement in a definition: the case its fill map chooses (a fill, or its default), as the instance's markup
@@ -8292,8 +8294,9 @@ class Compiler {
           // slot, and one that holds a tree root of its own
           const stays = pick[0] > 0 ? this.caseFill.get(P.cases[pick[0]]!) : undefined;
           if (stays && this.fillStays(stays)) return false;
-          if (rendering) out.picks.push([n, prefix, pick[0]]);
-          if (!nodesOf(tc.nodes, rowScope(sc, tc, deepFreeze({ v: structuredClone(pick[1]) }).v, 0), prefix, out)) return false;
+          const inner: RowRec | undefined = rec ? new Map() : undefined;
+          if (rec) rec.set(n, { k: pick[0], rec: inner });
+          if (!nodesOf(tc.nodes, rowScope(sc, tc, deepFreeze({ v: structuredClone(pick[1]) }).v, 0), prefix, out, inner)) return false;
           continue;
         }
         for (const b of n.b) {
@@ -8303,8 +8306,10 @@ class Compiler {
             if (paintable(el, b) && known(strs(b.d))) {
               const v = run(sc, this.fns[b.f!]!);
               const w = v === FAIL ? FAIL : firstPaintValue(el, b, v, schemes);
-              out.paints.push([b, prefix, w === FAIL ? null : { k: w[0], n: b.n ?? null, v: w[1] }]);
-            } else if (rendering && b.k === 'text' && b.n === '+' && b.f !== undefined && known(strs(b.d))) out.texts.push([b, prefix, run(sc, this.fns[b.f]!)]);
+              const cw = w === FAIL ? null : { k: w[0], n: b.n ?? null, v: w[1] };
+              out.paints.push([b, prefix, cw]);
+              rec?.set(b, cw);
+            } else if (rec && b.k === 'text' && b.n === '+' && b.f !== undefined && known(strs(b.d))) rec.set(b, { text: run(sc, this.fns[b.f]!) });
             continue;
           }
           if (b.k === 'else') continue;
@@ -8314,15 +8319,18 @@ class Compiler {
           if (v === FAIL) return false;
           if (b.k === 'if') {
             out.decided.push([prefix + key, !!v, b.d]);
+            rec?.set(b, !!v);
             const other = b.y !== undefined ? nodes[b.y]?.b.find((x) => x.k === 'else')?.x : undefined;
             const kept = v ? this.templates[b.x!] : other !== undefined ? this.templates[other] : undefined;
-            if (kept && !nodesOf(kept.nodes, sc, prefix, out)) return false;
+            if (kept && !nodesOf(kept.nodes, sc, prefix, out, rec)) return false;
             continue;
           }
           const items = listOf(v), t = this.templates[b.x!];
           if (!items || !t?.item) return false;
           out.unrolls.push([prefix + key, items, b.d]);
-          if (!rowsOf(t, items, prefix + key, sc, out)) return false;
+          const recs: RowRec[] | undefined = rec ? [] : undefined;
+          rec?.set(b, recs);
+          if (!rowsOf(t, items, prefix + key, sc, out, recs)) return false;
         }
       }
       return true;
@@ -8330,8 +8338,8 @@ class Compiler {
     /** a loop outside any row: unrolled when every row is static markup (above) */
     const unroll = (key: string, b: Binding, v: unknown, sc: object, el: P5Element) => {
       const items = v === FAIL ? null : listOf(v), t = this.templates[b.x!];
-      const found: Found = { unrolls: [], decided: [], paints: [], texts: [], picks: [], props: [], rows: 0 };
-      const ok = !!items && !!t?.item && rowsOf(t, items, key, sc, found);
+      const found: Found = { unrolls: [], decided: [], paints: [], ...(rendering ? { recs: [] } : {}), rows: 0 };
+      const ok = !!items && !!t?.item && rowsOf(t, items, key, sc, found, found.recs);
       // the same template in two instances that nothing tells apart: left alone; one over the limit: reported
       pending.set(key, pending.has(key) || (!ok && !found.over) ? null : { items: items!, d: b.d, found, el, tid: b.x! });
     };
@@ -8346,7 +8354,7 @@ class Compiler {
           this.decided.delete(ck);
           // the case it renders: expanded when its definition over its props is static markup (one instance per key)
           if (ch?.picked === point.group!.cases[i]!.name) {
-            const found: Found = { unrolls: [], decided: [], paints: [], texts: [], picks: [], props: [], rows: 0 };
+            const found: Found = { unrolls: [], decided: [], paints: [], rows: 0 };
             const ok = expandCase(point, ch.picked!, ck, sc, '', found);
             found.decided = found.decided.filter(([k]) => k !== ck);
             pending.set(ck, pending.has(ck) || (!ok && !found.over) ? null : { items: [], d: point.pick!.deps, found, pick: true, el });
@@ -8391,15 +8399,23 @@ class Compiler {
             if (kept) pageOf(kept.nodes, sc);
           }
         }
-        const committed: Array<[string, NonNullable<ReturnType<typeof pending.get>>]> = [];
+        let render: ReturnType<Compiler['rowRenderer']> | null = null;
         for (const [key, p] of pending) {
           if (!p) continue;
           // over the page's limit (this tree alone, or with those before it): left to the browser, with a warning
           if (p.found.over || p.found.rows > left) { this.overLimit.set(key, limit); this.expansionWarning(p.el, limit, !p.pick); continue; }
           left -= p.found.rows;
-          committed.push([key, p]);
           if (p.pick) this.decided.set(key, true); else this.unrolls.set(key, p.items);
           this.foldReads.set(key, this.stateSites(p.d));
+          // rows rendered here (`rowRenderer`): the second pass splices them in, and reads nothing decided in them by
+          // key; the state they read is the loop's, for `foldedState`
+          const done = rendering && (render ??= this.rowRenderer(handlerOnly, ROW, placementOf))(key, p);
+          if (done) {
+            this.rendered.set(key, done);
+            const reads = this.foldReads.get(key)!;
+            for (const [, , d] of [...p.found.unrolls, ...p.found.decided]) for (const x of this.stateSites(d)) reads.add(x);
+            continue;
+          }
           for (const [k, items, d] of p.found.unrolls) { this.unrolls.set(k, items); this.foldReads.set(k, this.stateSites(d)); }
           for (const [k, v, d] of p.found.decided) { this.decided.set(k, v); this.foldReads.set(k, this.stateSites(d)); }
           for (const [b, prefix, w] of p.found.paints) {
@@ -8408,7 +8424,6 @@ class Compiler {
             m.set(prefix, w);
           }
         }
-        if (rendering && committed.length) this.renderRows(committed, handlerOnly, ROW, placementOf);
       },
     };
   }
@@ -8424,14 +8439,8 @@ class Compiler {
    * component's tag attributes, diagnostics in its templates), and a page whose layout, images or scoped styles read
    * the rows, is left to the second pass as before: the reason is counted (`SN_RENDER_LOG=1`).
    */
-  renderRows(committed: Array<[string, { items: unknown[]; found: { texts: Array<[Binding, string, unknown]>; picks: Array<[NodeDef, string, number]>; props: Array<[string, unknown]>; rows: number }; pick?: true; tid?: number }]>,
-    handlerOnly: (b: Binding) => boolean, ROW: Set<string>, placementOf: Map<NodeDef, Compiler['runtimePlacements'][number]>) {
-    const texts = new Map<Binding, Map<string, unknown>>(), picks = new Map<NodeDef, Map<string, number>>(), props = new Map<string, unknown>();
-    for (const [, p] of committed) {
-      for (const [b, prefix, v] of p.found.texts) { let m = texts.get(b); if (!m) texts.set(b, m = new Map()); m.set(prefix, v); }
-      for (const [n, prefix, i] of p.found.picks) { let m = picks.get(n); if (!m) picks.set(n, m = new Map()); m.set(prefix, i); }
-      for (const [k, v] of p.found.props) props.set(k, v);
-    }
+  rowRenderer(handlerOnly: (b: Binding) => boolean, ROW: Set<string>, placementOf: Map<NodeDef, Compiler['runtimePlacements'][number]>):
+    (key: string, p: { items: unknown[]; found: { recs?: RowRec[]; rows: number }; pick?: true; tid?: number; el: P5Element }) => RenderedRows | null {
     // what reads the rows' markup before the second pass compiles them: the layout and the minifier's (stylesheets), the
     // images, scoped styles (their marks)
     const sheets = [...(this.opts.styles ?? this.opts.images?.styles ?? []), ...((typeof this.opts.minify === 'object' ? this.opts.minify.styles : undefined) ?? [])];
@@ -8448,12 +8457,16 @@ class Compiler {
     const links = !!this.opts.axisLists?.length || this.fns.some((c) => c.includes('$url'));
     const cssOf = new Map<string, string>();
     for (const f of this.componentFiles.values()) if (f?.cssFile) cssOf.set(f.file, f.cssFile);
-    const filesOf = new Map<number, string[]>();
-    /** the component files a definition's markup was expanded from (a use's files, which its expansion reads) */
-    const defFiles = (tid: number, name: string): string[] => {
+    const filesOf = new Map<number, string[] | null>();
+    /**
+     * the component files a definition's markup was expanded from (a use's files, which its expansion reads); null when
+     * its markup writes an id anywhere, a branch it drops too (`componentIds` counts the uses its expansion makes)
+     */
+    const defFiles = (tid: number, name: string): string[] | null => {
       let out = filesOf.get(tid);
-      if (out) return out;
+      if (out !== undefined) return out;
       const set = new Set<string>();
+      let id = false;
       const def = this.componentFile(name);
       if (def) { set.add(def.file); if (def.cssFile) set.add(def.cssFile); }
       const walk = (p: P5Parent) => {
@@ -8461,18 +8474,36 @@ class Compiler {
           if (!isElement(c)) continue;
           const f = this.origins.get(c)?.file;
           if (f && f !== this.opts.file) { set.add(f); const css = cssOf.get(f); if (css) set.add(css); }
+          if (attr(c, 'id') !== undefined) id = true;
           walk(c);
           if (c.tagName === 'template') walk((c as P5Template).content);
         }
       };
       const tpl = this.headTemplates.get(tid);
       if (tpl) walk(tpl.content);
-      filesOf.set(tid, out = [...set]);
+      filesOf.set(tid, out = id ? null : [...set]);
       return out;
     };
-    for (const [key, p] of committed) {
-      if (p.pick) { renderStat('top-level choice', p.found.rows); continue; }
-      if (page) { renderStat(page, p.found.rows); continue; }
+    // the templates whose content each content is, up to the page: a loop in a branch decided at build time is in its place
+    // in the second pass, with what the branch was (slot content, where a component's markup starts) and where (the head)
+    const hostOf = new Map<P5Parent, P5Element>();
+    for (const el of this.anchorEls.values()) if (el.tagName === 'template') hostOf.set((el as P5Template).content, el);
+    const where = (el: P5Element): string | null => {
+      // (a branch's place in the second pass hands what it was to its top nodes only: `expandConstants`' `place`)
+      for (let x: P5Element | undefined = el, top = true; x; ) {
+        if (top) for (const map of [this.slotOf, this.fillOf, this.defaultOf, this.childrenOf, this.scopeStart, this.landing, this.useOf] as Array<WeakMap<object, unknown>>) if (map.has(x)) return 'where it is';
+        let up: P5Node | undefined = x.parentNode as P5Node | undefined;
+        if (up && isElement(up)) top = false;
+        for (; up && isElement(up); up = up.parentNode as P5Node | undefined) if (up.tagName === 'head') return 'in the head';
+        x = up ? hostOf.get(up as P5Parent) : undefined;
+      }
+      return null;
+    };
+    return (key, p) => {
+      if (p.pick) { renderStat('top-level choice', p.found.rows); return null; }
+      if (page) { renderStat(page, p.found.rows); return null; }
+      const at = where(p.el);
+      if (at) { renderStat(at, p.found.rows); return null; }
       const st = { ids: 0, folded: [] as string[], files: new Set<string>(), reads: new Set<string>() };
       const no = (why: string): never => { throw new NoRender(why); };
       const read = (ds: PathRef[] | undefined) => { for (const d of strs(ds)) { const m = /^\$(?:r|meta)\.([A-Za-z_$][\w$]*)/.exec(d); if (m) st.reads.add(m[1]!); } };
@@ -8485,6 +8516,8 @@ class Compiler {
           // (an id the markup writes: the page's ids are read before the second pass compiles the rows; one a binding
           // writes is not there yet)
           if (n.attrs.some((a) => a.name === 'id')) no('an id');
+          // (one the walk keeps for the runtime, `data-sn-options`, `-navigate`, …: the walk adds what it needs)
+          if (n.attrs.some((a) => a.name.startsWith('data-sn-'))) no('a sinter attribute');
           const e = { nodeName: n.nodeName, tagName: n.tagName, attrs: n.attrs.map((a) => ({ ...a })), namespaceURI: n.namespaceURI, childNodes: [], parentNode: parent } as unknown as P5Element;
           e.childNodes = n.childNodes.map((x) => clone(x, e, map)) as never[];
           if (n.tagName === 'template') {
@@ -8507,62 +8540,60 @@ class Compiler {
         kids!.splice(i, j - i + 1, ...nodes);
       };
       /** an instance of a definition (a choice's case, a recursion point): one row of it, as the second pass expands it as a use */
-      const instance = (host: P5Element, name: string | undefined, tid: number, prefix: string, item: unknown): P5Node[] => {
+      const instance = (host: P5Element, name: string | undefined, tid: number, rec: RowRec | undefined, item: unknown): P5Node[] => {
         // the tag's attributes land on the root (`$a`): the second pass copies them there
         if (item && typeof item === 'object' && '$a' in item) no('tag attributes');
         const def = name ? this.componentFile(name) : null;
         if (!def || def.bad || def.head || !this.pointCtx.has(host)) no('not inlined');
-        for (const f of defFiles(tid, name!)) st.files.add(f);
-        return render(tid, prefix);
+        const files = defFiles(tid, name!);
+        if (!files) no('an id');
+        for (const f of files!) st.files.add(f);
+        return render(tid, rec);
       };
-      const render = (tid: number, prefix: string): P5Node[] => {
+      const render = (tid: number, rec: RowRec | undefined): P5Node[] => {
         if (this.tplDiags.has(tid)) no('diagnostics');
         const t = this.templates[tid], src = contentOf(tid);
-        if (!t || !src) no('no template');
+        if (!t || !src || !rec) no('no template');
         const frag = { nodeName: '#document-fragment', childNodes: [] } as unknown as P5Parent;
         const map = new Map<P5Node, P5Node>();
         frag.childNodes = src!.childNodes.map((c) => clone(c, frag, map)) as never[];
-        fill(t!.nodes, map, prefix);
+        fill(t!.nodes, map, rec!);
         return frag.childNodes as P5Node[];
       };
-      const fill = (nodes: NodeDef[], map: Map<P5Node, P5Node>, prefix: string) => {
+      const fill = (nodes: NodeDef[], map: Map<P5Node, P5Node>, rec: RowRec) => {
         for (const n of nodes) {
           const point = this.pointOf.get(n);
           if (point) {
             const cl = map.get(this.anchorEls.get(n)!);
             if (!cl) no('markup');
             if (point.group) {
-              let picked: ChoiceGroup['cases'][number] | null = null, ck = '';
-              for (const c of point.group.cases) {
-                const k = this.choiceKey(point.el, c.name), v = k ? this.decided.get(prefix + k) : undefined;
-                if (v === undefined) no('choice');
-                if (v) { picked = c; ck = k!; }
-              }
+              if (!rec.has(n)) no('choice');
+              const c = rec.get(n) as { name: string; tid: number; props: unknown; rec?: RowRec[] } | null;
               read(point.pick?.deps);
-              replace(cl, cl, picked ? instance(point.el, picked.name, picked.tid, `${prefix}${ck}#0/`, props.get(prefix + ck)) : []);
+              replace(cl, cl, c ? instance(point.el, c.name, c.tid, c.rec?.[0], c.props) : []);
               continue;
             }
-            const b = n.b[0], key = this.instKey(point.el), items = key ? this.unrolls.get(prefix + key) : undefined;
-            if (!b || b.k !== 'for' || b.x === undefined || !items || items.length !== 1) no('recursion point');
+            const b = n.b[0], rows = b && rec.get(b) as RowRec[] | undefined;
+            if (!b || b.k !== 'for' || b.x === undefined || rows?.length !== 1) no('recursion point');
             read(b!.d);
-            replace(cl, cl, instance(point.el, this.points.get(point.el), b!.x!, `${prefix}${key}#0/`, items![0]));
+            replace(cl, cl, instance(point.el, this.points.get(point.el), b!.x!, rows![0], rows![0]!.get(ROW_ITEM)));
             continue;
           }
           const P = placementOf.get(n);
           if (P) {
-            const k = picks.get(n)?.get(prefix);
-            if (k === undefined) no('placement');
-            if (k !== 0) no('fill');
+            const c = rec.get(n) as { k: number; rec?: RowRec } | undefined;
+            if (!c) no('placement');
+            if (c!.k !== 0) no('fill');
             read(P.node.b[0]?.d);
             const cl = map.get(P.el);
-            replace(cl, cl, render(P.cases[0]!, prefix));
+            replace(cl, cl, render(P.cases[0]!, c!.rec));
             continue;
           }
           if (this.textMarks.has(n)) {
-            const b = n.b[0], m = b && n.b.length === 1 ? texts.get(b) : undefined;
-            if (!m?.has(prefix)) no('text');
-            const v = m!.get(prefix);
-            if (v !== null && v !== undefined && typeof v === 'object') no('text');
+            const b = n.b[0], m = b && n.b.length === 1 ? rec.get(b) as { text: unknown } | undefined : undefined;
+            if (!m || !('text' in m)) no('text');
+            const v = m!.text;
+            if (v === FAIL || (v !== null && v !== undefined && typeof v === 'object')) no('text');
             const at = this.textAt.get(n), mark = at && map.get(at);
             const kids = (mark as { parentNode?: P5Parent } | undefined)?.parentNode?.childNodes as P5Node[] | undefined;
             const slot = kids?.[kids.indexOf(mark!) + 1];
@@ -8581,7 +8612,7 @@ class Compiler {
           for (const b of n.b) {
             if (defAttr.has(b) || b.k === 'else') continue;
             if (b.k === 'if') {
-              const key = this.instKey(el!), v = key ? this.decided.get(prefix + key) : undefined;
+              const v = rec.get(b) as boolean | undefined;
               if (v === undefined || b.x === undefined) no('if');
               const other = b.y !== undefined ? nodes[b.y] : undefined, otherTid = other?.b.find((x) => x.k === 'else')?.x;
               const otherEl = other && (this.tplEls.get(other) ?? this.anchorEls.get(other));
@@ -8589,23 +8620,23 @@ class Compiler {
               st.folded.push(this.snSource.get(el!) ?? '', this.emptyOf.get(el!)?.list ?? '');
               const kept = v ? b.x : otherTid;
               read(b.d);
-              replace(cl, otherEl ? map.get(otherEl) : cl, kept !== undefined ? render(kept, prefix) : []);
+              replace(cl, otherEl ? map.get(otherEl) : cl, kept !== undefined ? render(kept, rec) : []);
               continue;
             }
             if (b.k === 'for') {
-              const key = this.instKey(el!), items = key ? this.unrolls.get(prefix + key) : undefined, src = this.snSource.get(el!) ?? '';
+              const rows = rec.get(b) as RowRec[] | undefined, src = this.snSource.get(el!) ?? '';
               const head = LOOP_HEAD.exec(src);
-              if (!items || b.x === undefined || !head) no('for');
-              if (!items!.length) st.folded.push(src.slice(head![0].length));
+              if (!rows || b.x === undefined || !head) no('for');
+              if (!rows!.length) st.folded.push(src.slice(head![0].length));
               read(b.d);
               const out: P5Node[] = [];
-              for (let k = 0; k < items!.length; k++) out.push(...render(b.x!, `${prefix}${key}#${k}/`));
+              for (const r of rows!) out.push(...render(b.x!, r));
               replace(cl, cl, out);
               continue;
             }
             if (handlerOnly(b)) no('handler');
             if (!ROW.has(b.k)) no(`a binding of kind ${b.k}`);
-            const w = this.rowPaint.get(b)?.get(prefix);
+            const w = rec.get(b) as ConstantWrite | null | undefined;
             if (w === undefined) no('not painted');
             if (w === null) no('not written ahead');
             writeFirstPaint(cl!, w!.k, w!.n, w!.v);
@@ -8618,8 +8649,10 @@ class Compiler {
       try {
         const nodes: P5Node[] = [];
         let list = false;
-        for (let k = 0; k < p.items.length; k++) {
-          const row = render(p.tid!, `${key}#${k}/`);
+        const recs = p.found.recs ?? [];
+        if (recs.length !== p.items.length) no('no record');
+        for (const r of recs) {
+          const row = render(p.tid!, r);
           // the list is compiled once, at the first row element the walk would meet (`rowLets`); a text node is one there
           if (row.some((x) => isElement(x) || texted.has(x))) list = true;
           else if (row.some((x) => x.nodeName === '#text' && (x as DefaultTreeAdapterMap['textNode']).value.trim())) no('text at the top of a row');
@@ -8630,13 +8663,14 @@ class Compiler {
         const why = rowsRead(top, !!this.opts.images, links);
         if (why) no(why);
         if ((st.ids || list) && !top.some(isElement)) no('no element');
-        this.rendered.set(key, { nodes: top, ids: st.ids, list, folded: st.folded, files: [...st.files], reads: [...st.reads], rows: p.found.rows });
         renderStat(null, p.found.rows);
+        return { nodes: top, ids: st.ids, list, folded: st.folded, files: [...st.files], reads: [...st.reads], rows: p.found.rows };
       } catch (e) {
         if (!(e instanceof NoRender)) throw e;
         renderStat(e.why, p.found.rows);
+        return null;
       }
-    }
+    };
   }
 
   /**
@@ -8980,9 +9014,10 @@ class Compiler {
         if (!items!.length) this.foldedText.push(value!.slice(m[0].length));
         // rows the first pass rendered: their markup, and what compiling them would have done that the page keeps
         const done = !pre && !row && at === undefined ? this.opts.rendered?.get(tkey!) : undefined;
+        // (the first pass checked where the loop is: one it rendered has nothing decided in it to compile its rows with)
         const why = done && this.renderedHere(c, done);
-        if (why) renderStat(why, done!.rows);
-        if (done && !why) {
+        if (why) renderStat(`second pass: ${why}`, done!.rows);
+        if (done) {
           this.foldedText.push(...done.folded);
           for (const f of done.files) this.files.add(f);
           for (const n of done.reads) this.renderedReads.add(n);
@@ -11362,7 +11397,7 @@ const FAIL: unique symbol = Symbol('first paint: runtime-only');
 const LOOP_HEAD = /^\s*(?:\(\s*([A-Za-z_][\w]*)\s*,\s*([A-Za-z_][\w]*)\s*\)|([A-Za-z_][\w]*))\s+in\s+/;
 
 /**
- * The rows of a loop the first pass rendered (`renderRows`), for the second: their markup, as the second pass would
+ * The rows of a loop the first pass rendered (`rowRenderer`), for the second: their markup, as the second pass would
  * have compiled and painted it, and what compiling them would have done besides: the `data-sn` ids their bindings
  * would have taken (dropped with them, but the numbering of what follows counts them), whether the list is compiled
  * (once, at the first row element, for its diagnostics), the conditions and empty lists it folds (SN501 reads them),
@@ -11370,7 +11405,17 @@ const LOOP_HEAD = /^\s*(?:\(\s*([A-Za-z_][\w]*)\s*,\s*([A-Za-z_][\w]*)\s*\)|([A-
  */
 export type RenderedRows = { nodes: P5Node[]; ids: number; list: boolean; folded: string[]; files: string[]; reads: string[]; rows: number };
 
-/** why `renderRows` leaves rows to the second pass (thrown inside it) */
+/**
+ * What the worklist found in one row (or one instance of a definition), for `rowRenderer`, by the compiled objects it
+ * is about, not by key: a binding's paint (a `ConstantWrite`, null when it is not written ahead) or a text node's
+ * value (`{ text }`), an `if`'s branch (a boolean; the branch's nodes in the same record), a loop's or a recursion
+ * point's rows (records), a choice's case (`{ name, tid, props, rec }`, null for none), a tree placement's case
+ * (`{ k, rec }`), and the row's item (`ROW_ITEM`)
+ */
+type RowRec = Map<object, unknown>;
+const ROW_ITEM = {};
+
+/** why `rowRenderer` leaves rows to the second pass (thrown inside it) */
 class NoRender { constructor(readonly why: string) {} }
 
 /** the process, where there is one (the compiler has no Node imports of its own) */
@@ -11381,7 +11426,7 @@ export function renderOn(): boolean { return renderForced ?? proc?.env.SN_RENDER
 /** the render audit's compile without rendering (`compileParts`) */
 let renderForced: boolean | null = null;
 
-/** what `renderRows` did in this process, by reason, printed at exit with `SN_RENDER_LOG=1` */
+/** what `rowRenderer` did in this process, by reason, printed at exit with `SN_RENDER_LOG=1` */
 export const RENDER_STATS = { rendered: 0, rows: 0, spliced: 0, fallback: new Map<string, { loops: number; rows: number }>() };
 let renderLogged = false;
 function renderStat(why: string | null, rows: number) {
