@@ -1563,6 +1563,8 @@ class Compiler {
   private readonly renderedEmpty: P5Node[] = [];
   /** the second pass: the rendered rows' elements with the attributes their markup had before paint (`SHOWN`, `RenderedRows.shown`) */
   private readonly renderedShown: P5Element[] = [];
+  /** the second pass: rendered images' marks of scoped styles, written after the image pipeline (`RenderedRows.late`) */
+  private readonly renderedLate: Array<[P5Element, P5Element['attrs']]> = [];
   /** the value attributes of each element, the bindings each made, and whether it was reported on (`collectConstants`) */
   private readonly attrSources: Array<{ src: P5Element; node: NodeDef; attr: string; bindings: Binding[]; noted: boolean }> = [];
   /** the first pass: what the second one writes before the layout (`CompileOptions.constants`), and the state fields they read */
@@ -1700,6 +1702,8 @@ class Compiler {
       ...(this.keepsAttrs ? { rewrote: (el: P5Element, before: P5Element['attrs']) => REWROTE.set(el, before) } : {}),
     }) : undefined;
     this.renderedShown.forEach((e, i) => { e.attrs = painted[i]!; });
+    // (the marks of rendered images, after the image pipeline, as the old route's walk writes them)
+    for (const [e, marks] of this.renderedLate) for (const m of marks) setAttr(e, m.name, m.value);
     this.declare(doc);
     const paths = this.pathPatterns(doc);
     this.pathList = paths;
@@ -8450,6 +8454,7 @@ class Compiler {
             this.rendered.set(key, done);
             const reads = this.foldReads.get(key)!;
             for (const [, , d] of [...p.found.unrolls, ...p.found.decided]) for (const x of this.stateSites(d)) reads.add(x);
+            for (const x of done.state) reads.add(x);
             // what the layout and the images read of the rows (an image's attributes, a class or a style): collected as
             // the old route collects it (`collectConstants`), which decides what the second pass is handed
             constB ??= new Set(this.constantSources().flatMap((x) => x.s.bindings));
@@ -8571,10 +8576,18 @@ class Compiler {
       if (p.pick) { renderStat('top-level choice', p.found.rows); return null; }
       const at = where(p.el);
       if (at) { renderStat(at, p.found.rows); return null; }
-      const st = { ids: 0, folded: [] as string[], files: new Set<string>(), reads: new Set<string>(), rootStyled: new Set<string>(), uses: new Set<string>() };
+      const st = { ids: 0, folded: [] as string[], files: new Set<string>(), reads: new Set<string>(), rootStyled: new Set<string>(), uses: new Set<string>(), state: new Set<string>() };
       const no = (why: string): never => { throw new NoRender(why); };
-      const read = (ds: PathRef[] | undefined) => { for (const d of strs(ds)) { const m = /^\$(?:r|meta)\.([A-Za-z_$][\w$]*)/.exec(d); if (m) st.reads.add(m[1]!); } };
+      // (and the state fields they read: the old route's second pass freezes those of the bindings it drops, `fixedState`)
+      const read = (ds: PathRef[] | undefined) => {
+        for (const d of strs(ds)) { const m = /^\$(?:r|meta)\.([A-Za-z_$][\w$]*)/.exec(d); if (m) st.reads.add(m[1]!); }
+        for (const x of this.stateSites(ds)) st.state.add(x);
+      };
       const texted = new Set<P5Node>(), empty: P5Node[] = [], shown: P5Element[] = [];
+      /** marks the second pass writes after its image pipeline (an image's: the old route marks it after the walk) */
+      const late: Array<[P5Element, P5Element['attrs']]> = [];
+      /** marks a fill's top elements take where it is placed (`data-sn-s`) */
+      const fillMarks = new Map<P5Node, P5Element['attrs']>();
       /**
        * whether the old route's pass 2 marks what is rendered now as its own: what an instance's expansion
        * (`inlineInstance` → `expandUse`) makes is in the page, its uses' roots and slot content marked after the walk;
@@ -8611,11 +8624,12 @@ class Compiler {
             // `slotEls`), after the walk: before the paints after it (`fill`). In rows a loop copies (`cloneTree`), a
             // root's copy takes its original's `data-sn-c` and `-r` (`rootCopies`), and slot content no `-s` (`live`)
             const marks = n.attrs.filter((a) => MARKS.test(a.name) && (live || a.name !== 'data-sn-s')).map((a) => ({ ...a }));
+            const more = fillMarks.get(n);
+            if (more && !marks.some((m) => m.name === 'data-sn-c')) marks.push(...more);
             if (marks.length) {
-              // (an image the pipeline would rewrite after the marks are on it: not yet)
-              if (n.tagName === 'img') no('styled');
               for (const m of marks) if (m.name === 'data-sn-r') for (const x of m.value.split(' ')) st.rootStyled.add(x);
-              if (nodeOfEl().has(n)) MARKED.set(e, marks); else e.attrs.push(...marks);
+              // (an image with nothing left to paint: after the image pipeline's writes, in the second pass, `late`)
+              if (nodeOfEl().has(n)) MARKED.set(e, marks); else if (n.tagName === 'img') late.push([e, marks]); else e.attrs.push(...marks);
             }
             if (scoped.has(this.origins.get(n)?.file ?? '')) SCOPED.add(e);
           }
@@ -8700,10 +8714,21 @@ class Compiler {
           if (P) {
             const c = rec.get(n) as { k: number; rec?: RowRec } | undefined;
             if (!c) no('placement');
-            if (c!.k !== 0) no('fill');
             read(P.node.b[0]?.d);
             const cl = map.get(P.el);
-            replace(cl, cl, render(P.cases[0]!, c!.rec));
+            // its default, or a fill (the caller's markup, in the caller's scope with the slot's data as `$slot`: the
+            // first pass compiled it as the placement's case, `caseFill`)
+            // (a fill placed in an instance: its top elements slot content of its caller, `data-sn-s`, as the old route's
+            // placement copies the fill's entries of `slotEls`; a chain's branch is not followed here)
+            const F = c!.k > 0 && marking && live ? this.caseFill.get(P.cases[c!.k]!) : undefined;
+            const tops = F ? (contentOf(P.cases[c!.k]!)?.childNodes ?? []) : [];
+            if (F) F.nodes.forEach((f, i) => {
+              const x = isElement(f) ? this.slotEls.find((y) => y.el === f) : undefined;
+              if (!x) return;
+              if ((f as P5Element).tagName === 'template') no('styled');
+              if (tops[i] && isElement(tops[i]!)) fillMarks.set(tops[i]!, [{ name: 'data-sn-s', value: x.caller }]);
+            });
+            try { replace(cl, cl, render(P.cases[c!.k]!, c!.rec)); } finally { for (const t of tops) fillMarks.delete(t); }
             continue;
           }
           if (this.textMarks.has(n)) {
@@ -8756,7 +8781,8 @@ class Compiler {
           }
           // (the marks of scoped styles, after `prefold`'s writes and before the paints)
           const marks = MARKED.get(cl!);
-          if (marks) for (const m of marks) setAttr(cl!, m.name, m.value);
+          if (marks && cl!.tagName === 'img' && !n.b.some((b) => !defAttr.has(b) && b.k !== 'else' && !folded.has(b))) late.push([cl!, marks]);
+          else if (marks) for (const m of marks) setAttr(cl!, m.name, m.value);
           for (const b of n.b) {
             if (defAttr.has(b) || b.k === 'else' || folded.has(b)) continue;
             if (b.k === 'if') {
@@ -8806,7 +8832,7 @@ class Compiler {
         if ((st.ids || list) && !nodes.some(isElement)) no('no element');
         renderStat(null, p.found.rows);
         // (an empty text stays until the second pass has minified the rows: it was an element there, `WRITTEN`)
-        return { nodes, empty, shown: shown.filter((e) => SHOWN.has(e)), ids: st.ids, list, folded: st.folded, files: [...st.files], reads: [...st.reads], rootStyled: [...st.rootStyled], uses: [...st.uses].map((n) => { const f = this.componentFiles.get(n); return { name: n, css: f?.css, rawCss: f?.rawCss }; }), rows: p.found.rows };
+        return { nodes, empty, shown: shown.filter((e) => SHOWN.has(e)), ids: st.ids, list, folded: st.folded, files: [...st.files], reads: [...st.reads], rootStyled: [...st.rootStyled], late, state: [...st.state], uses: [...st.uses].map((n) => { const f = this.componentFiles.get(n); return { name: n, css: f?.css, rawCss: f?.rawCss }; }), rows: p.found.rows };
       } catch (e) {
         if (!(e instanceof NoRender)) throw e;
         renderStat(e.why, p.found.rows);
@@ -9166,6 +9192,7 @@ class Compiler {
           for (const n of done.reads) this.renderedReads.add(n);
           this.renderedEmpty.push(...done.empty);
           this.renderedShown.push(...done.shown);
+          this.renderedLate.push(...done.late);
           // (the outer components whose root rules an instance's root takes, `data-sn-r`: shipped)
           for (const n of done.rootStyled) this.rootStyled.add(n);
           // (the components its instances use, which the old route expands here: their styles shipped, the page's marks)
@@ -11559,7 +11586,7 @@ const LOOP_HEAD = /^\s*(?:\(\s*([A-Za-z_][\w]*)\s*,\s*([A-Za-z_][\w]*)\s*\)|([A-
  * (once, at the first row element, for its diagnostics), the conditions and empty lists it folds (SN501 reads them),
  * the component files their instances are expanded from, the resources their bindings read.
  */
-export type RenderedRows = { nodes: P5Node[]; empty: P5Node[]; shown: P5Element[]; ids: number; list: boolean; folded: string[]; files: string[]; reads: string[]; rootStyled: string[]; uses: Array<{ name: string; css: string | null | undefined; rawCss: string | undefined }>; rows: number };
+export type RenderedRows = { nodes: P5Node[]; empty: P5Node[]; shown: P5Element[]; ids: number; list: boolean; folded: string[]; files: string[]; reads: string[]; rootStyled: string[]; late: Array<[P5Element, P5Element['attrs']]>; state: string[]; uses: Array<{ name: string; css: string | null | undefined; rawCss: string | undefined }>; rows: number };
 
 /**
  * What rendered rows' markup stands for, for the second pass's minifier, which minifies the markup its walk compiles
@@ -11608,6 +11635,9 @@ let renderForced: boolean | null = null;
 export const RENDER_STATS = { rendered: 0, rows: 0, spliced: 0, fallback: new Map<string, { loops: number; rows: number }>() };
 let renderLogged = false;
 function renderStat(why: string | null, rows: number) {
+  // (`SN_RENDER_STATS=<file>`: one line per loop, `<reason or rendered>\t<rows>`, so a run of many processes, the suite's, can be summed)
+  const file = proc?.env.SN_RENDER_STATS;
+  if (file) (proc?.getBuiltinModule?.('node:fs') as { appendFileSync(f: string, s: string): void } | undefined)?.appendFileSync(file, `${why ?? 'rendered'}\t${rows}\n`);
   if (why === null) { RENDER_STATS.rendered++; RENDER_STATS.rows += rows; } else {
     const f = RENDER_STATS.fallback.get(why) ?? { loops: 0, rows: 0 };
     f.loops++;

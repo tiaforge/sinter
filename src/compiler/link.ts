@@ -196,6 +196,7 @@ export const LINK_FIELDS: Record<string, { kinds: string[]; how: 'table' | 'weak
   renderedReads: { kinds: ['Set'], how: 'table' },
   renderedEmpty: { kinds: ['Array'], how: 'table' },
   renderedShown: { kinds: ['Array'], how: 'table' },
+  renderedLate: { kinds: ['Array'], how: 'table' },
   snAttrs: { kinds: ['WeakMap'], how: 'weak' },
   keepsAttrs: { kinds: ['boolean'], how: 'fixed' },
   snSource: { kinds: ['WeakMap'], how: 'weak' },

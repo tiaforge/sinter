@@ -150,3 +150,44 @@ component file with CSS as written (`opaque`, by origin).
 
 **Coverage.** static-site: 7 loops (27 rows) rendered, `fill` 2 / 60 left (the content trees of `guide` and
 `getting-started`); multilingual-site: all 8 loops (32 rows) rendered. Benchmark and sinter-mail unchanged.
+
+## `fill`: a tree placement that renders a fill
+
+**What the old route does.** The inlined instance's tree placement places the fill (`placeStatic`: a copy of the
+fill's nodes, `fillOf` chain, compiled in the caller's scope with the slot's data as `$slot`; the copies take the
+fill's `slotEls` entries, so on a page with scoped styles its top elements get `data-sn-s="<caller>"` after the walk).
+
+**What stage 1 did.** Fell back (it rendered a placement's default only).
+
+**Now.** The first pass compiled the fill as the placement's case (`caseFill`, a head template walked in the
+caller's scope with `$slot` as its item), and the worklist already records that case and its nodes; the renderer
+renders `P.cases[k]` like the default. On a page with scoped styles, inside an instance, the fill's top elements take
+`data-sn-s` with the caller of the fill's `slotEls` entry (`fillMarks`); a fill chain's branch with such an entry falls
+back (`styled`: not followed, not seen).
+
+**Two more things the audits found on the way.**
+- *`fixedState`* (a stage 1 bug, seen with `SN_RENDER_AUDIT=1` only: the plain result has no such field): the old
+  route's pass 2 freezes the state fields every binding it drops reads (`freeze(b.d)` in `dropConstants`), so a row
+  reading the page's constant state (`data-sn-text="x + k"`) or a fill reading its caller's has `$s0.k` in
+  `fixedState`. The rendered rows now hand the state their bindings read (`RenderedRows.state`) to the loop's
+  `foldReads`, which the second pass's `frozen` carries.
+- *An image as an instance's root on a styled page* (static-site's `node-image`): the old route marks it after the
+  image pipeline rewrote it, so its `data-sn-c` comes after `srcset`, `width`, `decoding`… An image with nothing left
+  to paint takes its marks in the second pass after `rewriteImages` (`RenderedRows.late`).
+
+**Coverage: the goal state.** Every loop of every app renders:
+
+| app | stage 1 | now |
+| --- | --- | --- |
+| bench static / live / static-files / live-files | 100 loops, 49,200 rows each | same |
+| examples/static-site | `layout` 9 loops, 87 rows | 9 loops, 87 rows rendered |
+| examples/multilingual-site | `layout` 8 / 32 | 8 / 32 rendered |
+| examples/dashboard, realworld | no unroll | no unroll |
+| sinter-mail, 16 pages | `minify` 10 / 1,610 | 10 / 1,610 rendered |
+
+All identical both ways. The 16-page sinter-mail build: 25.0 s off, 13.4 s on (load 6–7).
+
+The tests now count the route on a compile of their own without `SN_LINK_AUDIT` (whose extra compiles moved the
+process-wide counters: 11 failures under CI's link-audit job); the audited compile runs beside it.
+`SN_RENDER_STATS=<file>` appends one line per loop (`<reason or rendered>\t<rows>`), so a run of many processes (the
+suite) can be summed.

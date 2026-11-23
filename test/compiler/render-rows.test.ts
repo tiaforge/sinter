@@ -17,9 +17,10 @@ const C: Record<string, string> = {
   // scoped styles: a card with slot content, a recursive tree through it, a dispatch whose cases are styled (one whose root is another component)
   's-card': '<template data-sn-props="{ t: string }"><article class="card" data-sn-attr="{ title: t }"><h3 data-sn-text="t"></h3><slot></slot></article></template><style>.card { color: red } h3 { margin: 0 }</style>',
   's-tree': '<template data-sn-props="{ node: any }"><li class="n"><s-card data-sn-with="{ t: node.label }"><em data-sn-text="node.label"></em></s-card><ul><template data-sn-for="k in node.kids"><s-tree data-sn-with="{ node: k }"></s-tree></template></ul></li></template><style>.n { padding: 0 }</style>',
-  's-doc': '<template data-sn-props="{ doc: any }"><div><template data-sn-for="n in doc.children"><sn-component use="{ text: \'s-text\', link: \'s-wrap\', list: \'s-list\' }[n.type]" data-sn-with="{ node: n }"></sn-component></template></div></template>',
+  's-doc': '<template data-sn-props="{ doc: any }"><div><template data-sn-for="n in doc.children"><sn-component use="{ text: \'s-text\', link: \'s-wrap\', list: \'s-list\', img: \'s-img\' }[n.type]" data-sn-with="{ node: n }"></sn-component></template></div></template>',
   's-text': '<template data-sn-props="{ node: any }"><span class="t" data-sn-text="node.value"></span></template><style>.t { color: blue }</style>',
   's-wrap': '<template data-sn-props="{ node: any }"><s-text data-sn-with="{ node: { value: node.url } }"></s-text></template><style>.w { color: green }</style>',
+  's-img': '<template data-sn-props="{ node: any }"><img data-sn-attr="{ src: node.url, alt: \'i\' }"></template><style>img { border: 0 }</style>',
   's-list': '<template data-sn-props="{ node: any }"><ul><template data-sn-for="c in node.items"><s-card data-sn-with="{ t: c }"><i data-sn-text="c"></i></s-card></template></ul></template>',
   'x-link': '<template data-sn-props="{ node: any }"><slot name="link" data-sn-with="{ url: node.url }"><a data-sn-attr="{ href: node.url }"><template data-sn-for="n in node.children"><sn-component use="{ text: \'x-text\', link: \'x-link\' }[n.type]" data-sn-with="{ node: n }"></sn-component></template></a></slot></template>',
 };
@@ -44,16 +45,32 @@ const text = (r: CompileResult) => JSON.stringify(r, (_, v) => (typeof v === 'fu
 const was = process.env.SN_RENDER;
 afterEach(() => { if (was === undefined) delete process.env.SN_RENDER; else process.env.SN_RENDER = was; });
 
-/** the page compiled with rendering off and on: the same result; how many loops the second pass spliced in, and why others were not rendered */
+/**
+ * One compile, counted: how many loops its second pass spliced in, and why others were not rendered. The process-wide
+ * counters move with every compile, and `SN_LINK_AUDIT=1` compiles each page several times more, so the counted
+ * compile runs without it (the audited one runs beside it, in `both`).
+ */
+function counted<T>(f: () => T): { result: T; spliced: number; why: string[] } {
+  const link = process.env.SN_LINK_AUDIT;
+  delete process.env.SN_LINK_AUDIT;
+  try {
+    const n = RENDER_STATS.spliced, before = new Map([...RENDER_STATS.fallback].map(([k, v]) => [k, v.loops]));
+    const result = f();
+    const why = [...RENDER_STATS.fallback].filter(([k, v]) => v.loops > (before.get(k) ?? 0)).map(([k]) => k);
+    return { result, spliced: RENDER_STATS.spliced - n, why };
+  } finally { if (link !== undefined) process.env.SN_LINK_AUDIT = link; }
+}
+
+/** the page compiled with rendering off and on (under the audits the run has on, and once counted): the same result; the route the rows took */
 function both(body: string, extra: Partial<CompileOptions> = {}) {
   process.env.SN_RENDER = '0';
   const off = compile(page(body), options(extra));
   delete process.env.SN_RENDER;
-  const n = RENDER_STATS.spliced, before = new Map([...RENDER_STATS.fallback].map(([k, v]) => [k, v.loops]));
-  const on = compile(page(body), options(extra));
+  const audited = compile(page(body), options(extra));
+  expect(text(audited)).toBe(text(off));
+  const { result: on, spliced, why } = counted(() => compile(page(body), options(extra)));
   expect(text(on)).toBe(text(off));
-  const why = [...RENDER_STATS.fallback].filter(([k, v]) => v.loops > (before.get(k) ?? 0)).map(([k]) => k);
-  return { out: on, spliced: RENDER_STATS.spliced - n, why, body: /<body>([\s\S]*?)<\/body>/.exec(on.html)![1]! };
+  return { out: on, spliced, why, body: /<body>([\s\S]*?)<\/body>/.exec(on.html)![1]! };
 }
 
 describe('rendered rows: the same page as compiled rows, without compiling them', () => {
@@ -214,6 +231,48 @@ describe('rendered rows: the same page as compiled rows, without compiling them'
       expect(r.why).toEqual([]);
       expect(r.body).toContain('<ul data-sn-c="s-list"><article class="card" data-sn-c="s-card" title="p">');
     });
+
+    test('an image as an instance\'s root: marked after the image pipeline', () => {
+      const r = both('<s-doc data-sn-with="{ doc: { children: [{ type: \'img\', url: \'img/a.jpg\' }, { type: \'img\', url: \'img/t.png\' }] } }"></s-doc>', { images: host });
+      expect(r.spliced).toBe(1);
+      expect(r.why).toEqual([]);
+      expect(r.body).toContain('decoding="async" data-sn-c="s-img"');
+    });
+
+    test('a fill on a page with scoped styles: its top elements the caller\'s slot content (`data-sn-s`)', () => {
+      const r = both('<x-doc data-sn-with="{ doc }"><a slot="link" class="L" data-sn-attr="{ href: $slot.url }">link</a></x-doc><s-card data-sn-with="{ t: \'z\' }"></s-card>');
+      expect(r.spliced).toBe(1);
+      expect(r.why).toEqual([]);
+      expect(r.body).toContain('<a class="L" data-sn-s="" href="/a">');
+    });
+  });
+
+  test('rows reading the page\'s state (constant): frozen as the old route freezes what it drops (`fixedState`)', () => {
+    const r = both('<div data-sn-state="{ k: 1, n: 0 }"><template data-sn-for="x in [1, 2]"><p data-sn-text="x + k"></p></template><button data-sn-on-click="n++" data-sn-text="n"></button></div>');
+    expect(r.spliced).toBe(1);
+  });
+
+  describe('fills of a tree slot: the caller\'s markup, with `$slot`', () => {
+    test('a plain fill', () => {
+      const r = both('<x-doc data-sn-with="{ doc }"><a slot="link" class="L" data-sn-attr="{ href: $slot.url }">link</a></x-doc>');
+      expect(r.spliced).toBe(1);
+      expect(r.body).toContain('<a class="L" href="/a">link</a>');
+    });
+
+    test('a fill that places the children (`<slot>`), with the caller\'s constant state and text', () => {
+      const r = both('<div data-sn-state="{ k: \'K\' }"><x-doc data-sn-with="{ doc }"><a slot="link" class="L" data-sn-attr="{ href: $slot.url, title: k }"><b data-sn-text="k + $slot.url"></b><slot></slot></a></x-doc></div>');
+      expect(r.spliced).toBe(1);
+      expect(r.why).toEqual([]);
+    });
+
+    test('a fill chain (`<template slot data-sn-if>` and its else), on a page with stylesheets and a minifier', () => {
+      const r = both(`<x-doc data-sn-with="{ doc }">
+  <template slot="link" data-sn-if="$slot.url === '/a'"><a class="A" data-sn-attr="{ href: $slot.url }"> <slot></slot> </a></template>
+  <template data-sn-else><span class="B" data-sn-text="$slot.url"></span></template>
+</x-doc>`, { styles: [{ css: 'a { display: block }', file: '/p/a.css' }], minify: true } as never);
+      expect(r.spliced).toBe(1);
+      expect(r.why).toEqual([]);
+    });
   });
 
   test('the ids of what follows the rows are those the compiled rows leave', () => {
@@ -244,10 +303,9 @@ describe('rendered rows: the same page as compiled rows, without compiling them'
       process.env.SN_RENDER = '0';
       const off = compile(html, { ...o, page: e });
       delete process.env.SN_RENDER;
-      const n = RENDER_STATS.spliced;
-      const on = compile(html, { ...o, page: e, templates });
+      const { result: on, spliced } = counted(() => compile(html, { ...o, page: e, templates }));
       expect(text(on)).toBe(text(off));
-      expect(RENDER_STATS.spliced - n).toBe(1);
+      expect(spliced).toBe(1);
     }
     expect([...templates.values()][0]).toMatchObject({ hits: 3 });
   });
@@ -281,12 +339,6 @@ describe('rows left to the second pass, as before', () => {
     const r = both('<template data-sn-for="x in [1]"><p id="one" data-sn-text="x"></p></template>');
     expect(r.spliced).toBe(0);
     expect(r.why).toContain('an id');
-  });
-
-  test('a fill of a tree slot', () => {
-    const r = both('<x-doc data-sn-with="{ doc }"><a slot="link" class="L" data-sn-attr="{ href: $slot.url }">link</a></x-doc>');
-    expect(r.spliced).toBe(0);
-    expect(r.why).toContain('fill');
   });
 
   test('dev builds: never rendered (their function table keeps what the rows compiled)', () => {
