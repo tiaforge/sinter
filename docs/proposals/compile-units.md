@@ -1041,3 +1041,7 @@ decision of their own (stage 7). A step that can stay byte-identical does.
   there since A2), fixed (`181909b`), and passes; `npm run size -- --check` passes (realworld's article at 58,484
   of 58,496 bytes gzip: 12 bytes under its budget); sinter-markdown's own job (`npx sinter check`,
   `npm run typecheck`, `npm test`: 48 tests) passes; the four end-to-end suites in headless Chrome are running.
+- 2026-11-24, 03:57 UTC: **the end-to-end suites pass in headless Chrome on the integration branch (`11140c3`)**: `e2e/navigation`
+  (6 checks: next-page data, the Speculation Rules, transitions, the CSP hash of the folded rules), `e2e/links` (16),
+  `e2e/permanent` (40), `e2e/swap-csp` (10). Firefox and WebKit are not installed on this machine: those runs, the
+  suite's browser tests in them, the dashboard example's job and the Rust and .NET packages' jobs are CI's to run.
