@@ -577,3 +577,17 @@ static-site: 6 of 6 pages routed, byte for byte. Suite: 368 routed (357), prefol
 tests plain and audited; RENDER/LINK/ONE_PASS pass, UNITS/UNITS2 62/52 as head; render-audit --canon 8 apps the same;
 pass-audit byte for byte but bench-live-files' state digit; sinter-mail 48 files byte for byte raw and canonical with
 `SN_UNITS_VERIFY=1` (its remaining prefold pages: 5, which write a class or an image outside rows); size check passes.
+
+## 20. The second pass's unit in the route: what blocks it (not built)
+
+`placeUnits` places a unit only on a page with nothing numbered yet (`unnumbered`: no template, function, state, use,
+id or action): a unit's objects are shared by reference at the numbers they were made with, its templates and
+functions first. A routed page is walked: its own templates, functions, states and ids are numbered from 0 already,
+so the second pass's unit cannot be placed over it as it is. The ways it could: (a) the walk's numbers shifted by the
+unit's counts before placing it (every template id, function index, `$s<n>`, `$i<n>`, use id and `data-sn` id the walk
+handed out, in the IR, the code and the markup: `compactTables`' renaming, for every kind, on a page not finished yet),
+then the second pass's unit placed, then the dropped definitions' templates replaced by the unit's; or (b) a unit
+whose numbers are relative, placed at the page's current counts (a change to units.ts, A2's: its objects are shared,
+so their numbers would have to be offsets resolved at assembly, which stage 5's assembly plan defers). Either is a step
+of its own across units.ts and the route; neither is contained in `fromWalk`. Until then the 17 suite cases (9 + 6 +
+sinter-mail's 2) take the second pass.
