@@ -484,7 +484,7 @@ export class DocFast extends DocFastComponent {
   the root's children.
 
 A component with a script whose root is empty, no early renderer, and a use whose props the early script knows
-is `SN543`. `<md-doc>` of [sinter-markdown](../packages/sinter-markdown/docs/markdown.md) renders an embedded
+is `SN543` (not one whose root is `hidden`, which shows nothing). `<md-doc>` of [sinter-markdown](../packages/sinter-markdown/docs/markdown.md) renders an embedded
 document this way.
 
 ## Choosing how it renders, per use: `$build` and `$slots`

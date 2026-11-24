@@ -93,8 +93,9 @@ test('SN543: a script-filled component without an early renderer where its props
   expect(warn.map((d) => d.code)).toEqual(['SN543']);
   expect(warn[0]!.message).toMatch(/`<x-view>` is filled by its script at mount, after the first paint/);
   expect(warn[0]!.hint).toContain('/src/components/x-view.early.ts');
-  // not where its props wait for data, nor for a root with content of its own
+  // not where its props wait for data, nor for a root with content of its own, nor for a hidden root, which shows nothing
   expect(build(PAGE(null), files(null)).diagnostics).toEqual([]);
+  expect(build(PAGE('{"t":"a"}'), { ...files(null), '/p/src/components/x-view.html': VIEW.replace('<div class="v"></div>', '<i hidden></i>') }).diagnostics).toEqual([]);
   expect(build(PAGE('{"t":"a"}'), { ...files(null), '/p/src/components/x-view.html': VIEW.replace('<div class="v"></div>', '<div class="v"><i>…</i></div>') }).diagnostics).toEqual([]);
   const none = build(PAGE('{"t":"a"}'), files('export const x = 1;')).diagnostics;
   expect(none.map((d) => d.code)).toEqual(['SN312']);

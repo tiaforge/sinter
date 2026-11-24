@@ -3627,11 +3627,13 @@ class Compiler {
         break;
       }
       // a root element with no content of its own (white space at most): what the component shows is its script's
-      // (SN543 where a use of it would render early)
+      // (SN543 where a use of it would render early). Not a `hidden` root: it shows nothing, whatever its script does
+      // (a component that only works: measures, warms a parser up, listens)
       if (c.script) {
         const t = declaringTemplate(parse5.parseFragment(c.text).childNodes) as DefaultTreeAdapterMap['template'] | null;
         const roots = t ? t.content.childNodes.filter((n): n is P5Element => 'tagName' in n) : [];
         if (roots.length === 1 && roots[0]!.tagName !== 'template' && !roots[0]!.tagName.includes('-') && roots[0]!.tagName !== 'slot'
+          && !roots[0]!.attrs.some((a) => a.name === 'hidden')
           && roots[0]!.childNodes.every((n) => n.nodeName === '#text' && !(n as DefaultTreeAdapterMap['textNode']).value.trim())) c.scriptFilled = true;
       }
     }
