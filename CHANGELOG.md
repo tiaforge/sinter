@@ -63,6 +63,7 @@ How to write an entry (from 0.21.0 on; older sections keep their own form):
 
 ### Performance
 
+- A built page with nothing for Vite's HTML handling to do (no module script, stylesheet, `<style>`, image or other asset URL, `%ENV%` value) is not parsed by Vite again, with the same output: 0.1 s off 100 static posts, 0.3 s off 400, 0.6 s off 1,000. Only in an app whose other plugins have no `transformIndexHtml` hook ([docs/configuration.md](docs/configuration.md#vite-plugin-options)).
 - The check of the helper calls (SN534) runs beside the build, so it no longer adds to it: 0.14 s off a build of 100 posts and 0.35 s off 400 (it uses about 80 to 110 MB more memory while it runs).
 - A build keeps what the check of build-time helpers reads of each module in `node_modules/.cache/sinter/fold`, by the module's text, and the next build reads it there instead of parsing the helpers' modules again: about 0.1 s off every build's start with sinter-markdown's helpers, 0.2 s with sinter-mail's, with the same verdicts and output. Delete the folder to clear it ([docs/static-pages.md](docs/static-pages.md#helpers-and-files-at-build-time)).
 - A build of a site with a page file per post no longer tests every page's module against every moved page for SN521, which grew with the square of the pages (1.2 s at 1,000 pages), and every build scans the app's modules for the stylesheets they import once instead of once per page (0.3 ms a page), with the same output.

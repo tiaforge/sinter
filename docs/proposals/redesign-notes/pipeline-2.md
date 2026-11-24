@@ -8,8 +8,9 @@ on a quiet machine, then cut where the output stays byte for byte the same.
 
 - **2026-11-24: decision 3 in** (the cross check in a worker beside the build, `SN_CROSS_LATE=0` the old place):
   −0.15 s at 100 static posts, −0.6 s at 400, −1.2 to −1.45 s at 1,000; peak memory +40 to 110 MB; a build it
-  fails leaves `dist/` emptied. **Next: decision 4**, Vite's HTML step skipped for pages it does not change, where no
-  other plugin has an HTML hook.
+  fails leaves `dist/` emptied. **Decision 4 in**: Vite's HTML step skipped for a page it does not change, in an app with no other HTML plugin
+  (`SN_HTML_SKIP=0` off): −0.1 s at 100 static posts, −0.3 s at 400, −0.6 s at 1,000; live pages keep the step;
+  peak memory unchanged. Every owner decision of this log is now built; nothing open here.
 - **Done** for what can be fixed without a decision; three fixes in, each byte for byte the same over the bar; the rest
   written up below with what it would buy and what blocks it. Merged with `ccr-9ebf49d5-gpdej8` (0e55121): suite green
   (2,945), the integration branch alone against it identical over the bar, `render-audit` and `pass-audit` same.
@@ -466,6 +467,76 @@ nested builds (after `buildEnd`) are on the main thread beside the worker's star
 baseline apps, sinter-mail's 48 files); `pass-audit` and `render-audit --canon`: every app "same"; the suite (3,032)
 green. `scripts/baseline.mjs`: its recorded hashes predate the redesign (every app "DIFFERENT" at the base too); its
 report is the same both ways.
+
+## Decision 4 (taken): Vite's HTML step skipped for pages it does not change
+
+The owner decided (2026-11-24, 03:41 UTC), in the restricted form: only in an app with no other plugin that has an HTML
+hook, only for a page that needs none of what the step does, emitted byte for byte as the step would.
+
+**How.** Vite's step cannot be kept away from a page (its transform filters every `.html` module), and sinter's own
+hooks run inside it, so a page is kept out of the step's work, not out of the step: `sinter:html-in`, the last HTML
+hook before the step (`enforce: 'pre'`, after `sinter:fonts`), keeps the page and gives Vite a stand-in
+(`STEP_STAND_IN`, an empty document); Vite parses that, gives it the same module (a page with no scripts or
+stylesheets has an empty one either way, so the chunks and their hashes are the same), and in its `generateBundle`
+runs the HTML hooks after the step, of which `sinter:html-out` is the first (`enforce: 'post'`, before `sinter:early`):
+it puts the page back. From there the page goes on as it did: `sinter:early`'s and `sinter:pages`' hooks, Vite's own
+two (the CSP nonce and the import map, which change nothing without a nonce or an import map), the placeholder
+replacements (none in such a page) and the asset Vite emits. A stand-in that comes back changed is an error, not a
+guess. `src/html-step.ts` decides which pages: a page with anything the step reads or rewrites, or anything the check
+does not read whole, goes through it (its list: `%…%`, `__VITE_`, `vite-ignore`, `url(`/`image-set(`, `<style>`, the
+asset elements, a `<script>` other than the Speculation Rules or with `import`, a `<link href>` on this origin or with
+`imagesrcset`, an image `<meta>`). The app is checked once (`configResolved`): a build, no plugin outside sinter's
+with `transformIndexHtml`, no `html.cspNonce`, no extra asset sources, `cssCodeSplit` not off, no `chunkImportMap`.
+
+**The switch and the audit.** `SN_HTML_SKIP=0` sends every page through Vite's step as before; `SN_HTML_LOG=1` prints
+how many pages were kept out. The audit is the existing scripts' switch, which build both ways and compare every file:
+`node scripts/render-audit.mjs --switch SN_HTML_SKIP`, `node scripts/pass-audit.mjs --switch SN_HTML_SKIP`,
+`node scripts/mail-audit.mjs <checkout> --switch SN_HTML_SKIP`.
+
+**What it covers.** The benchmark's static pages, template or page files (every one of 101 at 100 posts), and a live
+app's pages without a page module (live-100: the index). Not: live pages (their module script, Vite's tags), the four
+examples' pages (stylesheets, module scripts), realworld's: they keep the step as before. Vite's step also warns on a
+page's HTML parse errors (`handleParseError`): parsing every page the benchmark writes with Vite's filter (static and
+page files at 100, 400 and 1,000) gives none, so nothing is lost from the log there; a page sinter writes is
+serialized from its tree.
+
+**Tests** (`test/vite/html-step.test.ts`): the check, case by case (a static page with its rules and other-origin
+links: kept out; 26 kinds that keep it in: an env value, Vite's placeholders, `vite-ignore`, each kind of script,
+stylesheets, icons, relative links, `imagesrcset`, `<style>`, `url()`, `image-set()`, images in either case, video,
+source, svg `use`, object, `og:image`, `twitter:image`, a quoted `>`, a script it cannot read whole); an app with a
+page of each kind built both ways: the same files and log lines, two pages kept out and four through (the stylesheet
+bundled, `%MODE%` written); and an app with another plugin's HTML hook: no page kept out, the hook sees every page,
+the same files.
+
+**Measured** (whole process, base `SN_HTML_SKIP=0` and the default in interleaved rounds, 3 rounds, Astro in the same
+rounds; the worker of decision 3 on in both; medians; peak RSS the highest of the rounds):
+
+| app | base | skipped | Δ | peak RSS |
+| --- | ---: | ---: | ---: | ---: |
+| static-100 | 2.21 s | 2.11 s | −0.10 s | 433 → 455 MB |
+| live-100 | 2.52 s | 2.59 s | (+0.07, noise: 1 page skipped) | 538 → 557 MB |
+| static-files-100 | 2.51 s | 2.38 s | −0.13 s | 474 → 478 MB |
+| live-files-100 | 3.17 s | 2.87 s | (noise) | 584 → 587 MB |
+| Astro, 100 | 2.05 s | | | |
+| static-400 | 5.33 s | 5.03 s | −0.31 s | 668 → 666 MB |
+| live-400 | 7.02 s | 6.71 s | (noise) | 879 → 920 MB |
+| static-files-400 | 6.94 s | 6.32 s | −0.62 s | 726 → 744 MB |
+| live-files-400 | 8.98 s | 9.04 s | (noise) | 1,017 → 1,041 MB |
+| Astro, 400 | 3.33 s | | | |
+| static-1000 | 12.05 s | 11.48 s | −0.57 s | 935 → 1,030 MB |
+| live-1000 | 15.47 s | 16.12 s | (noise) | 1,549 → 1,559 MB |
+| static-files-1000 | 16.06 s | 15.41 s | −0.65 s | 997 → 935 MB |
+| live-files-1000 | 23.27 s | 23.95 s | (noise) | 1,607 → 1,753 MB |
+
+The estimate was 0.1 s at 100 and 0.4 s at 400: 0.10 and 0.31 for the template app, 0.13 and 0.62 with page files.
+The live rows skip one page of 101: their differences (±0.7 s at 1,000) are the rounds' noise. **Peak memory** does
+not move: sinter holds each kept page until it goes back (Vite held the same page until it wrote it), and the live
+builds' 1.5 to 1.6 GB at 1,000 posts are pages that keep the step; what would lower that is Vite not holding every
+page's HTML at once, which is Vite's.
+
+**Checked**: the bar with `SN_HTML_SKIP=0` against the default: every file and log line the same (bench 100/400, the
+baseline apps, sinter-mail's 48 files); `render-audit --switch SN_HTML_SKIP`, `pass-audit --switch SN_HTML_SKIP`,
+`mail-audit --switch SN_HTML_SKIP`: every app the same; the suite (3,059) green with the skip on.
 
 ## Looked at, not changed
 

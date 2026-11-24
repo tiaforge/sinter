@@ -46,6 +46,7 @@ import { LAYERS_SHEET, type FoldArg } from './compiler/compile.js';
 import { didYouMean, docsUrl } from './compiler/diagnostics.js';
 import { crossCheck, crossMessage, hashOf, type FoldCall } from './fold-cross.js';
 import { crossWorker, type CrossWorker } from './fold-late.js';
+import { STEP_STAND_IN, viteStepNeeded } from './html-step.js';
 import type { CrossAnswer } from './fold-worker.js';
 import { apiOrigins } from './compiler/apis.js';
 import { importModule, loadHelpers, loadingHelpers, unloadedMessage, type NodeHelpers } from './helpers-node.js';
@@ -189,7 +190,9 @@ export interface SinterOptions extends ProjectOptions {
  * source, and with `pageOptions` the options the build compiles a source page with (once the config is resolved).
  */
 type SinterApi = { options: SinterOptions; source(file: string): string; pageOptions?: PluginApi['pageOptions'] };
-type SinterPlugins = [Plugin & { api: SinterApi }, Plugin, Plugin, Plugin, Plugin, Plugin, Plugin, Plugin];
+/** the plugins' names (an HTML hook of any other plugin keeps every page in Vite's HTML step) */
+const SINTER_PLUGINS = new Set(['sinter', 'sinter:early', 'sinter:css-images', 'sinter:fonts', 'sinter:font-check', 'sinter:pages', 'sinter:compile-hints', 'sinter:html-in', 'sinter:html-out']);
+type SinterPlugins = [Plugin & { api: SinterApi }, Plugin, Plugin, Plugin, Plugin, Plugin, Plugin, Plugin, Plugin, Plugin];
 
 /** dev: the pages under the root (not in node_modules, the output, `public/`, hidden folders, or the components' and layouts' folders) */
 function htmlPages(root: string, config: ResolvedConfig | null): string[] {
@@ -314,7 +317,7 @@ ${pages.map(page).join('\n')}
 
 export default function sinter(options: SinterOptions = {}): SinterPlugins {
   // the Vite server sinter starts to load the helpers module in Node (helpers-node.ts): nothing of sinter runs in it
-  if (loadingHelpers()) return [{ name: 'sinter', api: { options, source: (f: string) => f } }, { name: 'sinter:post' }, { name: 'sinter:css-images' }, { name: 'sinter:fonts' }, { name: 'sinter:font-check' }, { name: 'sinter:pages' }, { name: 'sinter:compile-hints' }, { name: 'sinter' }];
+  if (loadingHelpers()) return [{ name: 'sinter', api: { options, source: (f: string) => f } }, { name: 'sinter:post' }, { name: 'sinter:css-images' }, { name: 'sinter:fonts' }, { name: 'sinter:font-check' }, { name: 'sinter:pages' }, { name: 'sinter:compile-hints' }, { name: 'sinter' }, { name: 'sinter:html-in' }, { name: 'sinter:html-out' }];
   // options renamed (docs/proposals/vocabulary.md): what to write instead
   const was = options as { speculation?: unknown; earlyBudget?: unknown; fonts?: { inline?: unknown; preload?: unknown } };
   if (was.speculation !== undefined) throw new Error(`sinter({ speculation }) is renamed to \`prefetch: { html: ${htmlOf(was.speculation)} }\`, beside the next page's data (\`prefetch: { data }\`)`);
@@ -1504,6 +1507,9 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     return r.text;
   });
   /** the build's helper calls that folded, by page and call, for the cross-check at its end */
+  /** Vite's HTML step skipped for pages it does not change (configResolved), and those pages, by file, while it runs */
+  let htmlSkip = false;
+  const htmlKept = new Map<string, string>(), htmlCount = { kept: 0, through: 0 };
   const foldCalls = new Map<string, FoldCall[]>();
   /**
    * The cross-check (fold-cross.ts) of a build: on this thread at its `buildEnd` (`SN_CROSS_LATE=0`, and this
@@ -1749,6 +1755,14 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       setAppAliases(root, config.resolve.alias);
       // the fold check's analyses, kept on disk by content for the next build (not in this repository's tests, unless one
       // asks: `SN_FOLD_CACHE=1`; `SN_FOLD_CACHE=0` turns it off); `vite --force` reads none of them
+      // Vite's HTML step skipped for pages it does not change (html-step.ts): builds, no plugin but sinter's with an HTML
+      // hook, none of what the step does to every page (a CSP nonce, one CSS file, a chunk import map, extra asset
+      // sources); `SN_HTML_SKIP=0` sends every page through it
+      const html = config.html as { cspNonce?: string; additionalAssetSources?: unknown } | undefined;
+      htmlSkip = !dev && process.env.SN_HTML_SKIP !== '0' && !html?.cspNonce && !html?.additionalAssetSources && config.build.cssCodeSplit !== false
+        && !(config.environments?.client?.build as { chunkImportMap?: unknown } | undefined)?.chunkImportMap
+        && !config.plugins.some((x) => x.transformIndexHtml && !SINTER_PLUGINS.has(x.name));
+      htmlKept.clear();
       const keep = process.env.SN_FOLD_CACHE ?? (process.env.VITEST ? '0' : '1');
       foldCache.dir = keep === '0' ? null : resolve(root, 'node_modules/.cache/sinter/fold');
       foldCache.fresh = !!config.optimizeDeps?.force;
@@ -3352,7 +3366,44 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       },
     },
   };
-  return [main, post, cssImages, fonts, fontCheck, pages, compileHints, crossLate];
+  // Vite's HTML step for a page it does not change (html-step.ts): the page is kept after sinter's last HTML hook
+  // before the step (`sinter:fonts`), Vite parses a stand-in, and the page is back before the first one after it
+  // (`sinter:early`): everything after the step sees the page Vite would have written. Only in an app whose other
+  // plugins have no HTML hook (they would see the stand-in), and not with what the step does to every page
+  const htmlIn: Plugin = {
+    name: 'sinter:html-in',
+    enforce: 'pre',
+    transformIndexHtml: {
+      order: 'pre',
+      handler(html, ctx) {
+        if (dev) return html;
+        if (!htmlSkip || typeof html !== 'string' || viteStepNeeded(html)) { htmlCount.through++; return html; }
+        htmlCount.kept++;
+        htmlKept.set(ctx.filename, html);
+        return STEP_STAND_IN;
+      },
+    },
+  };
+  const htmlOut: Plugin = {
+    name: 'sinter:html-out',
+    enforce: 'post',
+    transformIndexHtml: {
+      order: 'post',
+      handler(html, ctx) {
+        const kept = htmlKept.get(ctx.filename);
+        if (kept === undefined) return html;
+        htmlKept.delete(ctx.filename);
+        if (html !== STEP_STAND_IN) throw new Error(`sinter: ${relOf(ctx.filename)}: Vite's HTML step changed the page sinter kept out of it (another plugin's HTML hook?); build with SN_HTML_SKIP=0 and report it`);
+        return kept;
+      },
+    },
+    // `SN_HTML_LOG=1`: how many pages Vite's step parsed, and how many it was given a stand-in for
+    generateBundle() {
+      if (process.env.SN_HTML_LOG === '1') console.error(`sinter html: ${htmlCount.kept} pages kept out of Vite's HTML step, ${htmlCount.through} through it${htmlSkip ? '' : ' (off for this app)'}`);
+      htmlCount.kept = htmlCount.through = 0;
+    },
+  };
+  return [main, htmlOut, post, cssImages, fonts, htmlIn, fontCheck, pages, compileHints, crossLate];
 }
 
 /**
