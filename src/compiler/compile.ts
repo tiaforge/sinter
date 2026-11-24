@@ -1768,6 +1768,9 @@ function compileTwice(html: string, options: CompileOptions, pass: { first: Comp
   // them, in a second pass; it needs a clean first pass too. What the second pass applies at every depth comes
   // from the first pass's worklist (`worklist()`), so a page is compiled at most twice: what writes state, which
   // decides what is constant, is known only after a walk
+  // (B1: why the second pass is not taken from the walk, counted once one is compiled; a page with none, `noSecond`)
+  let pending: string | null = null;
+  const noSecond = () => { if (pending) fromWalkStat(`no second pass (${pending})`); pending = null; };
   const second = (clean: boolean) => {
     const unrolled = first.unrolls.size && clean ? first.unrolls : null;
     const constants = first.constants.size && clean ? first.constants as Map<string, ConstantWrite[]> : null;
@@ -1780,8 +1783,11 @@ function compileTwice(html: string, options: CompileOptions, pass: { first: Comp
     if (constants) for (const s of first.constantSites) frozen.add(s);
     // (counted: a page of its own, or a template's entry its kept walk does not serve, parses and expands again)
     passStat(!options.page ? 'a page of its own' : options.templates ? 'an entry compiled alone' : 'an entry, no kept templates');
-    // (counted too: why the walk was not kept for it)
-    if (notFromWalk) fromWalkStat(notFromWalk);
+    // (counted too: why the walk was not kept for it, or why the second pass was not taken from it)
+    // (a page that recorded no branch the build may decide: counted under what its second pass applies)
+    if (notFromWalk) fromWalkStat(constants ? 'constants the layout or the images read (prefold)' : [...first.decided.keys()].some((k) => k.includes('|use:')) ? 'a choice decided' : unrolled ? 'a loop unrolled, not rendered' : first.decided.size ? notFromWalk : 'values folded into the code');
+    else if (pending) fromWalkStat(pending);
+    pending = null;
     const pass = (f: Map<string, unknown> | undefined) => {
       const o2: CompileOptions = { ...options, decided: first.decided, ...(f ? { folds: f } : {}), ...(unrolled ? { unrolled } : {}), ...(first.rendered.size ? { rendered: first.rendered } : {}), ...(first.unrendered.size ? { unrendered: first.unrendered } : {}), ...(constants ? { constants } : {}), ...(first.overLimit.size ? { overLimit: first.overLimit } : {}), frozen };
       const c2 = new Compiler(o2);
@@ -1804,7 +1810,10 @@ function compileTwice(html: string, options: CompileOptions, pass: { first: Comp
     // (a loop unrolled only in a clean first pass, which a first pass that is not quiet knows once it is finished)
     const clean = isClean(), unrolled = loops && clean;
     // (with a unit placed, only where the type check took the unit's check data in its walk's order: `units.ts`)
-    const next: CompileOptions | null = !consts && !first.needsMarkup && (!loops || quiet) && (first.decided.size || unrolled) && (!first.placedUnit || first.checkOrder) ? {
+    // (a page that is not quiet: its loops unroll where the finished first pass is clean, `settles`; the route finishes
+    // this one, and where that reports an error, the page is compiled the old way, below)
+    const settles = loops && !quiet && first.fwFinishAlike();
+    const next: CompileOptions | null = !consts && !first.needsMarkup && (!loops || quiet || settles) && (first.decided.size || unrolled) && (!first.placedUnit || first.checkOrder) ? {
       ...options, decided: new Map(first.decided), ...(unrolled ? { unrolled: new Map(first.unrolls) } : {}), ...(first.rendered.size ? { rendered: new Map(first.rendered) } : {}),
       ...(first.unrendered.size ? { unrendered: new Map(first.unrendered) } : {}), ...(first.overLimit.size ? { overLimit: new Map(first.overLimit) } : {}), frozen: first.foldedState(),
     } : null;
@@ -1823,6 +1832,12 @@ function compileTwice(html: string, options: CompileOptions, pass: { first: Comp
           if (first.placedUnit) { got = detachOutput(got); restoreUnit(first); }
           // code it ships reads a value the second pass writes into the code (the walk compiled every read as one)
           if (values && shipsFold(got, values)) { why = 'values folded into the code that ships'; got = null; }
+          // a page that is not quiet, which its finish found not clean: the old route did not unroll its loops; compiled so
+          else if (settles && got.diagnostics.some((d) => d.severity === 'error' && d.code !== 'SN322')) {
+            fromWalkStat('a loop unrolled on a page that is not quiet, not clean');
+            const p2 = { first: null as Compiler | null };
+            try { return withoutFromWalk(() => compileTwice(html, options, p2)); } finally { if (p2.first) restoreUnit(p2.first); }
+          }
         }
         fromWalkStat(why);
         if (!got) {
@@ -1836,8 +1851,8 @@ function compileTwice(html: string, options: CompileOptions, pass: { first: Comp
         if (proc?.env.SN_FROM_WALK_AUDIT === '1') { restoreUnit(first); fromWalkAudit(html, options, out, why === null); }
         return out;
       }
-      fromWalkStat(r.why);
-    } else fromWalkStat(first.needsMarkup || consts ? 'constants the layout or the images read (prefold)' : loops && !quiet ? 'a loop unrolled on a page that is not quiet' : first.placedUnit && !first.checkOrder ? 'a unit placed, its check data out of order' : values && first.foldGain(values) ? 'values folded into the code' : 'nothing decided');
+      pending = r.why;
+    } else pending = first.needsMarkup || consts ? 'constants the layout or the images read (prefold)' : loops && !quiet ? 'a loop unrolled on a page that is not quiet' : first.placedUnit && !first.checkOrder ? 'a unit placed, its check data out of order' : values && first.foldGain(values) ? 'values folded into the code' : 'nothing decided';
     // (the old route from here, with these decisions where they are all it reads)
     if (!quiet || first.needsMarkup || !(first.decided.size || unrolled || consts)) first.settleAgain();
   }
@@ -1877,7 +1892,7 @@ function compileTwice(html: string, options: CompileOptions, pass: { first: Comp
   const withLate = (o: typeof out) => (o.lateDiagnostics ? { ...o, diagnostics: [...o.diagnostics, ...o.lateDiagnostics] } : o);
   if (!twice) { SHIFT_STATS.first ||= first.hasDefinitions() || proc?.env.SN_UNITS_SHIFT_AT === 'walk'; return withLate(out); }
   const next = second(isClean());
-  if (!next) { SHIFT_STATS.first ||= first.hasDefinitions() || proc?.env.SN_UNITS_SHIFT_AT === 'walk'; return withLate(out); }
+  if (!next) { noSecond(); SHIFT_STATS.first ||= first.hasDefinitions() || proc?.env.SN_UNITS_SHIFT_AT === 'walk'; return withLate(out); }
   // the type check reads the page as written: in the second pass an unrolled loop's rows have no loop variable, so a
   // component prop in one (`{ post: p }`) was SN208 "Cannot find name 'p'" in `sinter check` of a `static` page
   return withFirstErrors(first, out.check ? { ...next, check: out.check } : next);
@@ -2834,6 +2849,21 @@ class Compiler {
    * SN211, a model's or a binding's), and a page per entry reading its pattern's parameters (SN345); the rest
    * reports warnings, late ones, or SN322, which `clean` does not count.
    */
+  /**
+   * B1: a first pass that is not quiet (`quietFinish`), whose finish would find what the second pass from its walk finds:
+   * no decided branch or loop the route drops added what `finishPage`'s errors read (a `$url` list's binding, a page
+   * model, a write of the URL, a read of `$url` on a page per entry), and no signed-in guard. Then the route finishes it,
+   * and its errors are the old route's first pass's: none, or it is compiled the old way (`compileTwice`).
+   */
+  fwFinishAlike(): boolean {
+    if (!this.fw || this.signedIn) return false;
+    for (const a of this.fw.anchors) {
+      if (a.added.has('urlBinds') || a.added.has('pageModels') || a.added.has('page.urlWrites')) return false;
+      if (this.pagesDecl) for (const i of a.uses.keys()) if (i >= a.f0 && this.fns[i]?.includes('$url')) return false;
+    }
+    return true;
+  }
+
   quietFinish(): boolean {
     return !this.signedIn && !this.pagesDecl && !this.urlBinds.length && !this.pageModels.length && !this.page.urlWrites?.length;
   }
@@ -11866,7 +11896,7 @@ class Compiler {
     if (next.constants?.size) return no('constants the layout or the images read (prefold)');
     if (next.overLimit?.size) return no('over the expansion limit');
     // a loop unrolled outside rows is one the first pass rendered (one in a row goes with its row)
-    for (const k of next.unrolled?.keys() ?? []) if (!k.includes('#') && !next.rendered?.has(k)) return no('a loop unrolled, not rendered');
+    for (const k of next.unrolled?.keys() ?? []) if (!k.includes('#') && !next.rendered?.has(k)) return no(renderOn() ? 'a loop unrolled, not rendered' : 'a loop unrolled, rendering off (SN_RENDER=0)');
     // the minifier and the image pipeline go over rendered rows in the second pass, before its walk; the layout reads them
     const sheets = (typeof this.opts.minify === 'object' ? this.opts.minify.styles : undefined) ?? this.opts.styles;
     const minLayout = !!this.opts.minify && !!sheets;

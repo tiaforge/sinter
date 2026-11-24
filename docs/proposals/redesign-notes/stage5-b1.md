@@ -4,20 +4,18 @@ Running log (2026-11-23), branch `redesign/stage5-b1`, started at `5f203af` (the
 
 ## Where the work stands (read this first)
 
-Continued on branch `redesign/stage5-b1b` (2026-11-23, second session; sections 11 to 14).
+Continued on branch `redesign/stage5-b1b` (2026-11-23/24, second session; sections 11 to 18).
 
-- **Done**: the route for pages of their own (`compileTwice` → `Compiler#fromWalk`, sections 3 to 5); since section 11
-  also for **pages with a unit placed** (the blog's page-file variants: 100 of 100 entries, sinter-mail 3 pages), for
-  **pages whose second pass would fold values into code that does not ship** (`shipsFold`, section 12) and for
-  **rendered rows under the minifier with a layout** (`respaceRows`, section 15; an embedded resource's id renumbered in
-  place, a route bug) and **under the page's own layout** where nothing it sizes is beside the rows (section 16). The
-  suite: 325 second passes routed (193 before), "values folded" 124 → 16, "rendered rows and a layout" 48 → 3; the
-  examples: static-site 4 of 6 (2 prefold), multilingual-site 8 of 8.
-- **Written up, not built**: a template's entries (section 13): every design that copies walked state per entry costs
-  more than the second pass it saves (measured), and the fold of entry values needs a walk that folds.
-- **What B2 still needs**: section 14 (the remaining reasons, by count).
-- **Next**: loops unrolled the old way (67 + 35 in the suite: stage 2's row route), then the prefold constants (38, and
-  static-site's 2 pages).
+- **Done**: the route (`compileTwice` → `Compiler#fromWalk`) for pages of their own, with a unit placed (11), where
+  folds ship nothing (12), rendered rows under the minifier's and the page's layout (15, 16), functions a dropped walk
+  or the unit made first at the page's site, loops on pages that are not quiet (template entries compiled alone, 18).
+  Suite under `SN_FROM_WALK_AUDIT=1`: 357 second passes routed (193 at the session's start); the apps: the blog's
+  page-file variants 200/200, static-site 4/6, multilingual-site 8/8, sinter-mail 3/16.
+- **Counted as done**: `no second pass (nothing decided)`: a page the route looked at that needs no second pass (52).
+- **Written up, not built**: template entries (13; the coordinator holds them for stage 6's finding); prefold
+  constants (18: static-site 2, realworld 1, sinter-mail 6, suite 57); the renderer's own fallbacks (18, stage 2/6's).
+- **Next** (the coordinator's order, 2026-11-24): what the apps still hit (prefold, sinter-mail's SN501 and unit pages),
+  then the small groups (code or definitions first compiled in a dropped walk, choices, folds that ship).
 
 ## How it is measured
 
@@ -458,3 +456,55 @@ pass from the kept expansion (section 13). Dashboard has no second pass.
 So for the apps the second pass is left for: the template entries (300 blog pages), prefold constants (8 pages:
 static-site 2, sinter-mail 6), the SN501 case (sinter-mail 6: a resource read only in a dropped branch, whose warning
 the second pass reports), one unit case (sinter-mail 1), and realworld's one page whose branch is not recorded.
+
+## 18. Toward B2: what each remaining refusal needs (second session, after the coordinator's order of 2026-11-24)
+
+Done in this step (commits a196ecc and the next):
+
+- **A function a dropped walk or the unit made first, called by the page too** (was `code a decided branch compiled first
+  is compiled elsewhere too`, `code the unit compiled is compiled by the page too`): its site is the page's first call
+  outside the dropped walks, which `fn()` records during the page's walk (`FW_WALKING`: a module variable, as
+  `FW_COUNTING` is; the linker refuses a definition whose compile reads `fw`); refused where the page called it only
+  after its walk, or where the page and the route's walks both call it (which comes first is not known). Its number
+  stays the earlier one (numbering only). Suite 18 → 16 (most of the rest: the page calls it after the walk).
+- **The unit's entries by name that the page reads** (found by sinter-mail: its `mail` namespace, added first by the
+  unit, would have been taken out though the page imports it): the tables' entries by name that placing the unit added
+  are watched during the page's walk (`fwWatchUnit`, the tables' own methods); one the page reads there refuses the
+  route (`the page reads the unit's …`). And with a unit placed, a definition the route's walks compile is refused (the
+  second pass places a unit of its own there, whose writes are not those).
+- **SN501**: reporting it from the route is not sound: a resource a dropped walk read first and the page read after it
+  leaves no trace of the page's read (`a.used` records first reads). Kept as a refusal; fixed two false refusals: the
+  rows' reads count as reads, and the resets of the dropped walks' first reads come before any block is walked again.
+- **Loops on a page that is not quiet** (35 → 1): such a page's loops unroll where its finished first pass is clean; the
+  route finishes it and checks (`fwFinishAlike`: no dropped walk added a `$url` list's binding, a page model, a URL
+  write, or a `$url` read on a page per entry; no signed-in guard; then the routed page's errors are the first pass's).
+  Where the finish reports an error the page is compiled the old way (counted `…, not clean`).
+- **The counts say what happened**: a reason is counted when a second pass follows; `no second pass (…)` where none does
+  (`nothing decided`: 52); a page that recorded no branch the build may decide is counted under what its second pass
+  applies (prefold, a choice, a loop, folds); a loop unrolled because rendering is off (`SN_RENDER=0`, the reference
+  compiles of render-rows.test.ts and evaluation.test.ts) apart from the renderer's own fallbacks.
+- `SN_RENDER_AUDIT` runs both of its compiles with B1 off (a page compiled with `SN_RENDER=0` beside it took B1);
+  link-review-3/4 run with B1 off (they count links per pass, as units.test.ts).
+
+**Prefold** (constants the layout or the images read; suite 57, static-site 2, realworld 1, sinter-mail 6), not built.
+The second pass writes them into the markup before the minifier, the layout and the image pipeline run, and takes their
+bindings off before its walk, which then compiles none of them. In the apps they are image attributes (static-site's
+`docs/guide.html`: `<img data-sn-attr="{ src: node.url, alt: node.alt }">` in `node-image`, inside a row of the content
+tree). The route would have to: write them into the walked page (their bindings' attributes are gone by then: found by
+the constant's key from the element's site), take the bindings off before `settle` writes their raw values over the
+pipeline's, run the image pipeline for those images only, with the first-pass `eager` rule (the first image of the
+page outside templates; the unbound image counted), and put its rules into the page's image CSS in document order (the
+pipeline gives one rule per image and joins them in order), and its variants into the build's. A class or a style the
+layout reads would change the layout's answers anywhere (white space, every image's size): refused for good. Contained
+case: only image `src`/`srcset`/`alt`/`width`/`height` in images; a step of its own.
+
+**The renderer's fallbacks** (what keeps the old second-pass row route; `SN_RENDER_STATS` over the suite, loops):
+no element in a row 52 (the behaviour fuzzers: rows that are only text or comments), text at the top of a row 21 (the
+minifier and anchor fuzzers), the loop's place 9 (slot content and fills, component scopes), a value not written ahead
+4, diagnostics per copy 4 (SN313 on a choice's case, a row changing its item), a handler in a row 3, a text failing at
+build time 2, links in an instance in rows 2 (SN519's wording with the instance's chain), an id in a choice's case 2.
+What would let the renderer cover each: a row's nodes rendered without an element anchor (a text row: the runtime's
+text separators); a row starting with text as the old route's copies number it; slot content's scopes (the instance's
+`$slot`); the copy's own diagnostics (reported at the copy's chain, as the old route words them); a handler kept as a
+residue on a rendered node (the IR's per-node residue, stage 7's decision). These are stage 2's / stage 6's (the
+renderer: `rowRenderer`, `render`, `fill`), which the stage 6 session works in now; not built here.
