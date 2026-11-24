@@ -463,6 +463,15 @@ series of 8 rounds at 100 gave 0.135 s). The last plugin waits 13 to 88 ms for t
 hidden. The worker's own heap adds 40 to 110 MB to the peak. Live pages gain less at 100: their early scripts'
 nested builds (after `buildEnd`) are on the main thread beside the worker's start.
 
+**The worker's memory, and a build that fails elsewhere.** The +80 to 120 MB at the peak is the worker's own heap:
+measured when it answers, 81 MB (57 in use) at 100 posts, 106 MB (78 in use) at 400: Vite and the compiler modules it
+loads, its fresh copy of the helpers and the replay's results. Nothing is held twice on the build's thread (the calls it
+sends were held until `buildEnd` before too). It terminates as soon as it has answered (`fold-late.ts`). A heap cap
+(`resourceLimits`) is not taken: on a site whose replay needs more, the worker would die and the check fall back to the
+build's thread, slower than today. It never keeps the process alive (`unref`); `buildEnd` stops it when it does not get
+the calls (an error before or at `buildEnd`, no folded calls), an error after `buildEnd` lets it finish its one job and
+terminate itself, and the next `buildStart` stops any that is left.
+
 **Checked**: the bar with `SN_CROSS_LATE=0` against the default: every file and log line the same (bench 100/400, the
 baseline apps, sinter-mail's 48 files); `pass-audit` and `render-audit --canon`: every app "same"; the suite (3,032)
 green. `scripts/baseline.mjs`: its recorded hashes predate the redesign (every app "DIFFERENT" at the base too); its
