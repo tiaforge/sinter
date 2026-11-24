@@ -821,3 +821,26 @@ decision of their own (stage 7). A step that can stay byte-identical does.
   outside the compiler and allocation by function (`redesign/alloc`, log `redesign-notes/alloc.md`).
 - 2026-11-24, 00:21 UTC: **the full suite passes at `e09b12e`: 3,010 tests, 314 files** (with stage 5's third milestone, stage 6's
   rounds 2 and 3 and its closing log). The stage 6 session is archived; its log's top says where it ended.
+- 2026-11-24, 01:19 UTC: **memory and garbage, measured, and the first cuts merged** (`redesign-notes/alloc.md`, tools in
+  `bench/tools/mem/`; a fresh cloud session, `redesign/alloc`). **The peak is not retention.** Live heap after a
+  forced collection with every page compiled: 58, 79 and 115 MB at 100, 400 and 1,000 posts, about 0.06 MB a page
+  (a weak map's table, Vite's processed HTML, the fold log, the post's source: each needed, or Vite's). The peak is
+  about 250 MB for the process, Rolldown and code plus V8's heap, which V8 lets grow to about 4.4 times what is
+  live after each full collection. **The cost is garbage**: a 400-post static build allocates 3.8 GB, 9.6 MB a
+  page: the compiler 2.53 GB (of it the markdown tree about 0.8), Vite's HTML step 0.52, the SN534 cross check
+  0.42; 534 ms in 258 scavenges and 26 ms in 3 full collections. The first cuts, compiler only, nothing computed
+  differently: `plainData` without a pair per value, `fill`'s paint one function per fill, an element's known
+  attributes as one set for the module, a folded text's names once per distinct text, the minifier keeping an
+  element's children list where nothing changes: allocation 3,831 to 3,572 MB at 400 posts. The session's
+  numbers, interleaved, medians: the collector's time 2 to 8 percent less (400 static 600 to 572 ms; 1,000 live
+  2,516 to 2,318 ms), build time and peak memory within noise. Its findings for the owner: sinter-markdown's own
+  parse memo (8 MiB) keeps about 119 post trees through a build where each post is parsed once (6 to 10 percent
+  of the collector's time at 400 posts if it were smaller); a larger young generation (`--max-semi-space-size=64`)
+  takes a quarter off the collector's time for 150 MB more peak and no build time, not worth it; live pages at
+  1,000 posts peak at 1.4 to 1.6 GB because Vite's HTML step keeps every page's parse tree until its promises
+  settle and Rolldown starts all transforms at once (Vite's). Its summary: the compiler's own allocation is spread
+  thin; the largest item left in it is the first pass's rendered rows as nodes (about 0.8 GB, 2 MB a page), which
+  is the rows-as-text question again. Checked on the coordinating machine after the merge (the session cannot
+  reach sinter-mail): 1,569 tests of test/compiler, test/vite, test/check pass; `pass-audit` nine apps the same;
+  sinter-mail's 48 audit files and its 2,000-element page built with the tree before the session's changes
+  (`b901424`) and with the merged tree: every file identical.
