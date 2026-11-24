@@ -11,13 +11,13 @@ largest cost nobody owned. Branch `redesign/alloc`, base `f395fa2` (the integrat
   lets the old generation grow to about 4.4 times what was live after each mark-compact before it runs the next (3 of
   them in the 400-post build). So every MB that is live when a mark-compact runs costs about 4 MB of peak, and a build
   that ends before reaching the next limit peaks lower: that, not retention, is the slope from 100 to 400 posts.
-- **Step 2 (allocation), first milestone**: attributed (below: 3.83 GB at 400 posts, 9.6 MB a page; 46 % of it is not the
-  compiler's: markdown-it and sinter-markdown's tree, Vite's parse5, the SN534 cross check), and five local cuts in the
-  compiler, byte-identical: 3,831 → 3,572 MB (−6.8 %); the GC's pauses −2 to −8 %, time and peak memory within noise.
-  The compiler's own allocation is spread: the largest left is the first pass's rendered rows as DOM (≈0.8 GB, 2 MB
-  a page), which is stage 6's ground (rows as text, assessed there).
-- **Next**: what else is cheap in the compiler's share (iterators of Maps and Sets in the walk, `copyState`'s copy);
-  the findings for the owner are in "Decisions for the owner" below.
+- **Step 2 (allocation) done for what is cheap**: attributed (below: 3.83 GB at 400 posts, 9.6 MB a page; 46 % of it is
+  not the compiler's: markdown-it and sinter-markdown's tree, Vite's parse5, the SN534 cross check), and seven local
+  cuts, byte-identical: 3,831 → 3,572 MB (−6.8 %); the scavenges −5 to −7 %, the GC's pauses −4 to −9 % (a page file
+  per post within noise), time and peak memory within noise. What is left in the compiler's share is spread thin; the
+  largest is the first pass's rendered rows as DOM (≈0.8 GB, 2 MB a page), stage 6's ground (rows as text).
+- **Step 3 done** (a finding: not worth it). The owner's decisions are at the end ("Decisions for the owner").
+- Full suite at the head: 3,010 tests, 314 files.
 - sinter-mail could not be attached in this session (the `add_repo` call was refused by the session's permission
   check); its audit is not run yet. Reported to the coordinator.
 
@@ -206,6 +206,17 @@ Three rounds at 1,000 posts (cuts 1 to 5), medians:
 | live 1,000 | 19,645 / 1,585 / 2,516 (713) | 18,945 / 1,578 / 2,318 (670) |
 | a page file per post, 1,000 | 19,137 / 826 / 1,952 (753) | 19,194 / 819 / 1,878 (720) |
 
+At the head (all seven cuts), five more rounds against the base at 100 and 400 posts:
+
+| app | base | this branch |
+| --- | --- | --- |
+| static 100 | 2,469 / 353 / 199 (77) | 2,392 / 347 / 186 (73) |
+| live 100 | 2,901 / 481 / 251 (86) | 3,031 / 484 / 242 (80) |
+| a page file per post, 100 | 2,965 / 362 / 232 (91) | 2,821 / 360 / 209 (87) |
+| static 400 | 6,553 / 569 / 619 (258) | 6,561 / 552 / 566 (240) |
+| live 400 | 8,309 / 825 / 841 (290) | 8,184 / 812 / 804 (269) |
+| a page file per post, 400 | 7,980 / 601 / 735 (306) | 8,033 / 599 / 747 (293) |
+
 Checked: `bench/tools/ident.mjs` against the base, nine apps (the five benchmark variants at 100 posts and the four
 examples), every file the same; `pass-audit` and `render-audit --canon`, every app "same"; 1,569 tests of
 test/compiler, test/vite, test/check, check-cli and fold-cache.
@@ -224,7 +235,8 @@ step for pages it does not change), and live pages are pages it changes.
 ## Decisions for the owner
 
 1. **sinter-markdown's parse memo at build time** (step 1): ≈10 MB live through the build, ≈119 post trees, each
-   promoted; 6–10 % of the GC at 400 posts. Either a smaller `maxSize` in the package (its browser cache too), or the
+   promoted; 6–10 % of the GC at 400 posts. It is also what sizes the `DEEP_FROZEN` table (8 MB at 400 posts):
+   `frozenPlain` marks every object of each tree, and the cached trees keep ≈119 pages' marks alive at once. Either a smaller `maxSize` in the package (its browser cache too), or the
    build's fold calling a memoized helper's own function where the compiler keeps the page's calls itself.
 2. **The young generation's size** (step 3): `--max-semi-space-size=64` buys a quarter of the GC's pauses for 150 MB of
    peak and no time. Not recommended; it is the user's flag in any case.
