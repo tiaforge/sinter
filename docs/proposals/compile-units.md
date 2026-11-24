@@ -261,8 +261,8 @@ timings were not usable). A cloud session pushes to a branch of its own:
 
 | Workstream | Where | Branch | Log |
 | --- | --- | --- | --- |
-| stage 5, B1 continued: rendered rows and a layout, then what B2 needs (pages with a unit and folds merged) | cloud, `session_01AjKzdx4aCc4CWZp4zJDc1m` | `redesign/stage5-b1b` | `stage5-b1.md` |
-| stage 6 continued: the blog's walk and render per node (the evaluation is done and merged) | cloud, `session_01AjKzdxcYo9FzUYyj9yNBZn` | `redesign/stage6-eval` | `stage6-eval.md` |
+| stage 5, B1 continued toward B2: what the apps still hit (prefold, SN501, a unit case), then unrolled loops and the small groups | cloud, `session_01AjKzdx4aCc4CWZp4zJDc1m` | `redesign/stage5-b1b` | `stage5-b1.md` |
+| what a build allocates and keeps per page: retention outside the compiler, allocation by function (stage 6 is finished and merged: `stage6-eval.md`) | cloud, `session_01AjKzdxK4qaHMSKWGtkmHi2` | `redesign/alloc` | `alloc.md` |
 
 **The bar, as the owner set it on 2026-11-23:** the output need not be byte for byte today's where only numbering
 and generated names differ (`data-sn` ids, anchor numbers, template, state and function numbers, renamed loop
@@ -804,3 +804,18 @@ decision of their own (stage 7). A step that can stay byte-identical does.
   about 1.9 ms a page inside and outside the compiler, and the process's memory grows by about 0.75 MB a page (356
   MB at 100 posts, 584 MB at 400). The stage 6 session's next item is that: what a build allocates and what it
   keeps per page.
+- 2026-11-24, 00:14 UTC (from here the times are the machine's clock; the four entries above ran 10 to 20 minutes ahead):
+  **stage 6, round 3: the helpers' build-time memo kept per entry, merged** (`redesign-notes/stage6-eval.md`,
+  "Round 3"; `f395fa2`). The memo (`FOLD_MEMO`) is reused while the compiled file is the same, for up to 512 calls,
+  and a template's entries are one file: every entry's `md.parse` key (the body's JSON) and frozen tree stayed for
+  the build. It is per entry now, as it always was per page file. The session's numbers at 400 posts: heap after a
+  forced collection 0.12 to 0.027 MB a page kept by the compiler (what still grows, about 27 kB a page, is the fold
+  log's calls for the SN534 cross check, needed until `buildEnd`); peak memory about 570 to 554 MB, the collector's
+  pauses 554 to 525 ms, the build's time unchanged. A consequence to know: a helper called with the same arguments
+  by every entry of a template is called once per entry now (as for page files), not once per 512 calls; the fold
+  log's ids start at 0 per entry and the cross check checks each. Checked on the coordinating machine: 1,569 tests
+  of test/compiler, test/vite, test/check pass; `pass-audit` nine apps the same; `mail-audit` 48 files byte for
+  byte; 400 posts three times: peak memory 554, 566, 562 MB (584 before). So the 0.7 MB a page at the peak is not
+  the compiler's: it is outside it (Vite's and Rolldown's module graph and bundle, the HTML step's trees, the
+  plugin's state). **The stage 6 session is finished** (its context was full); a fresh cloud session takes retention
+  outside the compiler and allocation by function (`redesign/alloc`, log `redesign-notes/alloc.md`).
