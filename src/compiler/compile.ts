@@ -1389,7 +1389,7 @@ function appliedLog<T>(first: Compiler, options: CompileOptions, constants: bool
 
 /** B1 (stage5-b1.md): a page-level `<template>` the first pass's walk recorded (`fwStart`, `fwEnd`) */
 type FwAnchor = {
-  el: P5Element; kind: 'if' | 'else' | 'for'; elseIf: boolean; ctx: Ctx; node: NodeDef | null;
+  el: P5Element; kind: 'if' | 'else' | 'for' | 'choice'; elseIf: boolean; ctx: Ctx; node: NodeDef | null;
   /** its content as it was before the walk (a branch's) */
   snap: FwSnap | null;
   /** the tables' sizes and the plain fields before its walk (`fwMarks`) */
@@ -1401,6 +1401,8 @@ type FwAnchor = {
   /** the resources its walk read first */
   used: string[];
   p0: number;
+  /** a candidate's tag before its walk made it a template (`recursionPoint`) */
+  tag?: string;
 };
 type FromWalk = {
   anchors: FwAnchor[]; byEl: Map<P5Element, FwAnchor>; fields?: FwField[]; read?: (c: unknown, page: unknown) => unknown[];
@@ -2865,7 +2867,9 @@ class Compiler {
       return !!m && m[2] !== '*' && m[2] !== '**' && !written.has(`$s${m[1]}`) && !written.has(`$s${m[1]}.${m[2]}`);
     });
     // (or a loop over constants, which it may render)
-    return this.fw.anchors.some((a) => a.node?.b.some((b) => b.f !== undefined && (b.k === 'if' ? fixed(b.d) || this.fns[b.f]!.includes('$.$build') : b.k === 'for' && !b.e && fixed(b.d))));
+    // (or a choice over constants, whose case it may render)
+    return this.fw.anchors.some((a) => a.node?.b.some((b) => b.f !== undefined && (b.k === 'if' ? fixed(b.d) || this.fns[b.f]!.includes('$.$build') : b.k === 'for' && !b.e && fixed(b.d)))
+      || (a.kind === 'choice' && ((n) => !!n && !!this.pointOf.get(n)?.pick && fixed(this.pointOf.get(n)!.pick!.deps))(this.choices.get(a.el)?.group.node)));
   }
 
   /**
@@ -6378,7 +6382,8 @@ class Compiler {
       if (kept && /^[A-Za-z][\w-]*$/.test(kept)) this.nextId = keptBase(kept);
       if (kept) this.keptDepth++;
       // (B1: a page-level branch or loop, recorded for the second pass from this walk: `fromWalk`)
-      const fw = ctx.tid < 0 && child.tagName === 'template' && !this.keptDepth && this.fw ? this.fwStart(child, ctx) : null;
+      // (and a candidate of a page-level `<sn-component use>`, §22)
+      const fw = ctx.tid < 0 && (child.tagName === 'template' || this.choices.has(child)) && !this.keptDepth && this.fw ? this.fwStart(child, ctx) : null;
       const res = this.element(child, ctx, i, lastIf);
       if (fw) this.fwEnd(fw);
       if (kept) this.keptDepth--;
@@ -11884,14 +11889,15 @@ class Compiler {
 
   /** the walk is at a page-level `<template>` (`walkChildren`): a branch or a loop is recorded, its markup as it is before its walk */
   fwStart(el: P5Element, ctx: Ctx): FwAnchor | null {
-    const kind: FwAnchor['kind'] | null = attr(el, 'data-sn-for') !== undefined ? 'for' : attr(el, 'data-sn-if') !== undefined ? 'if' : attr(el, 'data-sn-else') !== undefined ? 'else' : null;
+    const kind: FwAnchor['kind'] | null = this.choices.has(el) ? 'choice' : attr(el, 'data-sn-for') !== undefined ? 'for' : attr(el, 'data-sn-if') !== undefined ? 'if' : attr(el, 'data-sn-else') !== undefined ? 'else' : null;
     if (!kind) return null;
     const unused: string[] = [];
     for (const r of this.page.resources.values()) if (!r.used) unused.push(r.name);
     const a: FwAnchor = {
       el, kind, elseIf: kind === 'if' && attr(el, 'data-sn-else') !== undefined, ctx, node: null,
-      snap: kind === 'for' ? null : snapTree((el as P5Template).content), marks: this.fwMarks(),
+      snap: kind === 'for' ? null : snapTree(kind === 'choice' ? { nodeName: '#document-fragment', childNodes: [el] } as unknown as P5Parent : (el as P5Template).content), marks: this.fwMarks(),
       d0: this.diagnostics.length, d1: 0, f0: this.fns.length, uses: new Map(), added: new Map(), changed: [], used: unused, p0: this.paints.length,
+      ...(kind === 'choice' ? { tag: el.tagName } : {}),
     };
     FW_COUNTING = a.uses;
     return a;
@@ -12047,15 +12053,39 @@ class Compiler {
     const sheets = (typeof this.opts.minify === 'object' ? this.opts.minify.styles : undefined) ?? this.opts.styles;
     const minLayout = !!this.opts.minify && !!sheets;
     const decided = next.decided ?? new Map<string, boolean>();
-    for (const k of decided.keys()) if (k.includes('|use:')) return no('a choice decided');
     // the branches decided at the page's level, and the `data-sn-else` after each
-    type D = { a: FwAnchor; v: boolean; other: FwAnchor | null; at: number; rows?: RenderedRows };
+    type D = { a: FwAnchor; v: boolean; other: FwAnchor | null; at: number; rows?: RenderedRows; group?: FwAnchor[]; pick?: P5Element; left?: P5Element[] };
     const ds: D[] = [];
     const index = new Map(this.roots.map((n, i) => [n, i]));
     const real = (c: P5Node) => isElement(c) || (c.nodeName === '#text' && (c as DefaultTreeAdapterMap['textNode']).value.trim() !== '');
     const IMG = /^(img|picture|source|video)$/;
     const imgs = (ns: P5Node[]): boolean => ns.some((n) => isElement(n) && (IMG.test(n.tagName) || imgs(n.childNodes as P5Node[]) || (n.tagName === 'template' && imgs((n as P5Template).content.childNodes as P5Node[]))));
     for (const a of fw.anchors) {
+      // a page-level `<sn-component use>` the evaluation decided (§22): its candidates, each walked as a recursion point,
+      // the first's node among the roots; the case it renders, rendered rows spliced in their place (as the second pass's
+      // expansion splices them), or nothing
+      if (a.kind === 'choice') {
+        const ch = this.choices.get(a.el)!;
+        if (!ch.first) continue;
+        const group = fw.anchors.filter((x) => x.kind === 'choice' && this.choices.get(x.el)?.group === ch.group);
+        const keys = group.map((x) => this.choiceKey(x.el, this.choices.get(x.el)!.name));
+        const vs = keys.map((k) => (k ? decided.get(k) : undefined));
+        if (vs.every((v) => v === undefined)) continue;
+        // (some decided away, the others left to the browser: those walked again as a choice of their own, §22)
+        const left = group.filter((_, n) => vs[n] === undefined).map((x) => x.el);
+        if (left.length && vs.includes(true)) return no('a choice partly decided');
+        const node = a.node ?? ch.group.node, at = node ? index.get(node) : undefined, r = a.added.get('roots');
+        if (at === undefined || !r || r[0] !== at || r[1] !== at + 1 || group.slice(1).some((x) => x.added.has('roots'))) return no('a choice not among the roots');
+        const k = vs.indexOf(true), pick = k >= 0 ? group[k]!.el : undefined, rows = k >= 0 ? next.rendered?.get(keys[k]!) : undefined;
+        if (pick && rows) {
+          const here = this.renderedHere(pick, rows);
+          if (here) return no(`a choice's case rendered ${here}`);
+          if (rows.idAttrs.length) return no('ids in rendered rows');
+          if (this.layout) { const why = this.layoutAround(a.el, rows); if (why) return no(`rendered rows and a layout: ${why}`); }
+        }
+        ds.push({ a, v: !!pick || left.length > 0, other: null, at, ...(rows ? { rows } : {}), group, ...(pick ? { pick } : {}), ...(left.length ? { left } : {}) });
+        continue;
+      }
       if (a.kind === 'for' && a.node) {
         // a loop the first pass rendered: its rows in its place, as the second pass splices them
         const key = this.instKey(a.el), rows = key && next.unrolled?.has(key) ? next.rendered?.get(key) : undefined;
@@ -12092,13 +12122,17 @@ class Compiler {
       ds.push({ a, v, other, at });
     }
     if (!ds.length) return no('nothing decided at the page\'s level');
-    const all = ds.flatMap((d) => (d.other ? [d.a, d.other] : [d.a]));
+    const all = ds.flatMap((d) => d.group ?? (d.other ? [d.a, d.other] : [d.a]));
     // what the walk of a decided branch did that the second pass would not have done, and cannot be taken out
     for (const x of all) {
-      if (x.d1 > x.d0) return no(x.kind === 'for' ? 'diagnostics in a rendered loop' : 'diagnostics in a decided branch');
+      // (its diagnostics: taken out with its walk, the new walk's put where they were, below; a rendered loop's, which the
+      // rows' splice does not report again, refused)
+      if (x.d1 > x.d0 && x.kind === 'for') return no('diagnostics in a rendered loop');
+      if (x.d1 > x.d0 && proc?.env.SN_FROM_WALK_DIAGS === '0') return no('diagnostics in a decided branch');
       for (const k of x.changed) if (!FW_CHANGES.has(k)) return no(`a decided branch changes \`${k}\``);
       for (const k of x.added.keys()) if (FW_REFUSED.has(k)) return no(`a decided branch adds to \`${k}\``);
-      if (!x.snap) continue;
+      // (a choice's candidate: its markup walked again only where its case is expanded in place)
+      if (!x.snap || (x.kind === 'choice' && !ds.some((d) => (d.pick === x.el && !d.rows) || d.left?.includes(x.el)))) continue;
       if (this.layout && x.snap.some((e) => isElement(e.n))) return no('a layout');
       if (this.opts.images && x.snap.some((e) => isElement(e.n) && IMG.test((e.n as P5Element).tagName))) return no('an image in a decided branch');
     }
@@ -12123,6 +12157,8 @@ class Compiler {
     // calls too would keep the site of the branch's call (the unit's likewise: the second pass compiles none of them)
     const uses = this.fnUses.slice();
     for (const x of all) for (const [i, n] of x.uses) uses[i]! -= n;
+    // (a choice's own function, which the walk's last steps made for its group, `finishChoices`: its node goes too)
+    for (const d of ds) { const f = d.group ? this.choices.get(d.a.el)?.group.node?.b[0]?.f : undefined; if (f !== undefined) uses[f]! -= 1; }
     if (unit && !keepUnit) for (let i = 0; i < unit.f1; i++) uses[i]! -= unit.fnUses[i] ?? 0;
     // (where the page calls it too: the function the page's, at the page's site, below; known after the route's walks)
     const shared = new Set<number>();
@@ -12194,17 +12230,32 @@ class Compiler {
     ds.sort((x, y) => y.at - x.at);
     // (the resources a dropped walk read first: unread, before any block is walked again, which reads them again)
     for (const x of all) for (const n of x.used) { const r = this.page.resources.get(n); if (r) { touch(this, r); r.used = false; resources.add(n); } }
+    // what the dropped walks added to the maps and sets: their keys out, before any block is walked again or spliced, which
+    // may add one of them again (a component's file that a dropped candidate's walk added first, and rows a later block
+    // renders add too)
+    for (const x of all) for (const [k] of x.added) {
+      if (FW_OWN.has(k)) continue;
+      const o = this.fwField(k);
+      if (o instanceof Map || o instanceof Set) for (const key of keysOf.get(k)?.get(x) ?? []) { if (k === 'defs') dropped.set(key as string, this.defs.get(key as string)?.tid); o.delete(key); }
+    }
     for (const [bi, d] of ds.entries()) {
-      const xs = d.other ? [d.a, d.other] : [d.a];
+      const xs = d.group ?? (d.other ? [d.a, d.other] : [d.a]);
       // what the walks of the branch and its else added to the tables: taken out (the walk below adds what it compiles)
+      // (its walks' diagnostics, out: the second pass reports what its walk of the block reports, there, in document order)
+      const dAt = Math.min(...xs.map((x) => x.d0));
+      for (const x of [...xs].sort((p, q) => q.d0 - p.d0)) if (x.d1 > x.d0) { this.diagnostics.splice(x.d0, x.d1 - x.d0); this.walked -= x.d1 - x.d0; }
+      const dLen = this.diagnostics.length;
+      // (a list's range; a map's or a set's keys went before the first block, above)
       for (const x of [...xs].reverse()) for (const [k, add] of x.added) {
         if (FW_OWN.has(k)) continue;
         const o = this.fwField(k);
         if (Array.isArray(o)) { const [s0, s1] = add as [number, number]; o.splice(s0, s1 - s0); }
-        else if (o instanceof Map || o instanceof Set) for (const key of keysOf.get(k)?.get(x) ?? []) { if (k === 'defs') dropped.set(key as string, this.defs.get(key as string)?.tid); o.delete(key); }
       }
       let placed: P5Node[];
-      const c = d.a.el;
+      // (a choice's: the candidate it renders, where its rows go, as the second pass's expansion has it)
+      const c = d.pick ?? d.a.el;
+      // (where it goes: a choice's first candidate is in place, the others out of the page)
+      const P = d.a.el.parentNode as P5Parent;
       if (d.rows) {
         // the rows, with what compiling them would have done that the page keeps (`expandConstants`' splice)
         const done = d.rows;
@@ -12227,9 +12278,13 @@ class Compiler {
         RENDER_STATS.spliced++;
         placed = done.nodes;
       } else {
-        for (const x of xs) restoreTree(x.snap!);
-        const kept = d.v ? d.a : d.other;
-        const nodes = kept ? [...(kept.el as P5Template).content.childNodes] as P5Node[] : [];
+        for (const x of xs) if (x.snap) restoreTree(x.snap);
+        // (a choice's: the case it renders, the candidate as it was, expanded in place by the second pass's expansion below)
+        for (const x of d.group ?? []) if (x.tag) x.el.tagName = x.el.nodeName = x.tag;
+        const kept = d.group ? null : d.v ? d.a : d.other;
+        const nodes = kept ? [...(kept.el as P5Template).content.childNodes] as P5Node[] : d.pick ? [d.pick] : d.left ? [...d.left] : [];
+        // (the candidates left: a choice of their own, as the second pass's walk meets them)
+        if (d.left) { const g: ChoiceGroup = { node: null, cases: [], pick: null, warn: '', site: null }; for (const el of d.left) this.choices.set(el, { ...this.choices.get(el)!, group: g }); }
         if (kept) (kept.el as P5Template).content.childNodes = [];
         // the branches decided in it, as the second pass's expansion decides them
         const box = { nodeName: '#document-fragment', childNodes: nodes } as unknown as P5Parent;
@@ -12238,11 +12293,19 @@ class Compiler {
         APPLIED = new Set();
         let got: Set<string>;
         try { this.expandConstants(box, '', false); } finally { got = APPLIED; APPLIED = was; }
-        for (const k of got) { was?.add(k); if (k !== 'if:page' && k !== 'loop rendered') return no(`${k} in a decided branch`, true); }
+        // (a choice's case expanded in place: as an instance, whose own decisions the expansion applies with its key)
+        for (const k of got) { was?.add(k); if (k !== 'if:page' && k !== 'loop rendered' && !(d.pick && (k === 'choice inlined:page' || k.endsWith(':instance')))) return no(`${k} in a decided branch`, true); }
         placed = box.childNodes as P5Node[];
+        // (a choice's case expanded in place: the image pipeline goes over its markup in the second pass, before its walk)
+        if (d.pick && this.opts.images && imgs(placed)) return no('an image in a choice\'s case expanded in place', true);
+        if (d.pick && this.layout && placed.some(isElement)) return no('a layout', true);
       }
-      const P = c.parentNode as P5Parent, kids = P.childNodes as P5Node[];
-      const i = kids.indexOf(c), j = d.other ? kids.indexOf(d.other.el) : i;
+      const kids = P.childNodes as P5Node[];
+      // (a choice's candidates: side by side, from the first)
+      const at = d.group ? d.group.map((x) => kids.indexOf(x.el as never)) : null;
+      // (the first walked as a recursion point, in place; the others out of the page, `remove`)
+      if (at && (at[0]! < 0 || at.some((x, n) => x >= 0 && x !== at[0]! + n))) return no('a choice\'s candidates moved', true);
+      const i = at ? at[0]! : kids.indexOf(c), j = at ? Math.max(...at) : d.other ? kids.indexOf(d.other.el) : i;
       for (const n of placed) {
         (n as { parentNode: P5Parent }).parentNode = P;
         for (const map of [this.fillOf, this.defaultOf, this.childrenOf]) if (isElement(n) && map.has(c) && !map.has(n)) map.set(n, map.get(c)!);
@@ -12252,7 +12315,7 @@ class Compiler {
       if (start) for (const n of placed) if (isElement(n)) this.scopeStart.set(n, outerFirst(start, this.scopeStart.get(n)));
       const after = kids[j + 1] ?? null;
       kids.splice(i, j - i + 1, ...(placed as never[]));
-      if (!d.rows) this.foldedText.push(this.snSource.get(c) ?? '', this.emptyOf.get(c)?.list ?? '');
+      if (!d.rows && !d.group) this.foldedText.push(this.snSource.get(c) ?? '', this.emptyOf.get(c)?.list ?? '');
       if (d.rows && minLayout && fw.minified && !this.respaceRows(P, placed, d.rows.shown)) return no('rendered rows and a layout: a bound element around them', true);
       mergeText(P);
       // the second pass's steps over the rows before its walk: the constants written into them, then the images
@@ -12262,7 +12325,7 @@ class Compiler {
       // the range the branch's markup is in now (a text that met another is in that one; the parent's other texts may
       // meet too, where what the first walk took out stood)
       // (an embedded resource's element that stood right before the template: before what took its place)
-      for (const g of fw.gone ?? []) if (g.parent === P && (g.next === c || g.next === d.other?.el)) g.next = placed.find((n) => kids.includes(n as never)) ?? (after && kids.includes(after) ? after : null);
+      for (const g of fw.gone ?? []) if (g.parent === P && (g.next === c || g.next === d.other?.el || d.group?.some((x) => x.el === g.next))) g.next = placed.find((n) => kids.includes(n as never)) ?? (after && kids.includes(after) ? after : null);
       const here = new Set(placed);
       let from = -1, to = -1;
       for (let k = 0; k < kids.length; k++) if (here.has(kids[k]!)) { if (from < 0) from = k; to = k + 1; }
@@ -12281,7 +12344,7 @@ class Compiler {
       const cg = tail.get('choiceGroups'), dr = tail.get('defRoots');
       if (cg) newGroups.push(...this.choiceGroups.slice(cg[0], cg[1]));
       if (dr) newRoots.push(...[...this.defRoots].slice(dr[0], dr[1]));
-      blocks.push({ at: d.at, n: xs.reduce((n, x) => n + (x.added.get('roots')![1] - x.added.get('roots')![0]), 0), nodes: made, base });
+      blocks.push({ at: d.at, n: xs.reduce((n, x) => { const r = x.added.get('roots'); return n + (r ? r[1] - r[0] : 0); }, 0), nodes: made, base });
       // what this walk added to the other lists: where the branch's walk had added it (document order)
       for (let f = 0; f < fs.length; f++) {
         if (fs[f]!.t !== 0) continue;
@@ -12292,7 +12355,8 @@ class Compiler {
         const tail = o.splice(n1);
         o.splice(at, 0, ...tail);
       }
-      if (this.diagnostics.length > this.walked) return no('diagnostics in a branch walked as the page', true);
+      // (what its expansion and its walk reported: where the dropped walks' diagnostics were)
+      if (this.diagnostics.length > dLen) { const got = this.diagnostics.splice(dLen); this.diagnostics.splice(dAt, 0, ...got); this.walked += got.length; }
     }
     // the walk's last steps for what the walks above added, in their order (`walkPage`)
     if (newRoots.length) this.defRootBindings(newRoots);

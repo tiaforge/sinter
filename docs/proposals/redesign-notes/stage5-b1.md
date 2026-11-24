@@ -626,3 +626,107 @@ Section 20 found the second pass's unit cannot be placed over a walked page (its
 Suite under `SN_FROM_WALK_AUDIT=1`: 385 routed (368); the 15 refusals gone; three tests added (a definition used again
 after the branch and by rows rendered there; the ping/pong cycle; the unit test now counts 6 routed, none refused).
 
+
+## 22. Choices decided at the page's level, and diagnostics in a decided branch (third session)
+
+A page-level `<sn-component use>` is expanded into one clone per candidate (`expandComponents`); the walk compiles each
+as a recursion point (`recursionPoint`: the candidate's definition, its case; the first makes the group's `ch` node, the
+others push their case and go, `remove`). The second pass's expansion drops a candidate decided false, splices the rows
+the first pass rendered for the one decided true (`choice rendered`), or expands it in place as a use of its component
+(`choice inlined`, `inlineInstance`). The route now does the same:
+
+- **Recorded**: each page-level candidate is an anchor of kind `choice` (`fwStart`: the candidate element's snapshot and
+  its tag, which `recursionPoint` changes into a template); a page whose only build-time decision is a choice over
+  constants is plausible for the route (`fwPlausible`, the group node's `pick` deps).
+- **Routed** (`fromWalkIn`): the group's anchors are a block in place of the group node, all their walks taken out (their
+  definitions, cases, functions, the group in `choiceGroups`). Its case rendered: the rows spliced as a loop's are, at
+  the first candidate's place (`renderedAt` at the candidate, list `''` as `splice` has it). Expanded in place: the
+  candidate restored as it was before the walk and the second pass's expansion run over it (`expandConstants`: the
+  instance's own decisions applied with its key, `choice inlined:page` and `…:instance` allowed there), then walked as the
+  page's. Decided away: nothing. Some candidates decided away and the others left to the browser (the second pass's
+  `choice dropped` alone): those left are walked again as a choice of their own (a fresh group; their `first` as
+  written), which the walk's last steps finish (`finishChoices` over the new groups, §21).
+- **Diagnostics in a decided branch** (was a refusal: 4 in the suite, and the choices whose candidates are reported on,
+  SN313): a dropped walk's diagnostics are taken out with it, and what the block's expansion and walk report is put where
+  they were (`dAt`: document order, as the second pass reports them); `walked` kept in step. A rendered loop's stay a
+  refusal (its splice reports nothing again). `SN_FROM_WALK_DIAGS=0` restores the refusal.
+- **A bug of the route fixed** (found by render-rows.test.ts' "on the page, and in a component used twice"): the dropped
+  walks' keys of the maps and sets were taken out block by block, the last block first; a later block's rows could add a
+  key again (a component's file, `files`) that an earlier block's walk had added first, whose takeout then removed it
+  (`x-em.html` missing from the output's files). All the dropped walks' keys are taken out now before any block is
+  spliced or walked. Test: from-walk.test.ts "two choices: a file the earlier one's candidates read first".
+
+- **The group's own function** (found by choice-props-constant.test.ts under the audit): `finishChoices` makes the
+  group's function in the walk's last steps, outside any recorded walk, so its call was not taken off; it read the state
+  the case's props come from, which then shipped. Taken off with the group's node now. And a case expanded in place with
+  an image, or on a page with a layout, is refused (the second pass's image pipeline and layout read its markup before
+  its walk).
+
+Suite under `SN_FROM_WALK_AUDIT=1`: 413 routed (385); `a choice decided` 16 → 0, `diagnostics in a decided branch` 4 →
+1 (the test of `SN_FROM_WALK_DIAGS=0`). Tests added in from-walk.test.ts: six for choices, two for diagnostics.
+
+Still refused: `a choice partly decided` where one candidate is decided true and others are left (no such shape in the
+suite), `a choice's candidates moved`, and what the expansion in place applies besides the instance's own decisions.
+
+## 23. The old second-pass row route: the renderer's own fallbacks, what each needs (third session)
+
+What keeps the old row route (stage 2's: a loop's rows copied per item, `rowOf`/`RowInfo` and the row lets in
+`element`, compiled by the second pass's walk) and `inlineInstance` (a choice's case or a recursion point expanded in
+place, `choice inlined` / `point inlined`) alive. Counted with `SN_RENDER_STATS` (one line per loop) and, for the second
+passes that take them, `SN_FROM_WALK_STATS` (`a loop unrolled, not rendered`).
+
+**The real compiles** (14 second passes in the suite, `a loop unrolled, not rendered`; the 65 `rendering off` lines
+are the reference compiles of render-rows.test.ts and evaluation.test.ts with `SN_RENDER=0`, which exist to compare
+the two routes and go with the old route). By the renderer's reason (`rowRenderer`, `NoRender`):
+
+| reason (`no(…)`) | second passes | tests | what the rows need that rendering does not give |
+| --- | ---: | --- | --- |
+| `handler` | 3 | render-rows "a handler in a row", constant-trees "a copy button on the code block" | the node keeps a live binding (its handler) with the row's item as a constant: a residue on a rendered node, compiled with the row's scope |
+| `text` | 4 | render-rows "a text node that fails at build time", evaluation "a value that throws is FAIL for that binding alone" | the binding stays live where its value failed: the same residue |
+| `not written ahead` | 2 | render-rows "a value that is not written ahead (a refused URL)" | the same residue (the value is the browser's) |
+| `links` | 2 | render-rows "a pager link (SN519) in an instance in the rows" | SN519's report worded with the instance's chain as each copy's walk words it: per-copy diagnostics |
+| `an id` | 2 | render-rows "an id in the markup of a choice's case in the rows" | SN209 counts the uses its expansion makes (`componentIds` over `uses`): the rows' instances as uses, one per copy, with their hosts |
+| `diagnostics` | 1 | row-items "a row cannot change its item" | the template's diagnostics (`tplDiags`) reported per copy, at the copy's chain |
+
+Over all loops of test/compiler (`SN_RENDER_STATS`, 1,189 tests): 739 rendered; `not written ahead` 4, `diagnostics` 4,
+`an id` 4, `handler` 3, `text` 2, `links` 2. The behaviour fuzzers and dev renders add, per §18: no element in a row 52,
+text at the top of a row 21, the loop's place 9 (slot content, fills, component scopes); those are loops of dev renders
+and of pages whose second pass the route does not take for other reasons, so they keep the old row route alive without
+being counted among the 14.
+
+What would let the renderer cover each, and whether it is contained:
+
+- **A residue on a rendered node** (`handler`, `text`, `not written ahead`: 9 of the 14). A rendered row is markup only;
+  its walk is skipped (`renderedAt`). A node that keeps one live binding needs that binding compiled with the row's item
+  and index as constants, which is exactly what the row lets do for a copy (`rowOf` → `rowLets` in `element`). Either the
+  renderer emits the node with its remaining `data-sn-*` attributes and a row scope the walk takes (the row lets kept,
+  for those nodes only), or the IR gets a per-node residue that the runtime binds against a constant item (stage 7's
+  decision: the IR's shape). Not contained: the first keeps the row lets, the second changes the IR.
+- **Per-copy diagnostics** (`links`, `diagnostics`, `an id`: 5 of the 14). The old route reports, per copy, what the
+  copy's walk reports (SN519 with the instance's chain, the template's `tplDiags`, SN209 from one use per copy). The
+  renderer would have to report them itself, per row, worded as the copy's walk words them (the chain of each copy's
+  instance: `origins`' chain as `expandUse` builds it; `uses` entries with each copy's host for SN209). Contained only
+  per diagnostic and only by duplicating each wording; not built here (each is a test-only shape; none occurs in the
+  apps).
+- **No element in a row / text at the top of a row** (dev and fuzzers): the walk's hook for rendered rows is an element
+  (`renderedAt` at the rows' first element: the list compiled there, the ids' gap); a row of texts has none, and the
+  splice's `mergeText` merges a row's text into its neighbours, so a text node cannot carry the hook. Needs a hook that
+  survives the merge (a marker kept until the walk, or the gap carried by the anchor before the rows). Not contained in
+  `fromWalk`: it is the renderer's and the walk's.
+- **The loop's place** (slot content, fills, where a component's markup starts: `renderedHere`'s `where it is`): rows in
+  their writer's scope (`$slot`, the fill's caller) — the renderer would need the instance's slot scopes. Not contained.
+
+**What is left before `inlineInstance` and the row lets could be deleted**:
+1. the residue question (stage 7: a rendered node that keeps bindings), which covers `handler`, `text`, `not written
+   ahead`;
+2. per-copy diagnostics from the renderer (SN519 with the instance chain, `tplDiags` per copy, SN209's per-copy uses);
+3. a rendered row's hook without an element (text rows) and rows in slot content or fills (the loop's place);
+4. dev renders: dev does not record for the route (`compileTwice`: `!options.dev`) and renders rows only where the
+   renderer can; every dev page with a loop the renderer refuses takes the old row route;
+5. `inlineInstance` itself is still the second pass's way to expand a choice's case or a recursion point the renderer
+   does not render (`choice inlined`, `point inlined`), and the route uses it too (§22: a case expanded in place runs the
+   second pass's `expandConstants` over the candidate): deleting it needs the renderer to render every decided case
+   (the `an id`, diagnostics and residue items above, at a choice's level too);
+6. the 65 reference compiles with `SN_RENDER=0` (tests that compare the routes) go with the old route.
+Nothing of this was built in this step: each item is the renderer's (stage 2/6) or the IR's (stage 7), not contained
+in the route.

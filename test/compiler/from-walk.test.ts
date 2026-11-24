@@ -8,6 +8,10 @@ import { canonicalText } from '../../src/compiler/canon.js';
 
 const C: Record<string, string> = {
   'x-card': '<template data-sn-props="{ t: string }"><article class="card"><h3 data-sn-text="t"></h3><slot></slot></article></template><style>.card { margin: 0 }</style>',
+  'x-em': '<template data-sn-props="{ v: string }"><em class="e" data-sn-text="v"></em></template><style>.e { color: red }</style>',
+  'x-strong': '<template data-sn-props="{ v: string }"><strong data-sn-text="v"></strong></template>',
+  'x-id': '<template data-sn-props="{ v: string }"><p id="one" data-sn-text="v"></p></template>',
+  'x-btn': '<template data-sn-props="{ v: string }"><div data-sn-state="{ n: 0 }"><button data-sn-on-click="n++" data-sn-text="v + n"></button></div></template>',
   'x-tree': '<template data-sn-props="{ n: any }"><li><span data-sn-text="n.name"></span><template data-sn-if="n.kids"><ul><template data-sn-for="k in n.kids"><x-tree data-sn-with="{ n: k }"></x-tree></template></ul></template></li></template>',
 };
 
@@ -166,9 +170,26 @@ describe('compiled again: each reason', () => {
   });
 
 
-  test('diagnostics in a decided branch', () => {
-    const r = both(page('<div data-sn-state="{ a: true }"><template data-sn-if="a"><p data-sn-text="a" data-sn-key="x"></p></template></div>'));
-    expect(r).toMatchObject({ taken: 0, why: ['diagnostics in a decided branch'] });
+  test('diagnostics in a decided branch: the dropped walk\'s taken out, the walk again\'s where they were', () => {
+    // (§22: the second pass reports what its walk of the branch reports, in document order: before the page's after it)
+    const r = both(page('<div data-sn-state="{ a: true }"><template data-sn-if="a"><p data-sn-text="a" data-sn-key="x"></p></template><b data-sn-text="\'b\' + a" data-sn-key="y"></b></div>'));
+    expect(r).toMatchObject({ taken: 1, why: [] });
+    expect(r.on.diagnostics.map((d) => d.code)).toEqual(r.off.diagnostics.map((d) => d.code));
+    expect(r.on.diagnostics.length).toBe(2);
+  });
+
+  test('diagnostics in a dropped branch and in a kept else: as the second pass reports them', () => {
+    const r = both(page('<div data-sn-state="{ a: false }"><template data-sn-if="a"><p data-sn-text="a" data-sn-key="x"></p></template><template data-sn-else><i data-sn-text="a" data-sn-key="z"></i></template></div>'));
+    expect(r).toMatchObject({ taken: 1, why: [] });
+    expect(JSON.stringify(r.on.diagnostics)).toBe(JSON.stringify(r.off.diagnostics));
+  });
+
+  test('diagnostics off the route (`SN_FROM_WALK_DIAGS=0`): compiled again', () => {
+    process.env.SN_FROM_WALK_DIAGS = '0';
+    try {
+      const r = both(page('<div data-sn-state="{ a: true }"><template data-sn-if="a"><p data-sn-text="a" data-sn-key="x"></p></template></div>'));
+      expect(r).toMatchObject({ taken: 0, why: ['diagnostics in a decided branch'] });
+    } finally { delete process.env.SN_FROM_WALK_DIAGS; }
   });
 
   test('a definition compiled first in a decided branch, used by the page (live data): compiled again where the branch is walked', () => {
@@ -303,6 +324,49 @@ describe('a template\'s entries from a copy of the kept walk', () => {
     const r = entries(template('<section data-sn-state="{ n: 0 }"><button data-sn-on-click="n++" data-sn-text="n"></button><template data-sn-if="!p.draft"><p data-sn-text="p.title + n"></p></template></section>'));
     expect(r.taken + r.why.filter((w) => w === 'values folded into the code').length).toBe(r.n);
     expect(r.on.map((x) => x.html)).toEqual(r.off.map((x) => x.html));
+  });
+});
+
+// a page-level `<sn-component use>` the build decides (§22): its candidates' walks taken out as a dropped branch's; the
+// case it renders spliced as rendered rows, or expanded in place and walked as the page's, or nothing
+describe('choices decided at the page\'s level', () => {
+  test('its case rendered: the rows in its place, the other candidates\' walks taken out', () => {
+    const r = both(page('<div data-sn-state="{ n: 0 }"><button data-sn-on-click="n++" data-sn-text="n"></button></div><p><sn-component use="{ e: \'x-em\', s: \'x-strong\' }[\'s\']" data-sn-with="{ v: \'hi\' }"></sn-component></p>'));
+    expect(r).toMatchObject({ taken: 1, why: [] });
+    expect(r.on.html).toBe(r.off.html);
+    expect(r.on.html).toContain('<p><strong data-sn-c="x-strong">hi</strong></p>');
+  });
+
+  test('a value outside its candidates: nothing, and the `data-sn-else` after it kept', () => {
+    const r = both(page('<div data-sn-state="{ n: 0 }"><button data-sn-on-click="n++" data-sn-text="n"></button></div><p><sn-component use="{ e: \'x-em\', s: \'x-strong\' }[\'q\']" data-sn-with="{ v: \'hi\' }"></sn-component><template data-sn-else><i>none</i></template></p>'));
+    expect(r).toMatchObject({ taken: 1, why: [] });
+    expect(r.on.html).toBe(r.off.html);
+    expect(r.on.html).toContain('<p><i>none</i></p>');
+  });
+
+  test('some candidates decided away, the one left to the browser (a handler in it): a choice of its own, walked again', () => {
+    const r = both(page('<p><sn-component use="{ e: \'x-em\', b: \'x-btn\' }[\'b\']" data-sn-with="{ v: \'hi\' }"></sn-component></p>'));
+    expect(r).toMatchObject({ taken: 1, why: [] });
+    expect(r.on.html).toBe(r.off.html);
+  });
+
+  test('its case expanded in place (an id in it, which rows do not render): walked as the page\'s, as the second pass inlines it', () => {
+    const r = both(page('<div data-sn-state="{ n: 0 }"><button data-sn-on-click="n++" data-sn-text="n"></button></div><p><sn-component use="{ e: \'x-em\', i: \'x-id\' }[\'i\']" data-sn-with="{ v: \'hi\' }"></sn-component></p>'));
+    expect(r).toMatchObject({ taken: 1, why: [] });
+    expect(r.on.html).toBe(r.off.html);
+  });
+
+  test('two choices: a file the earlier one\'s candidates read first, which only the later one\'s case renders', () => {
+    // (the dropped walks' keys out before any block is spliced: the later block's rows add the file again)
+    const r = both(page('<div data-sn-state="{ n: 0 }"><button data-sn-on-click="n++" data-sn-text="n"></button></div><p><sn-component use="{ s: \'x-strong\', e: \'x-em\' }[\'s\']" data-sn-with="{ v: \'a\' }"></sn-component></p><p><sn-component use="{ s: \'x-strong\', e: \'x-em\' }[\'e\']" data-sn-with="{ v: \'b\' }"></sn-component></p>'));
+    expect(r).toMatchObject({ taken: 1, why: [] });
+    expect(r.on.files).toEqual(r.off.files);
+    expect(r.on.html).toBe(r.off.html);
+  });
+
+  test('a choice over live data beside a decided branch: left as it is', () => {
+    const r = both(page('<sn-resource name="k" src="/api/k"></sn-resource><p><sn-component use="{ e: \'x-em\', s: \'x-strong\' }[k.v]" data-sn-with="{ v: \'hi\' }"></sn-component></p><template data-sn-if="true"><b>b</b></template>'));
+    expect(r.why.filter((w) => w.includes('choice'))).toEqual([]);
   });
 });
 
