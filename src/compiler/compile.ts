@@ -1018,7 +1018,8 @@ export function compileParts(html: string, options: CompileOptions): CompiledPar
     return on;
   }
   // `SN_RENDER_AUDIT=1`: a compile that spliced rendered rows in is compiled again without rendering, and must be the same
-  if (proc?.env.SN_RENDER_AUDIT === '1' && renderForced === null && renderOn() && fromWalkForced === null) return withoutFromWalk(() => compileParts(html, options));
+  // (B1 off under the audit, rendering or not: a page compiled with `SN_RENDER=0` beside it is the old route too)
+  if (proc?.env.SN_RENDER_AUDIT === '1' && renderForced === null && fromWalkForced === null) return withoutFromWalk(() => compileParts(html, options));
   if (proc?.env.SN_RENDER_AUDIT === '1' && renderForced === null && renderOn()) {
     const n = RENDER_STATS.spliced, on = compilePartsOnce(html, options);
     if (RENDER_STATS.spliced === n) return on;
@@ -1410,6 +1411,15 @@ type FromWalk = {
   unit?: { added: Map<string, [number, number]>; items: Map<string, unknown[]>; changed: string[]; f1: number; fnUses: number[] };
   /** the embedded resources' elements the walk took out (`remove`): their ids, and where they stood (before `next`) */
   gone?: Array<{ id: number; parent: P5Parent; next: P5Node | null }>;
+  /** the page's first call of each function made before it (`fn`): in the walk, and in the route's walks (`routing`) */
+  pageAt?: Map<number, Site | null>;
+  rewalkAt?: Map<number, Site | null>;
+  routing?: boolean;
+
+  /** the unit's entries of the page's tables by name that the page read after placing it, outside recorded walks */
+  unitRead?: Set<string>;
+  /** the tables watched for them (`fwWatchUnit`) */
+  watched?: Array<Map<unknown, unknown> | Set<unknown>>;
   /** the minifier ran with a layout (`minify`: it reads the page's stylesheets, none loaded from elsewhere) */
   minified?: boolean;
 };
@@ -1425,6 +1435,8 @@ function fwReader(key: string, fs: FwField[]): (c: unknown, page: unknown) => un
 }
 /** `fn()`'s calls while a recorded template is walked (`fwStart`), by function */
 let FW_COUNTING: Map<number, number> | null = null;
+/** the page's walk that records for B1 (`walkExpanded`), and the route's (`fromWalk`): `fn()` notes the page's sites */
+let FW_WALKING: FromWalk | null = null;
 /** a field `fwMarks` reads: its name (`page.` for the page info's), where it is, and whether it is a list (0), a map or a set (1), or plain (2) */
 type FwField = { k: string; page: boolean; f: string; t: 0 | 1 | 2 };
 /** a subtree's nodes as they are (`snapTree`): what a walk changes of them, put back by `restoreTree` */
@@ -1767,6 +1779,9 @@ function compileTwice(html: string, options: CompileOptions, pass: { first: Comp
   // them, in a second pass; it needs a clean first pass too. What the second pass applies at every depth comes
   // from the first pass's worklist (`worklist()`), so a page is compiled at most twice: what writes state, which
   // decides what is constant, is known only after a walk
+  // (B1: why the second pass is not taken from the walk, counted once one is compiled; a page with none, `noSecond`)
+  let pending: string | null = null;
+  const noSecond = () => { if (pending) fromWalkStat(`no second pass (${pending})`); pending = null; };
   const second = (clean: boolean) => {
     const unrolled = first.unrolls.size && clean ? first.unrolls : null;
     const constants = first.constants.size && clean ? first.constants as Map<string, ConstantWrite[]> : null;
@@ -1779,8 +1794,11 @@ function compileTwice(html: string, options: CompileOptions, pass: { first: Comp
     if (constants) for (const s of first.constantSites) frozen.add(s);
     // (counted: a page of its own, or a template's entry its kept walk does not serve, parses and expands again)
     passStat(!options.page ? 'a page of its own' : options.templates ? 'an entry compiled alone' : 'an entry, no kept templates');
-    // (counted too: why the walk was not kept for it)
-    if (notFromWalk) fromWalkStat(notFromWalk);
+    // (counted too: why the walk was not kept for it, or why the second pass was not taken from it)
+    // (a page that recorded no branch the build may decide: counted under what its second pass applies)
+    if (notFromWalk) fromWalkStat(constants ? 'constants the layout or the images read (prefold)' : [...first.decided.keys()].some((k) => k.includes('|use:')) ? 'a choice decided' : unrolled ? 'a loop unrolled, not rendered' : first.decided.size ? notFromWalk : 'values folded into the code');
+    else if (pending) fromWalkStat(pending);
+    pending = null;
     const pass = (f: Map<string, unknown> | undefined) => {
       const o2: CompileOptions = { ...options, decided: first.decided, ...(f ? { folds: f } : {}), ...(unrolled ? { unrolled } : {}), ...(first.rendered.size ? { rendered: first.rendered } : {}), ...(first.unrendered.size ? { unrendered: first.unrendered } : {}), ...(constants ? { constants } : {}), ...(first.overLimit.size ? { overLimit: first.overLimit } : {}), frozen };
       const c2 = new Compiler(o2);
@@ -1803,7 +1821,10 @@ function compileTwice(html: string, options: CompileOptions, pass: { first: Comp
     // (a loop unrolled only in a clean first pass, which a first pass that is not quiet knows once it is finished)
     const clean = isClean(), unrolled = loops && clean;
     // (with a unit placed, only where the type check took the unit's check data in its walk's order: `units.ts`)
-    const next: CompileOptions | null = !consts && !first.needsMarkup && (!loops || quiet) && (first.decided.size || unrolled) && (!first.placedUnit || first.checkOrder) ? {
+    // (a page that is not quiet: its loops unroll where the finished first pass is clean, `settles`; the route finishes
+    // this one, and where that reports an error, the page is compiled the old way, below)
+    const settles = loops && !quiet && first.fwFinishAlike();
+    const next: CompileOptions | null = !consts && !first.needsMarkup && (!loops || quiet || settles) && (first.decided.size || unrolled) && (!first.placedUnit || first.checkOrder) ? {
       ...options, decided: new Map(first.decided), ...(unrolled ? { unrolled: new Map(first.unrolls) } : {}), ...(first.rendered.size ? { rendered: new Map(first.rendered) } : {}),
       ...(first.unrendered.size ? { unrendered: new Map(first.unrendered) } : {}), ...(first.overLimit.size ? { overLimit: new Map(first.overLimit) } : {}), frozen: first.foldedState(),
     } : null;
@@ -1822,6 +1843,12 @@ function compileTwice(html: string, options: CompileOptions, pass: { first: Comp
           if (first.placedUnit) { got = detachOutput(got); restoreUnit(first); }
           // code it ships reads a value the second pass writes into the code (the walk compiled every read as one)
           if (values && shipsFold(got, values)) { why = 'values folded into the code that ships'; got = null; }
+          // a page that is not quiet, which its finish found not clean: the old route did not unroll its loops; compiled so
+          else if (settles && got.diagnostics.some((d) => d.severity === 'error' && d.code !== 'SN322')) {
+            fromWalkStat('a loop unrolled on a page that is not quiet, not clean');
+            const p2 = { first: null as Compiler | null };
+            try { return withoutFromWalk(() => compileTwice(html, options, p2)); } finally { if (p2.first) restoreUnit(p2.first); }
+          }
         }
         fromWalkStat(why);
         if (!got) {
@@ -1835,8 +1862,8 @@ function compileTwice(html: string, options: CompileOptions, pass: { first: Comp
         if (proc?.env.SN_FROM_WALK_AUDIT === '1') { restoreUnit(first); fromWalkAudit(html, options, out, why === null); }
         return out;
       }
-      fromWalkStat(r.why);
-    } else fromWalkStat(first.needsMarkup || consts ? 'constants the layout or the images read (prefold)' : loops && !quiet ? 'a loop unrolled on a page that is not quiet' : first.placedUnit && !first.checkOrder ? 'a unit placed, its check data out of order' : values && first.foldGain(values) ? 'values folded into the code' : 'nothing decided');
+      pending = r.why;
+    } else pending = first.needsMarkup || consts ? 'constants the layout or the images read (prefold)' : loops && !quiet ? 'a loop unrolled on a page that is not quiet' : first.placedUnit && !first.checkOrder ? 'a unit placed, its check data out of order' : values && first.foldGain(values) ? 'values folded into the code' : 'nothing decided';
     // (the old route from here, with these decisions where they are all it reads)
     if (!quiet || first.needsMarkup || !(first.decided.size || unrolled || consts)) first.settleAgain();
   }
@@ -1876,7 +1903,7 @@ function compileTwice(html: string, options: CompileOptions, pass: { first: Comp
   const withLate = (o: typeof out) => (o.lateDiagnostics ? { ...o, diagnostics: [...o.diagnostics, ...o.lateDiagnostics] } : o);
   if (!twice) { SHIFT_STATS.first ||= first.hasDefinitions() || proc?.env.SN_UNITS_SHIFT_AT === 'walk'; return withLate(out); }
   const next = second(isClean());
-  if (!next) { SHIFT_STATS.first ||= first.hasDefinitions() || proc?.env.SN_UNITS_SHIFT_AT === 'walk'; return withLate(out); }
+  if (!next) { noSecond(); SHIFT_STATS.first ||= first.hasDefinitions() || proc?.env.SN_UNITS_SHIFT_AT === 'walk'; return withLate(out); }
   // the type check reads the page as written: in the second pass an unrolled loop's rows have no loop variable, so a
   // component prop in one (`{ post: p }`) was SN208 "Cannot find name 'p'" in `sinter check` of a `static` page
   return withFirstErrors(first, out.check ? { ...next, check: out.check } : next);
@@ -2625,12 +2652,16 @@ class Compiler {
       // (B1: what placing it adds to the page's tables, which the second pass from this walk takes out: `fromWalk`)
       const sizes = this.fw && this.pointNames.length ? this.fwSizes() : null;
       this.placedUnit = placeUnits(this, this.opts.units as UnitStore, [this.keepsAttrs, this.opts.locale?.name ?? '', this.page.axisUrl ?? '', this.finishedFirst ? 'first' : ''].join('\u0001'), ships, live ?? undefined);
-      if (sizes && (this.placedUnit || this.earlyDefs)) this.fw!.unit = { ...this.fwSince(sizes), f1: this.fns.length, fnUses: this.fnUses.slice() };
+      if (sizes && (this.placedUnit || this.earlyDefs)) { this.fw!.unit = { ...this.fwSince(sizes), f1: this.fns.length, fnUses: this.fnUses.slice() }; this.fwWatchUnit(); }
       if (ships) holdUnit(this);
       // (a unit refused after its definitions were compiled here: the page compiled again without one, `compileTwice`)
       if (ships && !this.placedUnit && this.earlyDefs) this.unitStale = 'its unit refused';
     }
-    this.walkChildren(doc, { scope: { loops: [], states: [] }, list: this.roots, tid: -1, path: [], stateIdx: -1 });
+    const walking = FW_WALKING;
+    FW_WALKING = this.fw;
+    try { this.walkChildren(doc, { scope: { loops: [], states: [] }, list: this.roots, tid: -1, path: [], stateIdx: -1 }); } finally { FW_WALKING = walking; }
+    // (B1: the unit's entries watched in the walk only: what follows goes over every definition, `fwWatchUnit`)
+    if (this.fw?.watched) for (const o of this.fw.watched.splice(0)) for (const m of ['get', 'has', 'set', 'delete', 'add']) delete (o as unknown as Record<string, unknown>)[m];
     this.finishTreeFills();
     this.defRootBindings();
     this.finishChoices();
@@ -2834,6 +2865,21 @@ class Compiler {
    * SN211, a model's or a binding's), and a page per entry reading its pattern's parameters (SN345); the rest
    * reports warnings, late ones, or SN322, which `clean` does not count.
    */
+  /**
+   * B1: a first pass that is not quiet (`quietFinish`), whose finish would find what the second pass from its walk finds:
+   * no decided branch or loop the route drops added what `finishPage`'s errors read (a `$url` list's binding, a page
+   * model, a write of the URL, a read of `$url` on a page per entry), and no signed-in guard. Then the route finishes it,
+   * and its errors are the old route's first pass's: none, or it is compiled the old way (`compileTwice`).
+   */
+  fwFinishAlike(): boolean {
+    if (!this.fw || this.signedIn) return false;
+    for (const a of this.fw.anchors) {
+      if (a.added.has('urlBinds') || a.added.has('pageModels') || a.added.has('page.urlWrites')) return false;
+      if (this.pagesDecl) for (const i of a.uses.keys()) if (i >= a.f0 && this.fns[i]?.includes('$url')) return false;
+    }
+    return true;
+  }
+
   quietFinish(): boolean {
     return !this.signedIn && !this.pagesDecl && !this.urlBinds.length && !this.pageModels.length && !this.page.urlWrites?.length;
   }
@@ -7025,6 +7071,12 @@ class Compiler {
     if (i === undefined) {
       this.fnIndex.set(code, (i = this.fns.push(code) - 1));
       this.fnAt[i] = this.codeAt.get(code) ?? (site !== undefined ? site : this.at);
+    }
+    else if (FW_WALKING && !FW_COUNTING) {
+      // (B1: the page's own first call of code made before it, by a recorded branch's walk or the unit: its site, which
+      // the second pass gives the function, `fromWalk`; the route's walks apart, they come in another order)
+      const m = FW_WALKING.routing ? (FW_WALKING.rewalkAt ??= new Map()) : (FW_WALKING.pageAt ??= new Map());
+      if (!m.has(i)) m.set(i, site !== undefined ? site : this.at);
     }
     this.fnUses[i] = (this.fnUses[i] ?? 0) + 1;
     if (FW_COUNTING) FW_COUNTING.set(i, (FW_COUNTING.get(i) ?? 0) + 1);
@@ -11769,6 +11821,28 @@ class Compiler {
     return { marks: m, added, changed };
   }
 
+  /**
+   * B1: the entries by name that placing the unit added to the page's tables (a component's `uses`, `files`, `scripts`, a
+   * namespace, ...), watched until the route takes them out (`fromWalk`): one the page reads after placing it, outside the
+   * walks the route drops, is one it may need, which it did not add because the unit had (the route then keeps the page
+   * from the walk). The tables' own methods, on the page's objects only.
+   */
+  fwWatchUnit() {
+    const fw = this.fw!, u = fw.unit!, own = this.placedUnit?.own;
+    for (const [k] of u.added) {
+      const o = this.fwField(k) as Map<unknown, unknown> | Set<unknown>;
+      if (!(o instanceof Map || o instanceof Set) || own?.has(o)) continue;
+      const names = new Set(u.items.get(k)!.filter((x) => typeof x === 'string'));
+      if (!names.size) continue;
+      const watch = (m: string) => {
+        const f = (o as unknown as Record<string, (...a: unknown[]) => unknown>)[m]!;
+        Object.defineProperty(o, m, { configurable: true, writable: true, value(this: unknown, ...a: unknown[]) { if (!FW_COUNTING && names.has(a[0] as string)) (fw.unitRead ??= new Set()).add(`${k} ${String(a[0])}`); return f.apply(this, a); } });
+      };
+      for (const m of o instanceof Map ? ['get', 'has', 'set', 'delete'] : ['has', 'add', 'delete']) watch(m);
+      (fw.watched ??= []).push(o);
+    }
+  }
+
   /** `fwFields`' sizes and values now, by name, its list made afresh (before the walk: placing a unit makes fields of the page info) */
   fwSizes(): Map<string, unknown> {
     const out = new Map<string, unknown>();
@@ -11815,13 +11889,21 @@ class Compiler {
    * done; else why not, and whether the compiler is spent (it changed already: the second pass is compiled after all).
    */
   fromWalk(next: CompileOptions, dry = false): { why: string; spent: boolean } | null {
+    const was = FW_WALKING;
+    try { return this.fromWalkIn(next, dry); } finally { FW_WALKING = was; }
+  }
+
+  /** `fromWalk` itself (its walks note the page's sites, `FW_WALKING`) */
+  fromWalkIn(next: CompileOptions, dry: boolean): { why: string; spent: boolean } | null {
     const fw = this.fw;
     const no = (why: string, spent = false) => ({ why, spent });
     if (!fw) return no('not recorded');
+    // (the unit's entries, no longer watched: the page's walk is over)
+    if (!dry) for (const o of fw.watched?.splice(0) ?? []) for (const m of ['get', 'has', 'set', 'delete', 'add']) delete (o as unknown as Record<string, unknown>)[m];
     if (next.constants?.size) return no('constants the layout or the images read (prefold)');
     if (next.overLimit?.size) return no('over the expansion limit');
     // a loop unrolled outside rows is one the first pass rendered (one in a row goes with its row)
-    for (const k of next.unrolled?.keys() ?? []) if (!k.includes('#') && !next.rendered?.has(k)) return no('a loop unrolled, not rendered');
+    for (const k of next.unrolled?.keys() ?? []) if (!k.includes('#') && !next.rendered?.has(k)) return no(renderOn() ? 'a loop unrolled, not rendered' : 'a loop unrolled, rendering off (SN_RENDER=0)');
     // the minifier and the image pipeline go over rendered rows in the second pass, before its walk; the layout reads them
     const sheets = (typeof this.opts.minify === 'object' ? this.opts.minify.styles : undefined) ?? this.opts.styles;
     const minLayout = !!this.opts.minify && !!sheets;
@@ -11884,6 +11966,7 @@ class Compiler {
     // a unit placed before the walk: what placing it added, taken out as a dropped walk's (the second pass places none,
     // its points rendered), where it is still there as it was added and is no table numbered by position
     const unit = fw.unit;
+    if (unit && fw.unitRead?.size) return no(`the page reads the unit's \`${[...fw.unitRead][0]!.replace(' ', '` entry `')}\``);
     if (unit) {
       for (const k of unit.changed) if (k !== 'earlyDefs') return no(`placing a unit changes \`${k}\``);
       for (const [k, [a]] of unit.added) {
@@ -11897,12 +11980,18 @@ class Compiler {
     const uses = this.fnUses.slice();
     for (const x of all) for (const [i, n] of x.uses) uses[i]! -= n;
     if (unit) for (let i = 0; i < unit.f1; i++) uses[i]! -= unit.fnUses[i] ?? 0;
-    for (const x of all) for (const i of x.uses.keys()) if (i >= x.f0 && uses[i]! > 0) return no('code a decided branch compiled first is compiled elsewhere too');
-    if (unit) for (let i = 0; i < unit.f1; i++) if (uses[i]! > 0) return no('code the unit compiled is compiled by the page too');
+    // (where the page calls it too: the function the page's, at the page's site, below; known after the route's walks)
+    const shared = new Set<number>();
+    for (const x of all) for (const i of x.uses.keys()) if (i >= x.f0 && uses[i]! > 0) shared.add(i);
+    if (unit) for (let i = 0; i < unit.f1; i++) if (uses[i]! > 0) shared.add(i);
+    // (one the page called outside its walk, after it: where is not recorded)
+    for (const i of shared) if (!fw.pageAt?.has(i)) return no('code a decided branch compiled first is compiled elsewhere too');
     // (`dry`: whether it may be taken, nothing changed: a kept template's entry asks before it copies the kept walk)
     if (dry) return null;
 
     // ---- from here on the compiler is the second pass's
+    fw.routing = true;
+    FW_WALKING = fw;
     // (a unit placed: what of it the steps below and `finishPage` write into outside its templates, held to be given
     // back, `touch`: the resources', syncs' and actions' records, the page's resource infos; its templates are refused below
     // where the page keeps one, and emptied, held, where it does not)
@@ -11954,6 +12043,8 @@ class Compiler {
     const blocks: Array<{ at: number; n: number; nodes: NodeDef[]; base: number }> = [];
     // the last first: the positions the earlier ones recorded in the lists stay as they were
     ds.sort((x, y) => y.at - x.at);
+    // (the resources a dropped walk read first: unread, before any block is walked again, which reads them again)
+    for (const x of all) for (const n of x.used) { const r = this.page.resources.get(n); if (r) { touch(this, r); r.used = false; resources.add(n); } }
     for (const [bi, d] of ds.entries()) {
       const xs = d.other ? [d.a, d.other] : [d.a];
       // what the walks of the branch and its else added to the tables: taken out (the walk below adds what it compiles)
@@ -11963,7 +12054,6 @@ class Compiler {
         if (Array.isArray(o)) { const [s0, s1] = add as [number, number]; o.splice(s0, s1 - s0); }
         else if (o instanceof Map || o instanceof Set) for (const key of keysOf.get(k)?.get(x) ?? []) { o.delete(key); if (k === 'defs') dropped.add(key as string); }
       }
-      for (const x of xs) for (const n of x.used) { const r = this.page.resources.get(n); if (r) { r.used = false; resources.add(n); } }
       let placed: P5Node[];
       const c = d.a.el;
       if (d.rows) {
@@ -12044,6 +12134,9 @@ class Compiler {
     }
     // a definition the dropped walk compiled first and the new one uses: compiled again here, numbered and shared otherwise
     for (const n of dropped) if (this.defs.has(n)) return no('a definition compiled first in a decided branch, used by the page', true);
+    // (a unit placed, whose definitions were taken out: one the walks above compiled again is one the second pass places
+    // from a unit of its own, whose writes are not these)
+    if (unit && this.defs.size) return no('a definition the page compiles, a unit placed', true);
     // (the unit's items out of the lists, which come before what every walk added: the positions above hold till here)
     if (unit) for (const [k, [a, b]] of unit.added) { const o = this.fwField(k); if (Array.isArray(o)) { touch(this, o); o.splice(a, b - a); } }
     // rendered rows' empty texts (elements to the minifier, nothing in the page), and their marks after the image pipeline
@@ -12072,6 +12165,10 @@ class Compiler {
     this.roots.splice(0, this.roots.length, ...roots);
     // the type check reads the page as written: its frames and expressions are the first pass's
     this.checkFrames.length = checks[0]!; this.checkExprs.length = checks[1]!; this.checkResources.length = checks[2]!;
+    // (what the rows spliced above read: read, as the second pass's walk has it, `walkExpanded`)
+    for (const n of this.renderedReads) { const info = this.page.resources.get(n); if (info && !info.used) { touch(this, info); info.used = true; } }
+    // a resource read only in a dropped branch, which the second pass reports (SN501): not known here, where a read of it
+    // by the page after the branch's walk left no trace (the branch's walk read it first)
     let foldedIn: Set<string> | undefined;
     for (const n of resources) if (!this.page.resources.get(n)!.used && !(foldedIn ??= foldedNames(this.foldedText)).has(n)) return no('a resource read only in a decided branch (SN501)', true);
     for (const n of resources) this.page.resources.get(n)!.used = true;
@@ -12107,6 +12204,14 @@ class Compiler {
     for (const r of this.resources) delete r.lo;
     this.markLowPriority();
     // the page's ids, in document order (a kept element's keep theirs)
+    // a function a dropped walk or the unit made first that the page calls too: at the site the second pass gives it, the
+    // page's first call (a definition's own code, `codeAt`, keeps its); the page's walk and the route's both calling it:
+    // which comes first in the page is not known here
+    for (const i of shared) {
+      const a = fw.pageAt?.get(i), b = fw.rewalkAt?.get(i), code = this.fns[i]!;
+      if (a !== undefined && b !== undefined) return no('code a decided branch compiled first is compiled elsewhere too', true);
+      this.fnAt[i] = this.codeAt.get(code) ?? (a !== undefined ? a : b)!;
+    }
     if (!this.renumberIds(this.walk!.doc)) return no('an embedded resource\'s place', true);
     return null;
   }

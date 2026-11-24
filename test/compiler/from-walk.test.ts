@@ -168,9 +168,15 @@ describe('compiled again: each reason', () => {
     expect(r).toMatchObject({ taken: 0, why: ['an else-if decided'] });
   });
 
-  test('code the decided branch compiled first, compiled again elsewhere (its site would be the branch\'s)', () => {
-    const r = both(page('<div data-sn-state="{ a: true, n: 0 }"><button data-sn-on-click="n++">+</button><template data-sn-if="a"><b>a</b></template><p data-sn-show="a"></p></div>'));
-    expect(r).toMatchObject({ taken: 0, why: ['code a decided branch compiled first is compiled elsewhere too'] });
+  test('code the decided branch compiled first, compiled again by the page: the page\'s site (a source map shows it)', () => {
+    const r = both(page('<div data-sn-state="{ a: true, n: 0 }"><button data-sn-on-click="n++">+</button><template data-sn-if="a"><b>a</b></template><p data-sn-show="a"></p></div>'), { sourcemap: true });
+    expect(r).toMatchObject({ taken: 1, why: [] });
+    expect(JSON.stringify(r.on.sources)).toBe(JSON.stringify(r.off.sources));
+  });
+
+  test('code the decided branch compiled first, called by the page and by the branch walked again', () => {
+    const r = both(page('<div data-sn-state="{ a: true, n: 0 }"><button data-sn-on-click="n++">+</button><p data-sn-show="n"></p><template data-sn-if="a"><i data-sn-show="n"></i></template><b data-sn-show="n"></b></div>'), { sourcemap: true });
+    expect(r.taken + r.why.length).toBe(1);
   });
 
   test('a decided if in a template that stays', () => {
@@ -182,6 +188,16 @@ describe('compiled again: each reason', () => {
     const r = both(page('<sn-resource name="user" src="/api/user"></sn-resource><div data-sn-state="{ a: false }"><template data-sn-if="a"><p data-sn-text="user.name"></p></template></div>'));
     expect(r.on.diagnostics.map((d) => d.code)).toContain('SN501');
     expect(r).toMatchObject({ taken: 0, why: ['a resource read only in a decided branch (SN501)'] });
+  });
+
+  test('a resource a dropped branch read first, read by the rows rendered after it: not unread (the rows\' reads)', () => {
+    const r = both(page('<sn-resource name="doc" src="file:/content/post.json"></sn-resource><div data-sn-state="{ a: false }"><template data-sn-if="a"><p data-sn-text="doc.title"></p></template><ul><template data-sn-for="t in doc.tags"><li data-sn-text="t"></li></template></ul></div>'));
+    expect(r).toMatchObject({ taken: 1, why: [] });
+  });
+
+  test('a loop over constants that stays a template (state in its rows): nothing decided, no second pass at all', () => {
+    const r = both(page('<ul><template data-sn-for="x in [1, 2]"><li data-sn-state="{ n: 0 }"><button data-sn-on-click="n++" data-sn-text="n + x"></button></li></template></ul>'));
+    expect(r).toMatchObject({ taken: 0, why: ['no second pass (nothing decided)'] });
   });
 
   test('nothing evaluates: no record kept, the first pass as before', () => {
@@ -220,6 +236,33 @@ describe('a template\'s entries from a copy of the kept walk', () => {
     // (an entry's values are folded into the code that reads them, which its walk did not: the second pass, counted)
     expect(r.taken + r.why.filter((w) => w === 'values folded into the code').length).toBe(r.n);
     expect(r.on.map((x) => x.html).join('')).toContain('<li>z</li>');
+  });
+
+  test('an entry compiled alone (a page that is not quiet), its loop over the entry rendered: finished from the walk', () => {
+    const html = template('<ul><template data-sn-for="t in p.tags"><li data-sn-text="t"></li></template></ul><template data-sn-if="!p.draft"><b>live</b></template>');
+    const env = ['SN_LINK_AUDIT', 'SN_RENDER_AUDIT', 'SN_UNITS_SHIFT_AUDIT', 'SN_FROM_WALK_AUDIT'].map((k) => [k, process.env[k]] as const);
+    for (const [k] of env) delete process.env[k];
+    try {
+      const o = options({ file: '/p/blog/post.html' });
+      const [e] = compileParts(html, o).pages!.entries;
+      process.env.SN_FROM_WALK = '0';
+      const off = compileParts(html, { ...o, page: e });
+      delete process.env.SN_FROM_WALK;
+      const taken = FROM_WALK_STATS.taken;
+      const on = compileParts(html, { ...o, page: e });
+      expect(canonicalText(on)).toBe(canonicalText(off));
+      expect(FROM_WALK_STATS.taken - taken).toBe(1);
+      // (one whose finish reports an error, `$url` read on a page per entry, SN345: the old route did not unroll; so here)
+      const bad = template('<p data-sn-text="$url.slug"></p><ul><template data-sn-for="t in p.tags"><li data-sn-text="t"></li></template></ul>');
+      process.env.SN_FROM_WALK = '0';
+      const off2 = compileParts(bad, { ...o, page: e });
+      delete process.env.SN_FROM_WALK;
+      const why = FROM_WALK_STATS.fallback.get('a loop unrolled on a page that is not quiet, not clean') ?? 0;
+      const on2 = compileParts(bad, { ...o, page: e });
+      expect(canonicalText(on2)).toBe(canonicalText(off2));
+      expect(on2.diagnostics.map((d) => d.code)).toContain('SN345');
+      expect(FROM_WALK_STATS.fallback.get('a loop unrolled on a page that is not quiet, not clean') ?? 0).toBe(why + 1);
+    } finally { for (const [k, v] of env) if (v === undefined) delete process.env[k]; else process.env[k] = v; }
   });
 
   test('state beside the entry: the page\'s ids and its module', () => {
