@@ -357,7 +357,7 @@ Work that is not one request (hashing, crypto, WebAuthn, other browser APIs) goe
 export from `src/sinter.actions.js` (or `.ts`). A page calls them with `data-sn-call`:
 
 ```html
-<button data-sn-call="upload(file, digest)" data-sn-attr="{disabled: !digest}"
+<button data-sn-call="upload(file, digest)" data-sn-when="file && digest" data-sn-attr="{disabled: !digest}"
         data-sn-then="url = $result.url" data-sn-catch="error = $error.message">Upload</button>
 <sn-resource name="digest" call="sha256(file)" when="file"></sn-resource>
 ```
