@@ -20,6 +20,9 @@ How to write an entry (from 0.21.0 on; older sections keep their own form):
 - The `sinter` command is executable in the package again: 0.22.0 shipped `dist/cli.js` without its executable bit,
   and `npx sinter` could fail with "Permission denied" where npm kept an earlier link to it (an upgrade from a
   `file:` install). With 0.22.0, `node node_modules/@tiaforge-ui/sinter/dist/cli.js` runs it.
+- A `<select data-sn-model>` keeps the option the user picks in Chrome: the browser fires the select's `input` a
+  task after it changes the selection, and a render in between set the select back to the model's old value, so the
+  pick was lost. A select is now set again after a render only when its model or its options changed since.
 
 ## 0.22.0 (2026-11-24)
 

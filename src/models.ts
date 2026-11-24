@@ -1,15 +1,17 @@
 // `data-sn-model` on controls other than text fields: checkboxes (a boolean, or an array of the
 // checked values), radio buttons, `<select>` (one value, or `multiple`: an array), number and range
 // inputs (a number, null when empty). A `<select>`'s value is set again after each render, as its
-// options may have changed (one in a closed dialog waits for it to open). Loaded only by pages with
-// such a model; text fields are the core's.
+// options may have changed (one in a closed dialog waits for it to open), unless the user has picked
+// another option since: browsers fire its `input` a task later, and a render in between must not undo
+// the pick. Loaded only by pages with such a model; text fields are the core's.
 import type { App, Feature, ModelInner } from './runtime/app.js';
 
 const feature: Feature = {
   name: 'models',
   install(app: App) {
     app.ext.models = ({ evaluate, deferred }: ModelInner) => {
-      const selects = new Set<any>();
+      /** each bound select, with the model's value its sync last wrote, its options then and which were selected */
+      const selects = new Map<any, { v: string; all: HTMLOptionElement[]; on: boolean[] } | null>();
       const write = (rb: any, v: any) => {
         const el = rb.el as HTMLInputElement & HTMLSelectElement, k = rb.b.n;
         const has = (x: string) => Array.isArray(v) && v.map(String).includes(x);
@@ -35,12 +37,18 @@ const feature: Feature = {
           if (!el.checked && i >= 0) cur.splice(i, 1);
           return cur;
         },
-        bound(rb) { if (rb.el.localName == 'select') selects.add(rb); },
+        bound(rb) { if (rb.el.localName == 'select') selects.set(rb, null); },
         forget(rb) { selects.delete(rb); },
         sync() {
-          for (const rb of selects) {
-            if (rb.c && rb.el.closest('dialog:not([open])')) deferred.add(rb);
-            else write(rb, evaluate(rb));
+          for (const [rb, last] of selects) {
+            if (rb.c && rb.el.closest('dialog:not([open])')) { deferred.add(rb); continue; }
+            const el = rb.el as HTMLSelectElement, v = evaluate(rb), all = [...el.options];
+            const key = JSON.stringify(Array.isArray(v) ? v.map(String) : '' + (v ?? ''));
+            // the model and the options as sync left them, the selection not: the user's pick, whose `input`
+            // is on its way
+            if (last && last.v == key && all.length == last.all.length && all.every((x, i) => x == last.all[i]) && all.some((x, i) => x.selected != last.on[i])) continue;
+            write(rb, v);
+            selects.set(rb, { v: key, all, on: all.map((x) => x.selected) });
           }
         },
       };

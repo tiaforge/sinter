@@ -784,6 +784,46 @@ test('a select in a closed dialog waits for it to open, then picks its value fro
   warn.mockRestore();
 });
 
+test('a render between a pick and its input event keeps the pick (browsers fire it a task later)', async () => {
+  const { root, flush } = await render(`
+    <div data-sn-state="{ s: 'a', m: ['1'], n: 0 }">
+      <select id="s" data-sn-model="s"><option>a</option><option>b</option></select>
+      <select id="m" multiple data-sn-model="m"><option>1</option><option>2</option></select>
+      <p data-sn-text="n"></p><button data-sn-on-click="n++">+</button>
+    </div>`);
+  const s = root.querySelector<HTMLSelectElement>('#s')!, m = root.querySelector<HTMLSelectElement>('#m')!;
+  s.value = 'b'; m.options[1]!.selected = true;
+  root.querySelector('button')!.click();
+  await flush();
+  expect(root.querySelector('p')!.textContent).toBe('1');
+  expect(s.value).toBe('b');
+  expect(m.options[1]!.selected).toBe(true);
+  s.dispatchEvent(new Event('input', { bubbles: true }));
+  m.dispatchEvent(new Event('input', { bubbles: true }));
+  await flush();
+  // the models took the picks, and a later render keeps them
+  root.querySelector('button')!.click();
+  await flush();
+  expect(s.value).toBe('b');
+  expect([...m.selectedOptions].map((o) => o.value)).toEqual(['1', '2']);
+});
+
+test('options rendered again with the model unchanged still take its value', async () => {
+  const { root, flush } = await render(`
+    <div data-sn-state="{ s: 'c', os: ['a', 'b'] }">
+      <select data-sn-model="s"><template data-sn-for="o in os" data-sn-key="o"><option data-sn-attr="{ value: o }" data-sn-text="o"></option></template></select>
+      <button class="add" data-sn-on-click="os = ['a', 'b', 'c']">add</button>
+      <button class="swap" data-sn-on-click="os = ['x', 'c']">swap</button>
+    </div>`);
+  const select = root.querySelector('select')!;
+  root.querySelector<HTMLButtonElement>('.add')!.click();
+  await flush();
+  expect(select.value).toBe('c');
+  root.querySelector<HTMLButtonElement>('.swap')!.click();
+  await flush();
+  expect(select.value).toBe('c');
+});
+
 test('a dialog inside a row template defers the bindings inside it', async () => {
   const { root, flush } = await render(`
     <ul data-sn-state="{ xs: [{ t: 'a' }] }"><template data-sn-for="x in xs">
