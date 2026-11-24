@@ -609,6 +609,17 @@ export interface CompiledParts {
 }
 
 const ATTRS = ATTRIBUTES.map((a) => a.name);
+/** the `data-sn-` attributes `element` knows (the names `declaration()` gives `data-sn-props` for the compiler; the old names are reported there) */
+const KNOWN_SN = new Set<string>([...ATTRS.map((a) => `data-sn-${a}`), 'data-sn-component', 'data-sn-head', 'data-sn-layout']);
+/** `data-sn-${n}`, made once for each name an element's attributes are asked about (`get`, `has`) */
+const SN_NAMES = new Map<string, string>();
+const snName = (n: string): string => { let x = SN_NAMES.get(n); if (x === undefined) SN_NAMES.set(n, x = `data-sn-${n}`); return x; };
+/** the names in what a decided branch or an empty list took out of the page (`foldedText`): a text once, however many rows wrote it */
+function foldedNames(texts: readonly string[]): Set<string> {
+  const out = new Set<string>();
+  for (const t of new Set(texts)) for (const m of t.match(/[A-Za-z_$][\w$]*/g) ?? []) out.add(m);
+  return out;
+}
 const METHODS = ['post', 'put', 'patch', 'delete'] as const;
 /** attributes that are gone or renamed (docs/proposals/vocabulary.md): what to write instead. Removed at 1.0, as SN316 was */
 const RETIRED: Record<string, string> = {
@@ -2668,9 +2679,14 @@ class Compiler {
     if (this.opts.embed) this.addPlaceholders(doc);
     this.placeholders();
     // read by what the second pass decided and took out (a branch, a list with no entries): read
-    const folded = new Set(this.foldedText.flatMap((t) => t.match(/[A-Za-z_$][\w$]*/g) ?? []));
+    let folded: Set<string> | undefined;
     for (const n of this.renderedReads) { const info = this.page.resources.get(n); if (info) info.used = true; }
-    this.unread(folded);
+    for (const info of this.page.resources.values()) {
+      if (!info.used && !(folded ??= foldedNames(this.foldedText)).has(info.name)) {
+        const el = this.resourceEls.get(info.name)!;
+        this.report(el, 'name', 'SN501', `resource \`${info.name}\` is declared but never read`, 0);
+      }
+    }
     this.runTargets();
     if (this.opts.swap && !this.swapOff) this.swapScripts(doc);
     this.runCycles();
@@ -6469,19 +6485,18 @@ class Compiler {
     }
 
     const sn = el.attrs.filter((a) => a.name.startsWith('data-sn-'));
-    const get = (n: string) => sn.find((a) => a.name === `data-sn-${n}`)?.value;
-    const has = (n: string) => sn.some((a) => a.name === `data-sn-${n}`);
+    const get = (n: string) => { const name = snName(n); for (const a of sn) if (a.name === name) return a.value; return undefined; };
+    const has = (n: string) => { const name = snName(n); for (const a of sn) if (a.name === name) return true; return false; };
 
     // unknown attributes
     // with the names `declaration()` gives `data-sn-props` for the compiler (the old names are reported there)
-    const known = new Set<string>([...ATTRS.map((a) => `data-sn-${a}`), 'data-sn-component', 'data-sn-head', 'data-sn-layout']);
     for (const a of sn) {
-      if (known.has(a.name) || a.name.startsWith('data-sn-on-') || a.name.startsWith('data-sn-debounce-')) continue;
+      if (KNOWN_SN.has(a.name) || a.name.startsWith('data-sn-on-') || a.name.startsWith('data-sn-debounce-')) continue;
       const retired = RETIRED[a.name];
       if (retired) { this.report(el, a.name, 'SN101', `\`${a.name}\` ${retired}`, 0); continue; }
       const by = SET_BY_SINTER[a.name];
       if (by) { this.report(el, a.name, 'SN101', `\`${a.name}\` is set by sinter (${by}): style it with \`[${a.name}]\`, do not write it`, 0); continue; }
-      this.report(el, a.name, 'SN101', `\`${a.name}\` is not a sinter attribute.${didYouMean(a.name, [...known, 'data-sn-on-click'])}`, 0);
+      this.report(el, a.name, 'SN101', `\`${a.name}\` is not a sinter attribute.${didYouMean(a.name, [...KNOWN_SN, 'data-sn-on-click'])}`, 0);
     }
 
     if (has('layout') && !use?.layout) this.report(el, 'data-sn-layout', 'SN101', `\`data-sn-layout\` ${RETIRED['data-sn-layout']}`, 0);
@@ -6771,8 +6786,8 @@ class Compiler {
    */
   bindings(el: P5Element, node: NodeDef, scope: Scope, ctx: Ctx, use?: Use) {
     const sn = el.attrs.filter((a) => a.name.startsWith('data-sn-'));
-    const get = (n: string) => sn.find((a) => a.name === `data-sn-${n}`)?.value;
-    const has = (n: string) => sn.some((a) => a.name === `data-sn-${n}`);
+    const get = (n: string) => { const name = snName(n); for (const a of sn) if (a.name === name) return a.value; return undefined; };
+    const has = (n: string) => { const name = snName(n); for (const a of sn) if (a.name === name) return true; return false; };
     const valueB = (k: 'text' | 'show', name: string) => {
       const r = this.expr(el, name, scope, { mode: 'value', ...(k == 'show' ? { cond: true } : {}) });
       if (r.ok) node.b.push(this.binding({ k, f: this.fn(r.code), d: r.deps, ...usesEl(r), s: this.selection(scope, attr(el, name) ?? '', r.ast, r) }));
@@ -10433,6 +10448,22 @@ class Compiler {
       const fill = (nodes: NodeDef[], map: { get(x: P5Node): P5Node | undefined }, rec: RowRec) => {
         // (the record's places: by node, its bindings after it, `rowLayout`; what each node is: `nodeInfo`)
         const L = rowLayout(memo, nodes), info = nodeInfo(nodes);
+        // (one binding of element `cl` (node `n`, its record's places from `pos`) written as its row decided: a function
+        // of the fill, not a closure made for each element, redesign-notes/alloc.md)
+        const paint = (cl: P5Element, n: NodeDef, pos: number, styles: StyleWrites | null, b: Binding, why?: string | null, j = n.b.indexOf(b), rd = true) => {
+          if (why === undefined) {
+            if (handlerOnly(b)) no('handler');
+            if (!ROW.has(b.k)) no(`a binding of kind ${b.k}`);
+          } else if (why) no(why);
+          // (what it writes, `firstPaintValue`'s pair; null: not written ahead)
+          const w = j < 0 ? undefined : rec[pos + 1 + j] as [Kind, unknown] | null | undefined;
+          if (w === undefined) no('not painted');
+          if (w === null) no('not written ahead');
+          if (w![0] === 'text') WRITTEN.set(cl, 'content');
+          if (styles && w![0] === 'style') styles.write(b.n!, w![1] as string | null);
+          else writeFirstPaint(cl, w![0], b.n ?? null, w![1], true);
+          if (rd) read(b.d);
+        };
         for (let i = 0; i < nodes.length; i++) {
           const n = nodes[i]!, pos = L.base[i]!, ni = info[i]!;
           const point = ni.point;
@@ -10510,26 +10541,12 @@ class Compiler {
           let bound = false;
           // (the element's style, when its style bindings alone write it: their declarations at once, `StyleWrites`)
           let styles: StyleWrites | null = null;
-          const paint = (b: Binding, why?: string | null, j = n.b.indexOf(b), rd = true) => {
-            if (why === undefined) {
-              if (handlerOnly(b)) no('handler');
-              if (!ROW.has(b.k)) no(`a binding of kind ${b.k}`);
-            } else if (why) no(why);
-            // (what it writes, `firstPaintValue`'s pair; null: not written ahead)
-            const w = j < 0 ? undefined : rec[pos + 1 + j] as [Kind, unknown] | null | undefined;
-            if (w === undefined) no('not painted');
-            if (w === null) no('not written ahead');
-            if (w![0] === 'text') WRITTEN.set(cl!, 'content');
-            if (styles && w![0] === 'style') styles.write(b.n!, w![1] as string | null);
-            else writeFirstPaint(cl!, w![0], b.n ?? null, w![1], true);
-            if (rd) read(b.d);
-          };
           // what the second pass writes before the layout and the images (`prefold`: an image's attributes, a class or
           // style the layout reads): first, in its order; the element then has only the others' bindings (and an id only
           // for them), and the layout, the images and the minifier read those as bindings (`shownOf`)
           const { fold, folded } = foldOf(el!, n);
           for (const x of fold) for (const b of x.bindings) {
-            paint(b);
+            paint(cl!, n, pos, styles, b);
             // (a `src` written there is the page's: `foldedUrl`)
             if (cl!.tagName === 'img' && x.attr === 'data-sn-attr' && (b.n === 'src' || b.n === 'srcset')) RENDERED_FILE.set(cl!, this.opts.file);
           }
@@ -10588,7 +10605,7 @@ class Compiler {
               replace(cl, cl, out);
               continue;
             }
-            paint(b, why, j, rd);
+            paint(cl!, n, pos, styles, b, why, j, rd);
             bound = true;
           }
           styles?.done();
@@ -10749,16 +10766,6 @@ class Compiler {
     };
     look(P);
     return why;
-  }
-
-  /** SN501 for each resource the page declares and nothing reads (`folded`: the names the decided markup it took out read) */
-  unread(folded: Set<string>) {
-    for (const info of this.page.resources.values()) {
-      if (!info.used && !folded.has(info.name)) {
-        const el = this.resourceEls.get(info.name)!;
-        this.report(el, 'name', 'SN501', `resource \`${info.name}\` is declared but never read`, 0);
-      }
-    }
   }
 
   /** the minifier's questions about the page's elements (`minify`; `fromWalk` again for rows it splices) */
@@ -12162,7 +12169,8 @@ class Compiler {
     for (const n of this.renderedReads) { const info = this.page.resources.get(n); if (info && !info.used) { touch(this, info); info.used = true; } }
     // a resource read only in a dropped branch, which the second pass reports (SN501): not known here, where a read of it
     // by the page after the branch's walk left no trace (the branch's walk read it first)
-    for (const n of resources) if (!this.page.resources.get(n)!.used && !this.foldedText.some((t) => ((t.match(/[A-Za-z_$][\w$]*/g) ?? []) as string[]).includes(n))) return no('a resource read only in a decided branch (SN501)', true);
+    let foldedIn: Set<string> | undefined;
+    for (const n of resources) if (!this.page.resources.get(n)!.used && !(foldedIn ??= foldedNames(this.foldedText)).has(n)) return no('a resource read only in a decided branch (SN501)', true);
     for (const n of resources) this.page.resources.get(n)!.used = true;
     // the walk's last steps, again for what it walked: scoped styles' marks, what it removes
     this.markScoped();
@@ -14040,16 +14048,22 @@ const PLAIN_DEPTH = 1024;
  * unless it is reached again less deep.
  */
 export function plainData(v: unknown, heights?: Heights): boolean {
-  const scalar = (x: unknown) => x === null || ['string', 'number', 'boolean', 'undefined'].includes(typeof x);
-  if (scalar(v)) return true;
+  if (scalarData(v)) return true;
   // (the worklist asks this of every level of a tree, each level a part of the one above: what is frozen is measured
   // once, and a walk that cannot tell, past the bound or through a cycle, is this one)
-  if (heights) { let h = -1; try { h = plainHeight(v as object, 0, heights, new Map()); } catch { /* the walk below */ } if (h >= 0) return true; }
+  if (heights) {
+    // (a height known already, as `plainHeight` reads it first: no walk, and no table made for one)
+    const fh = heightsOn() ? DEEP_FROZEN.get(v as object) : undefined;
+    const known = fh !== undefined && fh !== UNMEASURED ? fh : heights.get(v as object);
+    if (known !== undefined && known >= 0 && known <= PLAIN_DEPTH) return true;
+    let h = -1; try { h = plainHeight(v as object, 0, heights, new Map()); } catch { /* the walk below */ } if (h >= 0) return true;
+  }
   const seen = new Map<object, number>();
-  const stack: [unknown, number][] = [[v, 0]];
+  // (the values to look at and their depths, side by side: no pair made for each)
+  const stack: unknown[] = [v], depths: number[] = [0];
   while (stack.length) {
-    const [x, depth] = stack.pop()!;
-    if (scalar(x)) continue;
+    const x = stack.pop(), depth = depths.pop()!;
+    if (scalarData(x)) continue;
     if (depth > PLAIN_DEPTH || typeof x !== 'object') return false;
     const at = seen.get(x as object);
     if (at !== undefined && at <= depth) continue;
@@ -14058,9 +14072,17 @@ export function plainData(v: unknown, heights?: Heights): boolean {
       const proto = Object.getPrototypeOf(x);
       if (proto !== Object.prototype && proto !== null) return false;
     }
-    for (const c of Array.isArray(x) ? x : Object.values(x as object)) stack.push([c, depth + 1]);
+    const cs = Array.isArray(x) ? x : Object.values(x as object);
+    for (let i = 0; i < cs.length; i++) { stack.push(cs[i]); depths.push(depth + 1); }
   }
   return true;
+}
+
+/** `plainData`'s scalars: null and the primitives JSON holds, and undefined */
+function scalarData(x: unknown): boolean {
+  if (x === null) return true;
+  const t = typeof x;
+  return t === 'string' || t === 'number' || t === 'boolean' || t === 'undefined';
 }
 
 /** the heights of frozen data (`plainHeight`'s `frozen`): only of data frozen at every depth, whose height cannot change */
@@ -14151,12 +14173,19 @@ export function frozenPlain(v: object): boolean {
     if (proto !== (array ? Array.prototype : Object.prototype)) return -1;
     path.add(x);
     const keys = Reflect.ownKeys(x);
-    if (array && keys.length !== (x as unknown[]).length + 1) return -1;
+    const len = array ? (x as unknown[]).length : 0;
+    if (array && keys.length !== len + 1) return -1;
+    // (an array's own keys list its indexes first, ascending, then `length`, made with it, then any other string key and
+    // the symbols: with one key more than its length and that one `length`, the rest are 0 to length - 1, every index
+    // there and nothing else, and the keys are not read as numbers one by one; in another order, a proxy's, they are)
+    const ordered = array && keys[len] === 'length';
     let h = 0;
-    for (const k of keys) {
+    for (let i = 0; i < keys.length; i++) {
+      const k = keys[i]!;
       if (typeof k !== 'string') return -1;
-      if (array && k === 'length') continue;
-      if (array && (String(+k >>> 0) !== k || +k >= (x as unknown[]).length)) return -1;
+      if (ordered && i === len) continue;
+      if (array && !ordered && k === 'length') continue;
+      if (array && !ordered && (String(+k >>> 0) !== k || +k >= len)) return -1;
       const d = Object.getOwnPropertyDescriptor(x, k)!;
       if (!('value' in d) || !d.enumerable) return -1;
       const c = d.value;

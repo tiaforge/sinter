@@ -21,3 +21,10 @@ commit, `npm run build` there) is what the A/B and byte comparisons run against.
   (and the 2,000-element one) against the base's `--keep` trees.
 - `mkmail.mjs <checkout> <sinter-mail> <out>`: sinter-mail's three 12-page apps (file email, a generated `GEN`-element
   email, the API route).
+- `mem/` (redesign-notes/alloc.md): memory and garbage. `memrun.mjs <checkout> <app>` (with `--expose-gc`): a build with a
+  probe plugin, memory after forced collections at the build's hooks (`MEM_SMAPS=1`: RSS by mapping kind,
+  `MEM_SNAP=<points>`: heap snapshots); `mempre.mjs` (+ `memhooks.mjs`): a preload, memory after each `compile()`
+  (`MEM_GC=k`, `MEM_SNAPN=<n,…>`); `snap.mjs`, `ret.mjs`, `born.mjs`, `root1.mjs`: heap snapshots by type, retainer,
+  objects born or died between two snapshots of one process; `heapprof.mjs`: the sampling heap profiler with collected
+  objects included (`HP_MAJOR_ONLY=1`: what reaches the old generation), read by `hpsum.mjs` and `hpratio.mjs`;
+  `gcsum.mjs`: `--trace-gc` output summed by kind.
