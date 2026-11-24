@@ -6,6 +6,10 @@ on a quiet machine, then cut where the output stays byte for byte the same.
 
 ## Where it stands
 
+- **2026-11-24: decision 3 in** (the cross check in a worker beside the build, `SN_CROSS_LATE=0` the old place):
+  −0.15 s at 100 static posts, −0.6 s at 400, −1.2 to −1.45 s at 1,000; peak memory +40 to 110 MB; a build it
+  fails leaves `dist/` emptied. **Next: decision 4**, Vite's HTML step skipped for pages it does not change, where no
+  other plugin has an HTML hook.
 - **Done** for what can be fixed without a decision; three fixes in, each byte for byte the same over the bar; the rest
   written up below with what it would buy and what blocks it. Merged with `ccr-9ebf49d5-gpdej8` (0e55121): suite green
   (2,945), the integration branch alone against it identical over the bar, `render-audit` and `pass-audit` same.
@@ -391,9 +395,81 @@ folder each time (always cold), so its warm build was checked apart: 48 files th
 sinter-static-100, alternating, 4 runs each: 2.25 s with no cache, 2.07 s warm (medians; the profile's 0.1 s is the
 part that can be attributed).
 
+## Decision 3 (taken): the cross check (SN534) beside the build
+
+The owner decided (2026-11-24, 03:41 UTC) the second option: the check's work beside the build, waited for after
+Vite's HTML step, accepting that a build this check fails leaves `dist/` emptied (it was left untouched) and that
+another error may be reported first.
+
+**How.** Beside the build means another thread: the check is CPU work (the helpers' calls), so on the build's own
+thread, waited for later, it would cost the same. At `buildStart`, once the helpers are loaded, the build starts a
+worker (`src/fold-late.ts`, `src/fold-worker.ts`) that loads its fresh copy of the helpers module through Vite's module
+runner, as `loadHelpers({ fresh: true })` did at `buildEnd` (`importModule`, the same root, config file, mode and, with
+no config file, aliases), while the pages compile. At `buildEnd` the build sends it every page's calls, as recorded,
+and goes on; the worker runs `crossCheck` (the same function: every page's calls, the pages in reverse order, the chain
+of results) and answers the differences, or why its copy did not load. The last plugin, named `sinter` as the main one
+(so the error is `[plugin sinter]` and the same text), `enforce: 'post'` with `generateBundle` in `order: 'post'`,
+waits for the answer and reports it as `buildEnd` did (`crossReport`: the SN534 error, or SN534's warning that the
+calls could not be checked). The worker never keeps the process alive (`unref`), each build has its own (`--watch`),
+and a worker that cannot start (an alias with a function cannot be sent to it), cannot take the calls or dies is
+replaced by the check on the build's thread, at the same place (`crossHere`, today's code).
+
+- A fresh copy in a thread of its own is at least as fresh as one beside the build's instance on its thread: the
+  fold check does not let a folding helper reach `globalThis`, and Node's own modules are the thread's.
+- **The tests' `src/` plugin**: the worker is then TypeScript. It is started with Node's own transform
+  (`--experimental-transform-types`: `compiler/compile.ts` has a parameter property, which type stripping alone
+  refuses) and a resolve hook that maps a `.js` specifier to the `.ts` file beside it (`registerHooks`, in the worker
+  only), as `tsc`'s output has them. That is a loader of its own, 10 lines, used only when the plugin itself is a `.ts`
+  file; the built plugin starts `dist/fold-worker.js`. It costs a worker about 0.7 s to load the sources, so this
+  suite runs the check on the build's thread unless a test asks (`SN_CROSS_LATE=1`), as with the fold cache.
+- **The switch**: `SN_CROSS_LATE=0` runs the check where it ran (on the build's thread at `buildEnd`); a build's
+  default is the worker. `SN_CROSS_LOG=1` prints which one answered (`sinter cross: worker`, `here`, `here (the worker
+  failed: …)`) and how long the last plugin waited. Dev and `sinter check` never ran this check: unchanged.
+- **What changes**: a build this check fails has gone through Vite's HTML step, so `dist/` is emptied and nothing is
+  written (it was left as it was); an error raised after `buildEnd` (sinter:pages' link checks, SN521's warning comes
+  first in the log), and a type error of the build's type check (later in `buildEnd`, which the SN534 error stopped
+  before), is now reported before it. The message and the differences are the same.
+
+**Tests** (`test/vite/fold-cross.test.ts`): its build tests run both ways (`SN_CROSS_LATE=0` and `=1`): the eight
+forms of state kept between calls, pure helpers and a memo, `undefined` and a chain of calls, a fresh copy per
+`--watch` rebuild; and, against each other: the same message and the same differences (two pages, stack and the
+order-dependent values masked), `dist/` left as it was at `buildEnd` and emptied beside the HTML step, the worker's
+answer for a check that passes, and a worker that cannot start (an alias with a function) checked on the build's thread.
+SN534's text in `docs/diagnostics.md` (from `diagnostic-docs.ts`) says where it runs and what `dist/` is left as.
+
+**Measured** (whole process, base `SN_CROSS_LATE=0` and the worker in interleaved rounds, 3 rounds, Astro in the same
+rounds; medians; peak RSS the highest of the rounds):
+
+| app | base | worker | Δ | peak RSS |
+| --- | ---: | ---: | ---: | ---: |
+| static-100 | 2.26 s | 2.11 s | −0.15 s | 354 → 432 MB |
+| live-100 | 2.53 s | 2.56 s | +0.03 s | 488 → 551 MB |
+| static-files-100 | 2.69 s | 2.47 s | −0.23 s | 398 → 469 MB |
+| live-files-100 | 3.01 s | 2.92 s | −0.09 s | 541 → 599 MB |
+| Astro, 100 | 1.82 s | | | |
+| static-400 | 5.56 s | 4.95 s | −0.61 s | 584 → 694 MB |
+| live-400 | 6.89 s | 6.47 s | −0.42 s | 834 → 894 MB |
+| static-files-400 | 7.05 s | 6.44 s | −0.61 s | 627 → 727 MB |
+| live-files-400 | 9.47 s | 8.67 s | −0.80 s | 952 → 1,045 MB |
+| Astro, 400 | 3.03 s | | | |
+| static-1000 | 13.09 s | 11.88 s | −1.20 s | 821 → 909 MB |
+| live-1000 | 16.17 s | 15.16 s | −1.01 s | 1,538 → 1,579 MB |
+| static-files-1000 | 16.67 s | 15.23 s | −1.45 s | 878 → 932 MB |
+| live-files-1000 | 23.56 s | 22.75 s | −0.81 s | 1,526 → 1,619 MB |
+
+The estimate was 0.2 s at 100 posts and 0.5 s at 400: 0.15 and 0.61 here for the static template app (an earlier
+series of 8 rounds at 100 gave 0.135 s). The last plugin waits 13 to 88 ms for the worker: the rest of the check is
+hidden. The worker's own heap adds 40 to 110 MB to the peak. Live pages gain less at 100: their early scripts'
+nested builds (after `buildEnd`) are on the main thread beside the worker's start.
+
+**Checked**: the bar with `SN_CROSS_LATE=0` against the default: every file and log line the same (bench 100/400, the
+baseline apps, sinter-mail's 48 files); `pass-audit` and `render-audit --canon`: every app "same"; the suite (3,032)
+green. `scripts/baseline.mjs`: its recorded hashes predate the redesign (every app "DIFFERENT" at the base too); its
+report is the same both ways.
+
 ## Looked at, not changed
 
-- **The SN534 worker**: weighed and dropped, see above (the tests run `src/`; the replay needs the compiler; 4 %).
+- **The SN534 worker awaited in `buildEnd`**: dropped for the late wait (decision 3), which hides most of the check.
 - **Loading the build's fresh copy of the helpers earlier, on the main thread**: its CPU work (`resolveConfig`, the
   runner's transforms) would land in the page loop instead; nothing to gain without another thread.
 - **One `resolveConfig` for both copies of the helpers** (two environments of one config): ≈25 ms, but the copies would

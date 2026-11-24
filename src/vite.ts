@@ -46,6 +46,8 @@ import { librariesOf, libraryOf, ownLibrary } from './libraries.js';
 import { LAYERS_SHEET, type FoldArg } from './compiler/compile.js';
 import { didYouMean, docsUrl } from './compiler/diagnostics.js';
 import { crossCheck, crossMessage, hashOf, type FoldCall } from './fold-cross.js';
+import { crossWorker, type CrossWorker } from './fold-late.js';
+import type { CrossAnswer } from './fold-worker.js';
 import { apiOrigins } from './compiler/apis.js';
 import { importModule, loadHelpers, loadingHelpers, unloadedMessage, type NodeHelpers } from './helpers-node.js';
 import { FoldCache, setAppAliases } from './fold-check.js';
@@ -188,7 +190,7 @@ export interface SinterOptions extends ProjectOptions {
  * source, and with `pageOptions` the options the build compiles a source page with (once the config is resolved).
  */
 type SinterApi = { options: SinterOptions; source(file: string): string; pageOptions?: PluginApi['pageOptions'] };
-type SinterPlugins = [Plugin & { api: SinterApi }, Plugin, Plugin, Plugin, Plugin, Plugin, Plugin];
+type SinterPlugins = [Plugin & { api: SinterApi }, Plugin, Plugin, Plugin, Plugin, Plugin, Plugin, Plugin];
 
 /** dev: the pages under the root (not in node_modules, the output, `public/`, hidden folders, or the components' and layouts' folders) */
 function htmlPages(root: string, config: ResolvedConfig | null): string[] {
@@ -313,7 +315,7 @@ ${pages.map(page).join('\n')}
 
 export default function sinter(options: SinterOptions = {}): SinterPlugins {
   // the Vite server sinter starts to load the helpers module in Node (helpers-node.ts): nothing of sinter runs in it
-  if (loadingHelpers()) return [{ name: 'sinter', api: { options, source: (f: string) => f } }, { name: 'sinter:post' }, { name: 'sinter:css-images' }, { name: 'sinter:fonts' }, { name: 'sinter:font-check' }, { name: 'sinter:pages' }, { name: 'sinter:compile-hints' }];
+  if (loadingHelpers()) return [{ name: 'sinter', api: { options, source: (f: string) => f } }, { name: 'sinter:post' }, { name: 'sinter:css-images' }, { name: 'sinter:fonts' }, { name: 'sinter:font-check' }, { name: 'sinter:pages' }, { name: 'sinter:compile-hints' }, { name: 'sinter' }];
   // options renamed (docs/proposals/vocabulary.md): what to write instead
   const was = options as { speculation?: unknown; earlyBudget?: unknown; fonts?: { inline?: unknown; preload?: unknown } };
   if (was.speculation !== undefined) throw new Error(`sinter({ speculation }) is renamed to \`prefetch: { html: ${htmlOf(was.speculation)} }\`, beside the next page's data (\`prefetch: { data }\`)`);
@@ -1505,6 +1507,25 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   /** the build's helper calls that folded, by page and call, for the cross-check at its end */
   const foldCalls = new Map<string, FoldCall[]>();
   /**
+   * The cross-check (fold-cross.ts) of a build: on this thread at its `buildEnd` (`SN_CROSS_LATE=0`, and this
+   * repository's tests unless one asks with `SN_CROSS_LATE=1`), or in a worker that loads its fresh copy of the helpers
+   * as the build starts and runs the calls beside Vite's HTML step (fold-late.ts); the last plugin waits for it, and a
+   * difference fails the build there, as at `buildEnd` (the same message), after Vite emptied `dist/`.
+   */
+  const crossLateOn = () => (process.env.SN_CROSS_LATE ?? (process.env.VITEST ? '0' : '1')) !== '0';
+  let crossLater: CrossWorker | null = null, crossPending: Promise<CrossAnswer> | null = null;
+  const helpersConfig = () => (resolved ? { configFile: resolved.configFile ?? false, mode: resolved.mode, ...(resolved.configFile ? {} : { alias: resolved.resolve.alias }) } : {});
+  /** the check on this thread: a fresh copy of the helpers module, the calls again */
+  const crossHere = async (pages: Array<[string, FoldCall[]]>): Promise<CrossAnswer> => {
+    const p = proj();
+    const fresh = await loadHelpers({ root, helpersFile: p.helpersFile, manifest: p.helpers, fresh: true, ...helpersConfig(), cache: foldCache });
+    return fresh.module ? { bad: crossCheck(fresh.module, pages) } : { error: fresh.error ?? 'it did not load' };
+  };
+  const crossReport = (ctx: { error(m: string): never }, a: CrossAnswer) => {
+    if ('error' in a) resolved?.logger.warn(coded('SN534', `the helper calls that ran at build time could not be checked again in a fresh copy of the helpers module (${a.error.split('\n')[0]}): a helper that keeps state between calls would go unnoticed`));
+    else if (a.bad.length) ctx.error(`sinter: error SN534 helper-not-folded: ${crossMessage(a.bad)}\n  docs: \`npx sinter docs SN534\`, ${docsUrl('SN534')}`);
+  };
+  /**
    * the site's core (docs/proposals/site-core.md): the parts of the core the build's pages use, and the pages compiled
    * so far; a build serves the core's flags module once every page is in (`load` waits for it), with the parts no page
    * uses off. Dev serves it as written, every part on.
@@ -1906,6 +1927,14 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       nodeHelpers = null;
       const p = buildProject = project(root, options);
       await helpersReady();
+      // the cross-check's worker, loading its fresh copy of the helpers while the pages compile (a build's own: none
+      // carries over under --watch); without one, or if it cannot start, the check runs on this thread at buildEnd
+      crossLater?.stop();
+      crossLater = null;
+      crossPending = null;
+      if (isClient(this) && crossLateOn() && helpersNow?.module && p.helpersFile) {
+        try { crossLater = crossWorker({ root, helpersFile: p.helpersFile, ...helpersConfig() }); } catch { crossLater = null; }
+      }
       // the modules that declare helpers: one an early binding calls may be shared with the page bundle (shared-build.ts)
       compiled.clear(); decisions.clear(); shared.clear(); unshared.clear(); registered.clear(); specFiles.clear();
       helperFiles = new Set();
@@ -2259,14 +2288,17 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       if (!error && !dev && foldCalls.size && isClient(this)) {
         const pages = [...foldCalls];
         foldCalls.clear();
-        const p = proj();
-        const fresh = await loadHelpers({ root, helpersFile: p.helpersFile, manifest: p.helpers, fresh: true, ...(resolved ? { configFile: resolved.configFile ?? false, mode: resolved.mode, ...(resolved.configFile ? {} : { alias: resolved.resolve.alias }) } : {}), cache: foldCache });
-        if (!fresh.module) resolved?.logger.warn(coded('SN534', `the helper calls that ran at build time could not be checked again in a fresh copy of the helpers module (${fresh.error?.split('\n')[0] ?? 'it did not load'}): a helper that keeps state between calls would go unnoticed`));
-        else {
-          const bad = crossCheck(fresh.module, pages);
-          if (bad.length) this.error(`sinter: error SN534 helper-not-folded: ${crossMessage(bad)}\n  docs: \`npx sinter docs SN534\`, ${docsUrl('SN534')}`);
-        }
+        // with the worker (`SN_CROSS_LATE`): it runs them while Vite writes the pages, and the build waits for it after
+        // Vite's HTML step (`crossLate`, the last plugin); else here, on this thread, as before
+        const log = process.env.SN_CROSS_LOG === '1' ? (m: string) => console.error(`sinter cross: ${m}`) : () => {};
+        if (crossLater) {
+          const w = crossLater;
+          crossLater = null;
+          crossPending = w.run(pages).then((a) => { log('worker'); return a; }, (e) => { log(`here (the worker failed: ${(e as Error)?.message ?? e})`); return crossHere(pages); });
+        } else { log('here'); crossReport(this, await crossHere(pages)); }
       }
+      crossLater?.stop();
+      crossLater = null;
       if (error || !typecheckOn() || dev || !units.size) return;
       const { check } = await import('./check/index.js');
       const p = proj();
@@ -3309,7 +3341,24 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       }
     },
   };
-  return [main, post, cssImages, fonts, fontCheck, pages, compileHints];
+  // the cross-check's answer, waited for last (after Vite's HTML step): a plugin named as the main one, so a difference
+  // fails the build with the same message as at `buildEnd`
+  const crossLate: Plugin = {
+    name: 'sinter',
+    enforce: 'post',
+    generateBundle: {
+      order: 'post',
+      async handler() {
+        if (!crossPending) return;
+        const t0 = performance.now();
+        const a = await crossPending;
+        if (process.env.SN_CROSS_LOG === '1') console.error(`sinter cross: waited ${Math.round(performance.now() - t0)} ms after Vite's HTML step`);
+        crossPending = null;
+        crossReport(this, a);
+      },
+    },
+  };
+  return [main, post, cssImages, fonts, fontCheck, pages, compileHints, crossLate];
 }
 
 /**
