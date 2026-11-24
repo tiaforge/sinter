@@ -159,6 +159,43 @@ test.skipIf(!chromium)('the library itself in `lazy`, and a page that calls anot
   }
 }, 120_000);
 
+test.skipIf(!chromium)('the library in `lazy`: its component scripts load with it, not with the page (they are the package, whatever they import)', async () => {
+  // sinter-mail's case: `<mail-width>`'s script imports only its own HTML, and was in the page bundle, so the
+  // package was too (SN325)
+  const lroot = join(root, 'lazy-script-app');
+  cpSync(resolve(__dirname, '../fixtures/ui-app'), lroot, { recursive: true });
+  mkdirSync(join(lroot, 'node_modules/@fixture'), { recursive: true });
+  symlinkSync(UI, join(lroot, 'node_modules/@fixture/ui'), 'dir');
+  writeFileSync(join(lroot, 'src/sinter.helpers.ts'), 'export const shout = (s: string): string => s.toUpperCase();\n');
+  writeFileSync(join(lroot, 'index.html'), `<!doctype html><html><head><title>card</title></head><body>
+<div data-sn-state="{ who: 'Ada' }"><ui-card data-sn-with="{ title: who }"><p>body</p></ui-card></div></body></html>`);
+  const lout = join(lroot, 'dist');
+  const logged: string[] = [];
+  const logger = { info: (m: string) => logged.push(m), warn: () => {}, warnOnce: () => {}, error: () => {}, clearScreen: () => {}, hasErrorLogged: () => false, hasWarned: false };
+  await build({ root: lroot, logLevel: 'silent', customLogger: logger as never, plugins: [sinter({ libraries: ['@fixture/ui'], lazy: ['@fixture/ui'] })], resolve: { alias }, build: { outDir: lout, emptyOutDir: true, minify: false } });
+  expect(logged.join('\n')).toMatch(/ui-card\.ts loads with @fixture\/ui, when its component first renders/);
+  const html = readFileSync(join(lout, 'index.html'), 'utf8');
+  const entry = html.match(/<script type="module"[^>]*src="([^"]+)"/)![1]!;
+  // the card's script is a chunk of its own, not in the page module
+  expect(readFileSync(join(lout, entry), 'utf8')).not.toContain('dataset.ready');
+  const browser = await chromium!.launch();
+  let server: PreviewServer | null = null;
+  try {
+    server = await preview({ root: lroot, logLevel: 'silent', build: { outDir: lout }, preview: { port: 0 } });
+    const tab = await browser.newPage();
+    const errors: string[] = [];
+    tab.on('pageerror', (e) => errors.push(e.message));
+    await tab.goto(server.resolvedUrls!.local[0]!);
+    // the markup is there at once; the script connects once it has loaded
+    expect(await tab.textContent('.card h2')).toBe('Ada');
+    await tab.waitForSelector('.card[data-ready="Ada"]');
+    expect(errors).toEqual([]);
+  } finally {
+    await browser.close();
+    await new Promise<void>((r) => (server ? server.httpServer.close(() => r()) : r()));
+  }
+}, 120_000);
+
 test('dev: the library is left out of dependency pre-bundling, served through the link and watched', async () => {
   const server = await createServer({ root, logLevel: 'silent', plugins: plugins(), resolve: { alias }, server: { port: 0, hmr: false }, optimizeDeps: { noDiscovery: true } });
   try {
