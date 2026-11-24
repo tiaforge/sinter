@@ -2,8 +2,8 @@
 // The early scripts of a build (src/vite.ts `generateBundle`): pages whose early source is the same text share one
 // nested build, and each page's head script has the bytes it has when its page is built alone; a page whose early
 // source differs gets its own build. Every one goes through one Vite builder (one resolved config) per build. Pages whose
-// early sources differ only in literals share one build of their shape (src/early-shapes.ts), and each still gets the
-// bytes of its own build; the shapes' rules are tested on the bundler directly at the end.
+// early sources differ only in literals share one build of their shape (src/early-opaque.ts), each a correct build of
+// its page and, on these pages, its bytes; the shapes' rules are tested on the bundler directly at the end.
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, relative, resolve } from 'node:path';
@@ -110,67 +110,16 @@ test('pages whose early sources differ in one literal share one build of their s
   }
 }, 120_000);
 
-// The earlier scheme (`SN_EARLY_SHAPES=kinds`): placeholder literals of the values' kind and length, checked.
-// The shapes' rules on the bundler itself (Rolldown, minified, one IIFE, as an early script is): every page's script
-// must be what its own source builds to, and the counts say which pages shared a build.
+// The shapes' rules on the bundler itself (Rolldown, minified, one IIFE, as an early script is).
 const { rolldown } = await import('rolldown');
-const { shareBuilds, shapeStats, cut } = await import('../../src/early-shapes.js');
 const mini = async (code: string) => {
   const b = await rolldown({ input: 'e', plugins: [{ name: 'e', resolveId: (id) => (id === 'e' ? id : null), load: (id) => (id === 'e' ? code : null) }] });
   const c = (await b.generate({ format: 'iife', minify: true })).output[0];
   return { code: c.code, map: null, modules: c.modules as Record<string, { renderedLength: number; code?: string | null }>, keys: new Set<string>() };
 };
-/** each source's script through `shareBuilds` against its own build; the nested builds run and the fallbacks by reason */
-async function shapes(srcs: string[]) {
-  const builds = shapeStats.builds, falls = new Map(shapeStats.fallbacks);
-  const got = await shareBuilds(srcs.map((src, i) => ({ src, extra: '', what: `p${i}` })), (src) => mini(src));
-  for (const [i, src] of srcs.entries()) expect(got[i]!.code).toBe((await mini(src)).code);
-  return { builds: shapeStats.builds - builds, fell: Object.fromEntries([...shapeStats.fallbacks].map(([k, n]) => [k, n - (falls.get(k) ?? 0)]).filter(([, n]) => n)) };
-}
 const of = (f: (i: number) => string, n = 6) => Array.from({ length: n }, (_, i) => f(i + 1));
 
-test('each kind of literal shares a build: identifiers, integers and other strings of one length, numbers', async () => {
-  // a string that is an identifier (an object key and a member become `.k`), a canonical integer (`x["12"]` is `x[12]`),
-  // one led by a digit, any other; and a number, with or without trailing zeros
-  for (const src of [
-    of((i) => `globalThis.x = [f("alpha${i}"), ({ "key${i}": 1 }), g["name${i}"]];`),
-    of((i) => `globalThis.x = [f("100${i}"), g["100${i}"]];`),
-    of((i) => `globalThis.x = f("2024-01-0${i}");`),
-    of((i) => `globalThis.x = f("/api/comments?post=post-${i}");`),
-    of((i) => `globalThis.x = [f(123${i}), f(12${i}0)];`),
-    // a value twice (one placeholder for both), and concatenated with the shape's own literal at build time
-    of((i) => `globalThis.x = [f("ab-${i}", "ab-${i}"), "/api/" + "ab-${i}"];`),
-    // the early script's form: a folded read in a function of the table, a URL built from it
-    of((i) => `const f = [($) => ((("post-${i}"))), ($) => ({})]; globalThis.req = (q, n) => q(() => "/api/comments" + h([["post", f[0](n[0])]]));`),
-  ]) expect(await shapes(src)).toEqual({ builds: 3, fell: {} });
-  expect(cut('f("a\\u0041b-1")')!.lits[0]!.kind).toBe(null);
-}, 60_000);
-
-test('a page falls back to its own build where a literal is not lifted, has another kind, or the shape differs', async () => {
-  // computed with: a member of the literal, a comparison, arithmetic on a number, a `case`, a binding's initializer
-  for (const src of [
-    of((i) => `globalThis.x = "ab-0${i}".indexOf("-");`),
-    of((i) => `globalThis.x = g === "ab-0${i}";`),
-    of((i) => `globalThis.x = 123${i} + 1;`),
-    of((i) => `switch (g) { case "ab-0${i}": h(); }`),
-    of((i) => `const a = "ab-0${i}"; globalThis.x = a;`),
-  ]) expect(await shapes(src)).toEqual({ builds: 6, fell: { 'a literal not lifted: a literal a minifier may compute with': 6 } });
-  // a string that needs escaping, one too short, a number of one digit, one printed with an exponent
-  expect(await shapes(of((i) => `globalThis.x = f("ab'${i}");`))).toEqual({ builds: 6, fell: { 'a literal not lifted: a string with characters that need escaping': 6 } });
-  expect(await shapes(of((i) => `globalThis.x = f(${i});`))).toEqual({ builds: 6, fell: { 'a literal not lifted: a one-digit number': 6 } });
-  expect(await shapes(of((i) => `globalThis.x = f(${i}000);`))).toEqual({ builds: 6, fell: { 'a literal not lifted: a number printed with an exponent': 6 } });
-  // the minifier carries a passed literal into a computation (through an array): the check sees the difference
-  // and the rest of the shape is built page by page
-  expect(await shapes(of((i) => `globalThis.x = ["ab-0${i}"][0].indexOf("-");`))).toEqual({ builds: 7, fell: { 'differs from its own build once written': 5 } });
-  // another length is another kind: four pages of one, two of the other (too few to share)
-  expect(await shapes([...of((i) => `globalThis.x = f("ab-${i}");`, 4), 'globalThis.x = f("ab-10");', 'globalThis.x = f("ab-11");'])).toEqual({ builds: 5, fell: { 'a kind of literal with fewer than 4 pages': 2 } });
-  // two values that are equal on one page and not on the others
-  expect(await shapes([...of((i) => `globalThis.x = f("ab-${i}", "cd-${i}");`, 4), 'globalThis.x = f("ab-9", "ab-9");'])).toEqual({ builds: 4, fell: { 'a kind of literal with fewer than 4 pages': 1 } });
-  // a page whose program differs is a shape of its own
-  expect(await shapes([...of((i) => `globalThis.x = f("ab-${i}");`, 4), 'globalThis.x = g("ab-9");'])).toEqual({ builds: 4, fell: {} });
-}, 60_000);
-
-// The default scheme (src/early-opaque.ts): a free identifier in each varying literal's place, the page's literal put
+// The scheme (src/early-opaque.ts): a free identifier in each varying literal's place, the page's literal put
 // back into the built output as syntax. Correct for every value; the bytes of the page's own build unless the
 // minifier computed something from the value.
 const { shareOpaque, opaqueStats, substitute, sites, liftable } = await import('../../src/early-opaque.js');
