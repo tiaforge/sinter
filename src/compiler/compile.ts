@@ -1566,6 +1566,11 @@ function foldsEscape(out: CompiledParts, folds: Map<string, unknown>): boolean {
   return cmp.some((c) => /\$\.(?!\$(?:r|meta|url|now|locale)\b)[\w$]/.test(c));
 }
 
+/** prefold constants that are an image's own attributes only (the image pipeline reads them; the layout reads none) */
+function imageConstants(consts: Map<string, ConstantWrite[]>): boolean {
+  return [...consts.values()].every((ws) => ws.every((w) => w.k === 'attr' && (w.n === 'src' || w.n === 'srcset' || w.n === 'alt')));
+}
+
 /**
  * B1 (`fromWalk`, whose walk compiled every read of a build-time constant as a read): whether code the finished page
  * ships reads one of `folds` down to a value the second pass writes into the code (`foldOf`, as `foldGain` reads it),
@@ -1824,16 +1829,26 @@ function compileTwice(html: string, options: CompileOptions, pass: { first: Comp
     // (a page that is not quiet: its loops unroll where the finished first pass is clean, `settles`; the route finishes
     // this one, and where that reports an error, the page is compiled the old way, below)
     const settles = loops && !quiet && first.fwFinishAlike();
-    const next: CompileOptions | null = !consts && !first.needsMarkup && (!loops || quiet || settles) && (first.decided.size || unrolled) && (!first.placedUnit || first.checkOrder) ? {
+    // (constants the images read: an image's own attributes, which the route writes into rows it splices; on a clean
+    // first pass only, as the old route writes them, `second`)
+    const imageConsts = consts && clean && imageConstants(first.constants as Map<string, ConstantWrite[]>);
+    const frozen = first.foldedState();
+    if (imageConsts) for (const x of first.constantSites) frozen.add(x);
+    const next: CompileOptions | null = (!consts || imageConsts) && !first.needsMarkup && (!loops || quiet || settles) && (first.decided.size || unrolled) && (!first.placedUnit || first.checkOrder) ? {
       ...options, decided: new Map(first.decided), ...(unrolled ? { unrolled: new Map(first.unrolls) } : {}), ...(first.rendered.size ? { rendered: new Map(first.rendered) } : {}),
-      ...(first.unrendered.size ? { unrendered: new Map(first.unrendered) } : {}), ...(first.overLimit.size ? { overLimit: new Map(first.overLimit) } : {}), frozen: first.foldedState(),
+      ...(first.unrendered.size ? { unrendered: new Map(first.unrendered) } : {}), ...(first.overLimit.size ? { overLimit: new Map(first.overLimit) } : {}), frozen,
+      ...(imageConsts ? { constants: new Map(first.constants) as Map<string, ConstantWrite[]> } : {}),
     } : null;
     if (next) {
       // (the type check reads the first pass's unit as its walk made it: its lists' lengths before the walk is taken on,
       // which only adds to them; and the first pass's errors, as the second pass's output is given them)
       const check = first.check, lens = check && [check.frames.length, check.exprs.length, check.resources.length];
       const errors = { diagnostics: first.diagnostics.slice() } as unknown as Compiler;
+      // (the rendered rows as they are: the route splices and spaces them; where it then gives up, the second pass
+      // splices them as they were)
+      const rowsWere = next.rendered?.size ? [...next.rendered.values()].map((x) => snapTree({ nodeName: '#document-fragment', childNodes: x.nodes } as unknown as P5Parent)) : [];
       const r = first.fromWalk(next);
+      if (r?.spent) for (const x of rowsWere) restoreTree(x.slice(1));
       if (check && r?.spent !== false) { check.frames.length = lens![0]!; check.exprs.length = lens![1]!; check.resources.length = lens![2]!; }
       if (!r || r.spent || quiet) {
         let got: (CompiledParts & { canonicalOnly?: boolean }) | null = null, why = r?.why ?? null;
@@ -2613,15 +2628,7 @@ class Compiler {
     // the lists whose rows arrive after the first paint: their space, before anything else reads the markup's bindings
     if (layout) this.planSpace(doc, layout);
     if (layout && this.dry) { this.dry.imgs = this.layoutAnswers(doc, layout); this.dry.space = this.spaceAnswers(); }
-    const images = this.opts.images ? rewriteImages(doc, {
-      host: this.opts.images, root: this.opts.root,
-      ...(layout ? { layout: (el: P5Element) => layout.box(el), maxWidth: (el: P5Element) => layout.maxWidth(el), fluidSizes: (el: P5Element, w?: number) => layout.fluidSizes(el, w), autoFitRows: () => layout.autoFitRows, scaled: (el: P5Element, what: 'box' | 'bound') => this.scaledWidth(layout, el, what) } : {}),
-      // a folded `src` is the URL the browser would have loaded, relative to the page
-      fileOf: (el) => RENDERED_FILE.get(el) ?? (this.foldedUrl.has(el) ? this.opts.file : this.origins.get(el)?.file ?? this.opts.file),
-      warn: (el, a, code, message, hint) => this.report(el, a, code, message, 0, hint),
-      // the first pass, rows rendered: a template's image as it was, which the rows it renders stand for (`rowRenderer`)
-      ...(this.keepsAttrs ? { rewrote: (el: P5Element, before: P5Element['attrs']) => REWROTE.set(el, before) } : {}),
-    }) : undefined;
+    const images = this.opts.images ? rewriteImages(doc, this.imageContext(layout)) : undefined;
     this.renderedShown.forEach(([e], i) => { e.attrs = painted[i]!; });
     // (the marks of rendered images, after the image pipeline, as the old route's walk writes them)
     for (const [e, marks] of this.renderedLate) for (const m of marks) setAttr(e, m.name, m.value);
@@ -10768,6 +10775,100 @@ class Compiler {
     return why;
   }
 
+  /** the image pipeline's questions about the page (`walkExpanded`; `fromWalk` again for rows it splices) */
+  imageContext(layout: Layout | null, eagerTaken = false): Parameters<typeof rewriteImages>[1] {
+    return {
+      host: this.opts.images!, root: this.opts.root,
+      ...(layout ? { layout: (el: P5Element) => layout.box(el), maxWidth: (el: P5Element) => layout.maxWidth(el), fluidSizes: (el: P5Element, w?: number) => layout.fluidSizes(el, w), autoFitRows: () => layout.autoFitRows, scaled: (el: P5Element, what: 'box' | 'bound') => this.scaledWidth(layout, el, what) } : {}),
+      // a folded `src` is the URL the browser would have loaded, relative to the page
+      fileOf: (el) => RENDERED_FILE.get(el) ?? (this.foldedUrl.has(el) ? this.opts.file : this.origins.get(el)?.file ?? this.opts.file),
+      warn: (el, a, code, message, hint) => this.report(el, a, code, message, 0, hint),
+      // the first pass, rows rendered: a template's image as it was, which the rows it renders stand for (`rowRenderer`)
+      ...(this.keepsAttrs ? { rewrote: (el: P5Element, before: P5Element['attrs']) => REWROTE.set(el, before) } : {}),
+      ...(eagerTaken ? { eagerTaken } : {}),
+    };
+  }
+
+  /**
+   * B1 (`fromWalk`): the constants the second pass writes before the images read the page (`prefold`), written into
+   * rendered rows just spliced, their bindings taken off; the keys found there, into `found`
+   */
+  prefoldRows(rows: P5Node[], consts: Map<string, ConstantWrite[]>, found: Set<string>) {
+    const seen = new Map(consts);
+    const get = seen.get.bind(seen);
+    seen.get = (k: string) => { const v = get(k); if (v) found.add(k); return v; };
+    this.prefold({ nodeName: '#document-fragment', childNodes: rows } as unknown as P5Parent, seen);
+  }
+
+  /**
+   * B1 (`fromWalk`): whether a constant the rows did not take is one the second pass writes outside them (`prefold`): an
+   * element of the page there with its key (as `prefold` keys them; the walk took the binding's attribute off, so the key
+   * is what tells; a constant is collected for a binding only). One in the rows that took none: painted there already
+   * (`rowRenderer`), which the second pass's `prefold` finds no attribute on either.
+   */
+  prefoldsOutside(consts: Map<string, ConstantWrite[]>, found: Set<string>, rows: Set<P5Node>): boolean {
+    const left = new Set([...consts.keys()].filter((k) => !found.has(k)));
+    if (!left.size) return false;
+    let hit = false;
+    const look = (src: P5Element, prefix: string) => {
+      for (const name of FOLDED) {
+        const key = this.constKey(src, name);
+        if (key && (left.has(prefix + key) || left.has(key))) hit = true;
+      }
+    };
+    const visit = (parent: P5Parent, prefix: string) => {
+      for (const c of parent.childNodes as P5Node[]) {
+        if (hit || !isElement(c) || rows.has(c)) continue;
+        const row = this.instAt.get(c) ?? this.rowOf.get(c)?.inst ?? prefix;
+        look(c, row);
+        const use = this.useOf.get(c);
+        if (use && !use.head && !use.layout) look(use.host, row);
+        visit(c, row);
+        if (c.tagName === 'template') visit((c as P5Template).content, row);
+      }
+    };
+    visit(this.walk!.doc, '');
+    return hit;
+  }
+
+  /**
+   * B1 (`fromWalk`): rendered rows with images, spliced into the page after the image pipeline ran over it: their images
+   * through it now, as the second pass's runs over them in place (the rows' paints shown as their bindings, a layout over
+   * the page as it is), its variants and pending files added to the page's; the page's first image, the eager one, the
+   * one before them if there is one. Why not, where its rules would not be in the page's order (rules the page had none of,
+   * on a page with rules of its own: they go in document order).
+   */
+  imagesInRows(rows: P5Node[], done: RenderedRows): string | null {
+    const sheets = this.opts.styles ?? this.opts.images?.styles;
+    const layout = sheets?.length ? new Layout(sheets, this.walk!.doc, this.layoutOptions()) : null;
+    // (an image before the rows, outside templates: the page's eager one)
+    const first = rows.find(isElement);
+    let before = false, found = false;
+    const scan = (p: P5Parent) => {
+      for (const c of p.childNodes as P5Node[]) {
+        if (found || before) return;
+        if (c === first) { found = true; return; }
+        if (!isElement(c)) continue;
+        if (c.tagName === 'template') continue;
+        if (c.tagName === 'img') { before = true; return; }
+        scan(c);
+      }
+    };
+    scan(this.walk!.doc);
+    const painted = done.shown.map(([e]) => e.attrs);
+    for (const [e, a] of done.shown) e.attrs = a;
+    let got: ReturnType<typeof rewriteImages>;
+    try { got = rewriteImages({ nodeName: '#document-fragment', childNodes: rows } as unknown as P5Parent, this.imageContext(layout, before)); } finally { done.shown.forEach(([e], i) => { e.attrs = painted[i]!; }); }
+    const page = this.walk!.images ??= { pending: [], variants: [], css: '' };
+    const had = new Set(page.css.split('\n').filter(Boolean)), mine = got.css.split('\n').filter(Boolean);
+    if (mine.some((r) => !had.has(r)) && had.size) return 'its rules among the page\'s';
+    for (const f of got.pending) if (!page.pending.includes(f)) page.pending.push(f);
+    const urls = new Set(page.variants.map((v) => this.opts.images!.url(v)));
+    for (const v of got.variants) if (!urls.has(this.opts.images!.url(v))) { urls.add(this.opts.images!.url(v)); page.variants.push(v); }
+    if (!had.size) page.css = got.css;
+    return null;
+  }
+
   /** the minifier's questions about the page's elements (`minify`; `fromWalk` again for rows it splices) */
   minifyHooks(): Omit<MinifyHooks, 'layout'> {
     const scoped = new Set([...this.componentFiles.values()].filter((f) => f?.css).map((f) => f!.file));
@@ -11900,7 +12001,10 @@ class Compiler {
     if (!fw) return no('not recorded');
     // (the unit's entries, no longer watched: the page's walk is over)
     if (!dry) for (const o of fw.watched?.splice(0) ?? []) for (const m of ['get', 'has', 'set', 'delete', 'add']) delete (o as unknown as Record<string, unknown>)[m];
-    if (next.constants?.size) return no('constants the layout or the images read (prefold)');
+    // (constants the second pass writes before the layout and the images read the page: only an image's own
+    // attributes, in rendered rows, which the route writes where it splices them, `prefoldRows`)
+    if (next.constants?.size && !imageConstants(next.constants)) return no('constants the layout or the images read (prefold)');
+    const prefolded = new Set<string>(), splicedRows = new Set<P5Node>();
     if (next.overLimit?.size) return no('over the expansion limit');
     // a loop unrolled outside rows is one the first pass rendered (one in a row goes with its row)
     for (const k of next.unrolled?.keys() ?? []) if (!k.includes('#') && !next.rendered?.has(k)) return no(renderOn() ? 'a loop unrolled, not rendered' : 'a loop unrolled, rendering off (SN_RENDER=0)');
@@ -11928,7 +12032,7 @@ class Compiler {
         // (the minifier's layout: the white space beside them as the minifier leaves it beside rows, `respaceRows`; the
         // page's own layout, which the images, the space of late rows and the dry run of constants read: not yet)
         if (this.layout) { const why = this.layoutAround(a.el, rows); if (why) return no(`rendered rows and a layout: ${why}`); }
-        if (this.opts.images && imgs(rows.nodes)) return no('an image in rendered rows');
+        // (an image in them: through the image pipeline where they are spliced, `imagesInRows`)
         ds.push({ a, v: true, other: null, at, rows });
         continue;
       }
@@ -12106,6 +12210,10 @@ class Compiler {
       if (!d.rows) this.foldedText.push(this.snSource.get(c) ?? '', this.emptyOf.get(c)?.list ?? '');
       if (d.rows && minLayout && fw.minified && !this.respaceRows(P, placed, d.rows.shown)) return no('rendered rows and a layout: a bound element around them', true);
       mergeText(P);
+      // the second pass's steps over the rows before its walk: the constants written into them, then the images
+      if (d.rows) for (const n of placed) splicedRows.add(n);
+      if (d.rows && next.constants?.size) this.prefoldRows(placed, next.constants as Map<string, ConstantWrite[]>, prefolded);
+      if (d.rows && this.opts.images && imgs(placed)) { const why = this.imagesInRows(placed, d.rows); if (why) return no(`an image in rendered rows: ${why}`, true); }
       // the range the branch's markup is in now (a text that met another is in that one; the parent's other texts may
       // meet too, where what the first walk took out stood)
       // (an embedded resource's element that stood right before the template: before what took its place)
@@ -12132,6 +12240,8 @@ class Compiler {
       }
       if (this.diagnostics.length > this.walked) return no('diagnostics in a branch walked as the page', true);
     }
+    // (a constant the second pass writes outside the rows spliced: not the route's)
+    if (next.constants?.size && this.prefoldsOutside(next.constants, prefolded, splicedRows)) return no('constants the layout or the images read (prefold)', true);
     // a definition the dropped walk compiled first and the new one uses: compiled again here, numbered and shared otherwise
     for (const n of dropped) if (this.defs.has(n)) return no('a definition compiled first in a decided branch, used by the page', true);
     // (a unit placed, whose definitions were taken out: one the walks above compiled again is one the second pass places

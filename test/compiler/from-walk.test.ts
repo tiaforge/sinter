@@ -117,6 +117,19 @@ describe('the second pass from the first pass\'s walk', () => {
     expect(r.on.html).toBe(r.off.html);
   });
 
+  test('rendered rows with images, through the image pipeline where they are spliced (an image before them: not eager)', () => {
+    const host = { info: () => ({ width: 800, height: 600, format: 'jpeg' }), url: (v: { width: number }) => `/i-${v.width}.jpg`, stylesheet: '/@img/i.css' };
+    const body = '<sn-resource name="posts" src="file:/content/posts/*.json"></sn-resource><img src="/hero.jpg" alt="h"><ul><template data-sn-for="p in posts"><li><img data-sn-attr="{ src: \'/\' + p.slug + \'.jpg\', alt: p.title }"></li></template></ul>';
+    const r = both(page(body), { images: host } as unknown as Partial<CompileOptions>);
+    expect(r).toMatchObject({ taken: 1, why: [] });
+    expect(r.on.html).toBe(r.off.html);
+    expect(JSON.stringify(r.on.images)).toBe(JSON.stringify(r.off.images));
+    // (and the rows' image the page's first: eager)
+    const r2 = both(page(body.replace('<img src="/hero.jpg" alt="h">', '')), { images: host } as unknown as Partial<CompileOptions>);
+    expect(r2).toMatchObject({ taken: 1, why: [] });
+    expect(r2.on.html).toBe(r2.off.html);
+  });
+
   test('an embedded resource\'s id before rendered rows: numbered where its element stood', () => {
     const r = both('<!doctype html><html lang="en"><head><title>t</title></head><body><sn-resource name="cart" src="/api/cart"></sn-resource><script type="application/json" data-sn-resource="cart">{"n":1}</script><ul><template data-sn-for="x in [1, 2]"><li data-sn-text="x"></li></template></ul><p data-sn-text="cart.n"></p></body></html>');
     expect(r).toMatchObject({ taken: 1, why: [] });

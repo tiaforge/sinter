@@ -9,11 +9,13 @@ Continued on branch `redesign/stage5-b1b` (2026-11-23/24, second session; sectio
 - **Done**: the route (`compileTwice` → `Compiler#fromWalk`) for pages of their own, with a unit placed (11), where
   folds ship nothing (12), rendered rows under the minifier's and the page's layout (15, 16), functions a dropped walk
   or the unit made first at the page's site, loops on pages that are not quiet (template entries compiled alone, 18).
-  Suite under `SN_FROM_WALK_AUDIT=1`: 357 second passes routed (193 at the session's start); the apps: the blog's
-  page-file variants 200/200, static-site 4/6, multilingual-site 8/8, sinter-mail 3/16.
+  rendered rows with images and their image constants (19). Suite under `SN_FROM_WALK_AUDIT=1`: 368 second passes
+  routed (193 at the session's start); the apps: the blog's page-file variants 200/200, static-site 6/6,
+  multilingual-site 8/8, sinter-mail 3/16.
 - **Counted as done**: `no second pass (nothing decided)`: a page the route looked at that needs no second pass (52).
 - **Written up, not built**: template entries (13; the coordinator holds them for stage 6's finding); prefold
-  constants (18: static-site 2, realworld 1, sinter-mail 6, suite 57); the renderer's own fallbacks (18, stage 2/6's).
+  constants other than an image's own attributes in rows (realworld 1, sinter-mail 5, suite 48); the renderer's own
+  fallbacks (18, stage 2/6's).
 - **Next** (the coordinator's order, 2026-11-24): what the apps still hit (prefold, sinter-mail's SN501 and unit pages),
   then the small groups (code or definitions first compiled in a dropped walk, choices, folds that ship).
 
@@ -542,3 +544,29 @@ renderer: `rowRenderer`, `render`, `fill`), which the stage 6 session works in n
   branch's diagnostics taken out with its walk and the new walk's put where they were (document order).
 - **ids in rendered rows** (2), an else-if decided, a decided if in a template that stays, over the expansion limit (1
   each): shapes the second pass's expansion handles (`expandConstants` at every depth); each a case of the route's own.
+
+## 19. Rendered rows with images, and prefold constants that are an image's own attributes (second session)
+
+The second pass splices rendered rows before its image pipeline and writes the constants the images read (`prefold`)
+before it too; the route spliced rows after the first pass's pipeline, so it refused rows with images and every page
+with prefold constants. Now, at the splice, in the second pass's order: the rows' constants written and their binding
+attributes taken off (`prefoldRows`: `prefold` over the rows, the keys it found noted), then the rows' images through
+the pipeline (`imagesInRows`: a `Layout` over the walked page, the rows' paints shown as their bindings, the page's first
+image eager only if no image outside templates comes before the rows: `RewriteContext.eagerTaken`, a new option of
+images.ts), its variants and pending files added to the page's (`walk.images`), its rules the page's where the page had
+none (rules new to a page that has rules of its own: refused, they go in document order). Allowed constants: an image's
+`src`, `srcset`, `alt` only (`imageConstants`), on a clean first pass. A constant the rows did not take is one the
+second pass writes elsewhere only if an element of the page outside the rows has its key (`prefoldsOutside`: as `prefold`
+keys them; the walk took the attribute off): then refused; one inside rows that took none is painted there already by
+the renderer, which the second pass's `prefold` finds no attribute on either (static-site's `guide.html`: its image's
+`src` and `alt` written by the renderer, the constant a no-op in both). The image pipeline's context is one helper now
+(`imageContext`, `walkExpanded`'s and the route's).
+
+Also: where the route gives up after splicing (`spent`), the rows' nodes are put back as they were before the second
+pass splices them (`snapTree` of each rendered block before the route, `restoreTree` after): the route had spaced and
+merged them, which a fallback compile then shipped (static-site's `guide.html`, caught by the audit).
+
+static-site: 6 of 6 pages routed, byte for byte. Suite: 368 routed (357), prefold 57 → 48. Verified as before: 3,015
+tests plain and audited; RENDER/LINK/ONE_PASS pass, UNITS/UNITS2 62/52 as head; render-audit --canon 8 apps the same;
+pass-audit byte for byte but bench-live-files' state digit; sinter-mail 48 files byte for byte raw and canonical with
+`SN_UNITS_VERIFY=1` (its remaining prefold pages: 5, which write a class or an image outside rows); size check passes.
