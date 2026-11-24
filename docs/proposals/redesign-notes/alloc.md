@@ -5,6 +5,9 @@ largest cost nobody owned. Branch `redesign/alloc`, base `f395fa2` (the integrat
 
 ## Where it stands
 
+- **Done; merged into the integration branch at `f8df9f8`** (2026-11-24; the coordinator checked pass-audit and
+  sinter-mail's 48 audit files and 2,000-element page, identical). No further item: the md.parse memo waits for the
+  owner ("Decisions for the owner", 1, and "The md.parse memo: what it still serves").
 - **Step 1 (retention) done, as findings; no code change kept.** The "0.7 MB a page" of peak memory is not memory
   the build keeps: after a forced collection the JS heap is 58 / 79 / 115 MB at 100 / 400 / 1,000 posts (static), about
   0.06 MB a page. Peak RSS is about 250 MB of process, Rolldown and code plus V8's heap at its high-water mark, and V8
