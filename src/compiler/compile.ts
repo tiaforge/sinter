@@ -13967,7 +13967,8 @@ export function plainData(v: unknown, heights?: Heights): boolean {
       const proto = Object.getPrototypeOf(x);
       if (proto !== Object.prototype && proto !== null) return false;
     }
-    for (const c of Array.isArray(x) ? x : Object.values(x as object)) { stack.push(c); depths.push(depth + 1); }
+    const cs = Array.isArray(x) ? x : Object.values(x as object);
+    for (let i = 0; i < cs.length; i++) { stack.push(cs[i]); depths.push(depth + 1); }
   }
   return true;
 }
