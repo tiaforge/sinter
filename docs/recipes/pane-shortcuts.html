@@ -1,0 +1,20 @@
+<!doctype html>
+<html>
+<!-- j/k work wherever the focus is (on <body> after load, in the nav, in the pane), but the cursor is the pane's own
+     state, which <body> cannot read. So <body>'s filters send the pane its own event, and the pane's handler runs in
+     the pane's scope. With a layout, the same filters go on the layout's tag: its handlers are <body>'s. -->
+<body data-sn-on-keydown-j="$el.querySelector('.pane')?.dispatchEvent(step(1))"
+      data-sn-on-keydown-k="$el.querySelector('.pane')?.dispatchEvent(step(-1))">
+  <sn-resource name="messages" src="/api/messages" select="messages" key="id"></sn-resource>
+  <!-- in the field, j and k are typed: an ancestor's filter leaves a field's keys alone -->
+  <nav><a href="/inbox">Inbox</a> <input type="search" placeholder="Search"></nav>
+  <section class="pane" data-sn-state="{ cursor: 0 }"
+           data-sn-on-step="cursor = Math.min(Math.max(cursor + $event.detail, 0), messages.length - 1)">
+    <ul>
+      <template data-sn-for="(m, i) in messages">
+        <li data-sn-class="{ cursor: i === cursor }" data-sn-text="m.subject"></li>
+      </template>
+    </ul>
+  </section>
+</body>
+</html>

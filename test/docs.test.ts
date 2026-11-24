@@ -37,6 +37,7 @@ const RECIPES: Array<[string, string, string[]?]> = [
   ['cached-list', 'Cached list across page loads'],
   ['local-actions', 'Local actions: hash a file, then upload it', ['local-actions.actions.js']],
   ['keyboard-shortcuts', 'Keyboard shortcuts'],
+  ['pane-shortcuts', 'Page-wide shortcuts for a part that owns its state', ['pane-shortcuts.helpers.js']],
   ['row-select', 'Row selection with Ctrl and Shift: logic in a helper, applied by the handler', ['row-select.helpers.js']],
   ['run-action', 'Run an action from a handler: mark a mail read once its body has loaded, and a shortcut'],
   ['first-paint', 'First paint: page chrome that renders before the script'],
