@@ -11,8 +11,13 @@ largest cost nobody owned. Branch `redesign/alloc`, base `f395fa2` (the integrat
   lets the old generation grow to about 4.4 times what was live after each mark-compact before it runs the next (3 of
   them in the 400-post build). So every MB that is live when a mark-compact runs costs about 4 MB of peak, and a build
   that ends before reaching the next limit peaks lower: that, not retention, is the slope from 100 to 400 posts.
-- **Next: step 2**, the allocation by function (measured below: 3.8 GB in the 400-post build, 9.6 MB a page) and cuts
-  in the compiler's own share; then step 3's numbers (measured below already, a finding).
+- **Step 2 (allocation), first milestone**: attributed (below: 3.83 GB at 400 posts, 9.6 MB a page; 46 % of it is not the
+  compiler's: markdown-it and sinter-markdown's tree, Vite's parse5, the SN534 cross check), and five local cuts in the
+  compiler, byte-identical: 3,831 → 3,615 MB (−5.6 %); the GC's pauses −2 to −5 %, time and peak memory within noise.
+  The compiler's own allocation is spread: the largest left is the first pass's rendered rows as DOM (≈0.8 GB, 2 MB
+  a page), which is stage 6's ground (rows as text, assessed there).
+- **Next**: what else is cheap in the compiler's share (iterators of Maps and Sets in the walk, `copyState`'s copy);
+  the findings for the owner are in "Decisions for the owner" below.
 - sinter-mail could not be attached in this session (the `add_repo` call was refused by the session's permission
   check); its audit is not run yet. Reported to the coordinator.
 
@@ -130,3 +135,72 @@ A larger young generation cuts the GC's pauses by a quarter (64 MB: 580 → 430 
 build's time does not move outside the machine's noise (the scavenger runs on four threads; a scavenge costs about 2 ms
 with 1.4 MB surviving, at 128 MB about 7 ms). **Finding: not worth it**, and not something sinter can set for a user's
 build.
+
+## Step 2: what a build allocates
+
+### By owner (400 posts static, the sampling heap profiler, collected objects included, base `f395fa2`)
+
+3,831 MB in all (the young generation's 258 scavenges × ≈15 MB agree), 9.6 MB a page:
+
+| owner | MB | a page | what |
+| --- | ---: | ---: | --- |
+| the compiler, its own code | ≈2,130 | 5.3 MB | the first pass's evaluation and its rendered rows (`finish`: 1,137 inclusive, of it `render`/`fill`/`instance` 650, `unroll`/`rowsOf`/`nodesOf` 360, the frozen-data checks 200), the second pass 500, the rest |
+| the post's `md.parse` in the compile | ≈400 | 1.0 MB | markdown-it's tokenizer (`tokenize` 429 inclusive over both copies), sinter-markdown's tree, `memo`'s `freeze` of the result (with a property descriptor per property) |
+| Vite's HTML step | 520 | 1.3 MB | parse5 (`traverseHtml`; its tokenizer builds text a code point at a time, `_emitCodePoint` 298 MB) |
+| the SN534 cross check | 420 | 1.05 MB | every post's `md.parse` again in the fresh copy of the helpers, `memo`'s freeze, `resultKey` and the hash (16 MB) |
+| Vite's and Rolldown's other JS | ≈250 | | `Object.values(bundle)` in Vite's `generateBundle` (18 MB, per page), Rolldown's plugin glue |
+| the plugin (page URLs, heads, styles) | ≈110 | | `rewriteUrls` (`page-urls.ts`, 42 MB: a regex over every tag of every page) |
+
+What reaches the old generation (only major-GC-collected objects sampled): 592 MB, of it the rendered rows 342 MB
+(`clone` 75 % of its bytes, `nodesOf` 48 %, `rowsOf` 44 %, `render` 34 %; see step 1 for why), the md trees 60 MB, the
+second pass 39 MB, the cross check 32 MB, the minifier 20 MB.
+
+### The cuts (byte-identical; each is local, nothing it computes changes)
+
+1. **`plainData`** (the evaluation's check that a value is JSON-like data, 146 MB): a pair `[value, depth]` was made for
+   every value it looked at, a four-string array for every scalar test, a fresh `Map` for every call that has the
+   frozen heights at hand, and its children iterated through the iterator protocol over a conditional iterable. Now two
+   stacks side by side, a `typeof` test, the frozen height read first (as `plainHeight` reads it first: a known height
+   answers before any table is made), the children by index. 146 → ≈60 MB.
+2. **`fill`'s `paint`** (the rendered row's binding writer): a closure and its context made for every element filled;
+   now one function of the fill, given the element. ≈17 MB.
+3. **`element()`'s known attributes**: the `Set` of every known `data-sn-` name (from `ATTRS.map`) was built again for
+   every element the walk meets, and `get`/`has` made `data-sn-${n}` and a predicate closure at every call. Now one
+   module-level set, the names made once, plain loops. ≈35 MB.
+4. **The folded texts' names** (`finish`'s SN501 check, and the route's `a resource read only in a decided branch`):
+   the identifier regex ran over `foldedText`, which holds the same few loop and condition texts once for every
+   rendered row (thousands a page), and its matches were flattened into a set even when every resource was read. Now
+   each distinct text once, and only when a resource is unread (`foldedNames`). ≈44 MB.
+5. **`frozenPlain`'s array keys**: an array's indexes were checked by `String(+k >>> 0)` one by one; with one own key more
+   than its length and that key `length` in its place, its keys are exactly the indexes (a proxy's, in another order,
+   checked as before). Allocation unchanged within the profile's noise (V8 caches small numbers' strings); kept for the
+   time, measured below.
+
+Sampling heap profile, 400 posts static: 3,831 MB → 3,615 MB.
+
+### Before and after (whole process, interleaved rounds: base `f395fa2` and this branch alternating within each round)
+
+Five rounds at 100 and 400 posts, medians; build ms / peak RSS MB / GC pauses ms (scavenges in their count):
+
+| app | base | this branch |
+| --- | --- | --- |
+| static 100 | 2,500 / 358 / 194 (78) | 2,480 / 354 / 184 (74) |
+| live 100 | 3,098 / 483 / 261 (86) | 2,996 / 486 / 250 (81) |
+| a page file per post, 100 | 2,967 / 369 / 216 (90) | 3,040 / 360 / 211 (87) |
+| static 400 | 6,449 / 561 / 600 (259) | 6,320 / 559 / 572 (243) |
+| live 400 | 8,018 / 846 / 818 (290) | 7,856 / 837 / 803 (272) |
+| a page file per post, 400 | 8,029 / 598 / 718 (306) | 8,141 / 609 / 702 (293) |
+
+Checked: `bench/tools/ident.mjs` against the base, nine apps (the five benchmark variants at 100 posts and the four
+examples), every file the same; `pass-audit` and `render-audit --canon`, every app "same"; 1,569 tests of
+test/compiler, test/vite, test/check, check-cli and fold-cache.
+
+## Decisions for the owner
+
+1. **sinter-markdown's parse memo at build time** (step 1): ≈10 MB live through the build, ≈119 post trees, each
+   promoted; 6–10 % of the GC at 400 posts. Either a smaller `maxSize` in the package (its browser cache too), or the
+   build's fold calling a memoized helper's own function where the compiler keeps the page's calls itself.
+2. **The young generation's size** (step 3): `--max-semi-space-size=64` buys a quarter of the GC's pauses for 150 MB of
+   peak and no time. Not recommended; it is the user's flag in any case.
+3. Already on the owner's list (pipeline-2.md): the SN534 cross check (11 % of what the build allocates) and Vite's HTML
+   step (14 %).
