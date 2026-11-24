@@ -261,8 +261,8 @@ timings were not usable). A cloud session pushes to a branch of its own:
 
 | Workstream | Where | Branch | Log |
 | --- | --- | --- | --- |
-| stage 5, B1 continued: rendered rows and a layout, then what B2 needs (pages with a unit and folds merged) | cloud, `session_01AjKzdx4aCc4CWZp4zJDc1m` | `redesign/stage5-b1b` | `stage5-b1.md` |
-| stage 6 continued: the blog's walk and render per node (the evaluation is done and merged) | cloud, `session_01AjKzdxcYo9FzUYyj9yNBZn` | `redesign/stage6-eval` | `stage6-eval.md` |
+| stage 5, B1 continued toward B2: what the apps still hit (prefold, SN501, a unit case), then unrolled loops and the small groups | cloud, `session_01AjKzdx4aCc4CWZp4zJDc1m` | `redesign/stage5-b1b` | `stage5-b1.md` |
+| what a build allocates and keeps per page: retention outside the compiler, allocation by function (stage 6 is finished and merged: `stage6-eval.md`) | cloud, `session_01AjKzdxK4qaHMSKWGtkmHi2` | `redesign/alloc` | `alloc.md` |
 
 **The bar, as the owner set it on 2026-11-23:** the output need not be byte for byte today's where only numbering
 and generated names differ (`data-sn` ids, anchor numbers, template, state and function numbers, renamed loop
@@ -763,3 +763,61 @@ decision of their own (stage 7). A step that can stay byte-identical does.
   not recorded (33), and small groups (code or a definition first compiled in a dropped branch 18 + 9 + 4, folds
   that ship 9 + 7, choices 9, a unit's definition kept 6). The session goes on with those toward B2; the template's
   entries wait for stage 6's assessment of rows as text, which would make the kept walk small enough to copy.
+- 2026-11-24, 00:10 UTC: **stage 6's round 2 is merged** (`redesign-notes/stage6-eval.md`, "Round 2"; `037aa23`):
+  besides the two steps above, the decisions' keys joined only where a loop the second pass compiles is committed,
+  and a case's props copied key by key. Its numbers against the integration branch without the round (`0efedb8`),
+  seven interleaved rounds, 25th percentile and median: the blog's static `decideFor` 4.43 / 5.35 to 4.09 / 4.72 ms,
+  `compile()` 7.10 / 8.13 to 6.66 / 7.57; live `decideFor` 4.68 / 5.58 to 4.33 / 5.37; sinter-mail's compiles hold
+  or gain (the 2,012-element email 103 to 102, the file email 32.5 to 30.4, the API page 87.6 to 84.1); its full
+  suite 3,008; builds byte-identical. Checked on the coordinating machine after the merge: 1,569 tests of
+  test/compiler, test/vite, test/check pass; `render-audit --switch SN_ROW_FN --canon` eight apps the same;
+  `mail-audit --switch SN_ROW_FN` under `SN_CANON=1` 48 files byte for byte. Whole process, seven interleaved
+  rounds here (a slower quarter of an hour: Astro 1.96 s where it was 1.72 s), median: static 2.66 s, with the type
+  check 2.94 s, live 3.20 s, a page file per post 3.27 s and 3.84 s; so static stays at about 1.36 times Astro, as
+  in the 23:25 entry (1.38). **Where a blog post's compile stands**: about 6.7 ms = the deciding 4.1 (of it
+  markdown-it 1.8; the compiler's own 2.3: data checks 0.6, walk 0.8, rendering 0.9, nothing above 0.4) and the
+  second pass 2.4. The session's conclusion, which the coordinator shares: the first pass cannot reach 4 ms alone;
+  a template's entry has to be finished from the first pass's records and rendered rows, not by a second pass. The
+  B1b session named what its route reads of rendered rows as nodes (the id gap keyed by a block's first row
+  element, the rows' edge elements for `respaceRows` and `layoutAround`, the second pass's minifier and image
+  pipeline) and that a summary per block of rows would serve all three. The assessment of rows as text is with
+  the stage 6 session.
+- 2026-11-24, 00:20 UTC: **rendered rows as markup text: assessed, not built** (`redesign-notes/stage6-eval.md`,
+  "Assessment"). The ceiling, ms a page under the profiler: the blog 2.5 of 11.0 (rendering the rows 1.6, the
+  second pass's minifier 0.62, serializing 0.28), perhaps 1 ms of 8.6 wall since the text still has to be escaped
+  and joined; sinter-mail's 2,012-element email 66 of 216 (31%), its file email 5 of 96, its API page nothing. The
+  second pass does not walk rendered rows already. Answerable once per template: ids and numbering, uses, files,
+  reads, state, scoped styles' marks, dev's marks, links (with stand-ins), the units' journal. Real obstacles: the
+  minifier's white-space rule over pieces with holes (per row at the rows' edges and where a bound text meets
+  static space; byte identity hangs on it), the image pipeline (rewrites each row's `<img>` in the second pass),
+  the layout reading the rows' attributes on pages with stylesheets, the description reading headings and links
+  off the page. It would be general (a live page's rendered rows too) and auditable byte for byte, but it does not
+  reach 4 ms on the blog and costs more than it gains there; it is the next large step for large file emails.
+  Also measured: "`keepTemplate`, `copyState`, the rest" was mostly once per build (the kept template's walk 77 ms,
+  the index page 117 ms); per entry, steady: `decideFor` 4.1 to 4.9 ms, the second pass from the kept walk 1.6 (of
+  it `finishPage` 0.5), `copyState` 0.3, `settle` 0.19, wrapping 0.14. **What that means for the benchmark**: the
+  compiler is at about 6.7 ms a blog post and no single step left in it is worth more than about 1 ms (the second
+  pass for a template's entries at most 0.9 to 1.6, rows as text about 1). Outside the compiler a static page costs
+  about 3.9 ms, and `pipeline-2.md`'s arithmetic stands: level with Astro at 100 posts needs the floor at about
+  1.1 s (the two decisions not taken: the SN534 cross check, 0.23 s, and Vite's HTML step, 0.1 s) and the compiler
+  at about 6 ms a page. Garbage collection is the largest item nobody owns: 0.76 s of the 6.5 s build at 400 posts,
+  about 1.9 ms a page inside and outside the compiler, and the process's memory grows by about 0.75 MB a page (356
+  MB at 100 posts, 584 MB at 400). The stage 6 session's next item is that: what a build allocates and what it
+  keeps per page.
+- 2026-11-24, 00:14 UTC (from here the times are the machine's clock; the four entries above ran 10 to 20 minutes ahead):
+  **stage 6, round 3: the helpers' build-time memo kept per entry, merged** (`redesign-notes/stage6-eval.md`,
+  "Round 3"; `f395fa2`). The memo (`FOLD_MEMO`) is reused while the compiled file is the same, for up to 512 calls,
+  and a template's entries are one file: every entry's `md.parse` key (the body's JSON) and frozen tree stayed for
+  the build. It is per entry now, as it always was per page file. The session's numbers at 400 posts: heap after a
+  forced collection 0.12 to 0.027 MB a page kept by the compiler (what still grows, about 27 kB a page, is the fold
+  log's calls for the SN534 cross check, needed until `buildEnd`); peak memory about 570 to 554 MB, the collector's
+  pauses 554 to 525 ms, the build's time unchanged. A consequence to know: a helper called with the same arguments
+  by every entry of a template is called once per entry now (as for page files), not once per 512 calls; the fold
+  log's ids start at 0 per entry and the cross check checks each. Checked on the coordinating machine: 1,569 tests
+  of test/compiler, test/vite, test/check pass; `pass-audit` nine apps the same; `mail-audit` 48 files byte for
+  byte; 400 posts three times: peak memory 554, 566, 562 MB (584 before). So the 0.7 MB a page at the peak is not
+  the compiler's: it is outside it (Vite's and Rolldown's module graph and bundle, the HTML step's trees, the
+  plugin's state). **The stage 6 session is finished** (its context was full); a fresh cloud session takes retention
+  outside the compiler and allocation by function (`redesign/alloc`, log `redesign-notes/alloc.md`).
+- 2026-11-24, 00:21 UTC: **the full suite passes at `e09b12e`: 3,010 tests, 314 files** (with stage 5's third milestone, stage 6's
+  rounds 2 and 3 and its closing log). The stage 6 session is archived; its log's top says where it ended.

@@ -3,7 +3,15 @@
 Running log (2026-11-23). Branch `redesign/stage6-eval`, merged into `ccr-9ebf49d5-gpdej8` by the coordinating
 session. Starting point: `evaluation.md`, "What is left (for stage 6)". Base: `c6557d4`.
 
-## Where it stands (done; merged with the integration branch at `19ee211`)
+## Where it stands (finished, 2026-11-24; `f395fa2` merged into the integration branch)
+
+Closed by the coordinator. Three rounds: (1) the evaluation, below; (2) the blog's deciding ("Round 2": changes 11 to
+13, and the assessment of rows as markup text, not built, recorded as the next large step for large file emails);
+(3) retention ("Round 3": the helpers' memo per template entry). Open, taken by another session
+(`redesign/alloc`): garbage by function, retention outside the compiler, the 1,000-post build. The tools are in
+`bench/tools/` (README there).
+
+### Round 1 (merged with the integration branch at `19ee211`)
 
 - Built, default on, each behind its switch: the style written once per element (`StyleWrites`, `SN_STYLE_BATCH=0`),
   row programs (one function per template returning a row's values; `SN_ROW_FN=0`, `SN_ROW_FN_AUDIT=1` comparing every
@@ -475,3 +483,134 @@ blog static `decideFor` 6.10 / 7.74 / 9.00 → 5.84 / 7.71 / 8.62; mail gen pass
 A/B against change 11 (9 rounds blog, 3 the emails), p25 / median / mean: blog static `decideFor` 5.05 / 6.25 / 6.82 →
 4.87 / 5.66 / 6.78 (`compile()` 7.81 / 9.35 → 7.66 / 9.23); mail gen pass-1 `prerender` 70.0 / 82.7 → 65.5 / 69.7;
 mail file 8.03 / 9.95 → 8.27 / 10.1 (the same).
+
+### 13. The walk's decision keys joined only where they are committed; a case's props copied without entries arrays
+
+- Each `if` and loop in every row pushed its key as `prefix + key` (a string per decision per row); a rendered loop
+  commits none of them (it reads their dependencies only, for `foldReads`). The walk now keeps the prefix and the
+  template's key apart (`Decided`'s four-entry form) and `decidedEntries` and the commit join them where a loop the
+  second pass compiles is committed; a top-level choice's filter joins them to compare.
+- `frozenData`'s copy of a case's props (`{ node: n }` per instance) built them with `Object.fromEntries(Object.entries…)`;
+  it copies key by key now (the same own keys in the same order, `__proto__` an own key as `fromEntries` makes it) and
+  takes the height of each child as it goes.
+
+A/B against change 12 (9 rounds; machine quiet again): blog static `decideFor` 4.41 / 4.96 / 6.03 → 4.25 / 5.02 / 5.91
+(`compile()` 7.02 / 8.04 → 6.89 / 7.92).
+
+
+### Round 2 so far, against the integration branch without it (`0efedb8`, which has round 1)
+
+A/B, 7 rounds blog, 5 sinter-mail, wall ms a call p25 / median / mean (merged with `03658b3`):
+
+| app | phase | before | after |
+| --- | --- | ---: | ---: |
+| blog static | `decideFor` | 4.43 / 5.35 / 6.59 | 4.09 / 4.72 / 5.66 |
+| | `compile()` | 7.10 / 8.13 / 11.2 | 6.66 / 7.57 / 10.3 |
+| blog live | `decideFor` | 4.68 / 5.58 / 6.19 | 4.33 / 5.37 / 6.22 |
+| | `compile()` | 8.55 / 9.95 / 12.2 | 8.15 / 9.87 / 12.7 |
+| blog static-files | `compile()` | 9.84 / 11.4 / 14.0 | 9.55 / 11.1 / 13.8 |
+| mail 2,012-element | `compile()` | 103 / 117 / 198 | 102 / 121 / 198 |
+| mail file | `compile()` | 32.5 / 36.6 / 117 | 30.4 / 36.1 / 111 |
+| mail API | `compile()` | 87.6 / 98.4 / 280 | 84.1 / 101 / 275 |
+
+(sinter-mail's pages now take B1b's route from the first pass's walk where a unit is placed, so their `settle` is no
+longer a phase of its own: `compile()` is the number; they hold.)
+
+**How close to 4 ms.** The static blog's `compile()` is ~6.7 ms p25 here, of it the deciding ~4.1 (the post's
+`md.parse` ~1.8 of it, the library's) and the second pass from the kept walk ~2.4 (B1b's). The deciding without the
+parse is ~2.3 ms: the data checks (~0.6: `frozenPlain`'s walk of the post's tree is most of it, and a cheaper walk was
+tried: `getOwnPropertyDescriptors` per object was 2.3× slower, keys then descriptors no faster), the walk (~0.8) and
+rendering (~0.9), per node, with nothing above 0.4 left. So the first pass alone cannot bring the compile under 4 ms:
+with the parse it needs the second pass for template entries to go (2.4 ms) as much as all of the deciding's own
+work. **For B2** (the coordinator's question): the first pass's result for a template entry is its records and the
+rows' rendered markup, made in ~0.9 ms; finishing the entry from it (B1b's route) instead of a second pass is where the
+next 2 ms are, and nothing in this work stands in its way (`RowRec` is read by `rowRenderer` alone).
+
+Tried and dropped in round 2: the heights in a second `WeakMap` (change 11), a faster `frozenPlain` walk (above).
+
+## Assessment: rendered rows written as markup text (the coordinator's question; measured, not built)
+
+The idea: a row the worklist says keeps nothing is written by a per-template plan of string pieces (the template's
+static markup, minified once, with holes for escaped values and nested rows), and the page carries one opaque
+raw-markup node where the rows stood, which the second pass, the minifier and the serializer pass through.
+
+**1. The ceiling** (`--cpu-prof`, ms a page under the profiler; the blog at 50 µs, sinter-mail at 100 µs, the mean of
+the build's pages, its first included):
+
+| app | `compile()` | rendering the rows (pass 1: `render` ← `instance`, `clone`, `fill`, `replace`) | the second pass's minifier | serializing | the rows' share at most |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| blog static | 11.0 | 1.6 | 0.62 | 0.28 | 2.5 (23%) |
+| mail 2,012-element email | 216 | 42 | 22 | 2.2 | 66 (31%) |
+| mail file email | 96 | 2.8 | 2.4 | 0.2 | 5 (5%) |
+| mail API, blog live's live parts | – | none rendered there | | | 0 |
+
+The second pass's walk does not walk rendered rows already (`walkChildren` skips `renderedAt`: what it costs, 1.65 a
+blog page, is the page's own markup and the definitions it compiles: `recursionPoint` → `compileDefinition` 0.53, B1b's
+ground). Text still has to be made: the values escaped and the pieces joined, the rows' ids, uses, links and marks
+listed as now, so the gain is a part of the ceiling: on the blog perhaps 1 ms wall of 8.6 (the rows' nodes made and
+then minified and serialized, against strings joined), on the large email perhaps 40 ms of ~110.
+
+**2. What reads the rows' nodes after they are rendered**, and whether the template answers it once:
+
+- *The minifier* (`minify` over the second pass's page, `WRITTEN`/`SCOPED` hooks, B1b's `respaceRows` at the rows'
+  edges): its white-space rule reads each text's neighbours and its ancestors' CSS (the layout's cascade:
+  `collapsesSpace`, `everyView`). Inside a template the ancestors are the template's own up to the loop's parent, the
+  same for every row of one loop, so a template's markup minified once per (template, the loop's parent context) is
+  answerable, except at the rows' edges and where a value's text meets static white space (a text binding's value
+  decides whether its neighbour's space collapses): those are per row. This is the largest obstacle: the minifier would
+  have to work on pieces with holes and give exactly what it gives on the expanded page.
+- *The image pipeline* (with `images`): it rewrites each `<img>` of the rows into a `<picture>` in the second pass
+  (`RENDERED_FILE`, `late` marks, `shown`), reading the row's attributes: per row by nature. Rows with images would keep
+  the node route, or the image step would move into the first pass per row.
+- *The layout and the space plan* (pages with stylesheets): read the rows' elements with their attributes before paint
+  (`shown`): per row where a class or style is bound; B1b's route reads them.
+- *Links*: `hrefs` entries point at each rendered `<a>` (same-page links, SN519, `boundHrefs`): would need stand-ins
+  (positions), answerable.
+- *Ids and numbering*: listed and counted already (`idAttrs`, `ids`): answerable. *Uses, files, reads, state*: listed
+  already. *Scoped styles' marks* (`data-sn-c`/`-r`/`-s`, `MARKED`, `late`): per template position and the `live` flag,
+  answerable. *Dev builds*: render rows too; their marks per element are per template, answerable.
+- *Per-copy diagnostics*: rows with diagnostics are not rendered already (`tplDiags`): no obstacle.
+- *The description* (headings and links read off the page): reads the compiled page; it would need to read the text
+  (or a parse of it): an obstacle to check, not measured.
+- *Units' journal*: the rendered nodes are new objects, not the unit's: no obstacle.
+
+**3. Switch and audit**: yes: the text route's page against the node route's, byte for byte (`SN_RENDER_AUDIT`'s
+pattern), as the serializer's rules (parse5's escaping of text and attribute values, raw-text elements, template
+content, void elements) are a closed set. sinter-mail: the file email gains little (5% ceiling), the 2,012-element one
+most (31% ceiling), the API route nothing (no rendered rows); the live blog's post body is rendered rows like the
+static one's, so it is not a static-page route.
+
+**Verdict.** General in principle (any rendered row without a residue, live pages included), but the ceiling on the
+blog is ~2.5 of 11 ms under the profiler (perhaps 1 ms wall), and the minifier's rule over pieces with holes, the image
+pipeline and the description are real obstacles; byte identity hangs on the minifier. Not built: it does not reach
+4 ms either, and it costs more than its blog gain. On the large email it is the next large step after this work.
+
+**4. "keepTemplate, copyState, the rest"** (round 2's table, 3.1 under the profiler, re-measured by call): `keepTemplate`
+is once per build (the kept template's walk: 77 ms, its definitions compiled), `compileTwice` the build's other pages
+(the index: 117 ms once); per entry, steady: `decideFor` 4.9 ms p25 wall, the second pass from the kept walk
+(`walkExpanded`) 1.6, of it `finishPage` 0.5 (the serializer 0.28 under the profiler, the minifier 0.38 wall),
+`copyState` ~0.3 (copying the kept walk's compiler state per entry: its `copy` 0.31, `keep` 0.1 under the profiler),
+`settle` 0.19, `compileOne`'s wrapping 0.14. So the quarter was mostly one-time work spread over the pages' mean.
+
+## Round 3: what a build keeps per page (retention)
+
+Measured with a preload that forces a collection and reads `process.memoryUsage()` after every 50th `compile()`, and
+heap snapshots after the 100th and 400th compiles of the 400-post static build (their difference by type and name,
+the retainers' chains):
+
+- **The helpers' build-time memo held every entry of a template** (`FOLD_MEMO`): its record is kept by the helpers
+  module's values and reused while the compiled file is the same, for up to 512 calls. A template's entries are one
+  file, so every entry's `md.parse` calls stayed in it: each post's argument as its key (`dataKey`, the body's JSON) and
+  its frozen tree (whose text nodes are slices of the post's source, holding it). The memo is meant for a page's passes
+  ("the next page starts again"); it is now kept per entry too (`page`). Heap after a forced collection, 400-post static
+  build: 75 MB at the 100th compile and 110 MB at the 400th before (0.12 MB a page kept), 73 and 81 after (0.027 MB a
+  page). What is left growing is needed until the build's end: the fold log's calls for the build's cross check
+  (`foldCalls`: each call's arguments, the post body, which the check runs again) and the pages' outputs.
+  What it changes: nothing in any page (byte for byte); the fold log's call ids start at 0 for each entry (they went on
+  from the entry before), and two entries with the same argument each run and log their call (the second took the
+  first's result before): the cross check checks both.
+- Whole process, 400 posts, static, two and three rounds interleaved: peak RSS 568 / 561 / 585 → 554 / 555 / 552 MB;
+  the GC's pauses (`--trace-gc`, summed) 560 / 548 → 536 / 514 ms; the build's time the same within the rounds (5.4 to
+  5.7 s).
+- Not attributed yet: garbage by function (the inspector's sampling heap profiler with the collected objects
+  included); the 1,000-post build; the other variants. Left for the next session (see the coordinator's round-3 list).
