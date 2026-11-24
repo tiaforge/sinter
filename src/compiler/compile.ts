@@ -2285,6 +2285,10 @@ class Compiler {
   readonly frameOf = new Map<object, number>();
   /** `sinter check`: the condition a branch is checked under, when it is not its own `data-sn-if` (the `data-sn-else` of a choice); and each `if` binding's, for its `data-sn-else` */
   private readonly branchGuard = new WeakMap<object, string>();
+  /** an `if` binding's chain so far (its own condition, and each else-if's before it): an else-if after it is shown where none holds */
+  private readonly chainOf = new WeakMap<Binding, { inner: string; deps: string[]; src: string; elseIf: boolean }>();
+  /** the templates of a chain with an else-if (`inElseIfChain`): not decided at build time */
+  private readonly chainEls = new WeakSet<P5Element>();
   /** a list's empty state (`emptyStates`): the `data-sn-else` after a `data-sn-for`, now a `data-sn-if`, and the list it is about */
   /** the second pass: the expressions of the branches it decided and the lists it unrolled to no rows, which read what they name (SN501) */
   private readonly foldedText: string[] = [];
@@ -6732,29 +6736,46 @@ class Compiler {
     // templates
     let content: { tid: number; scope: Scope } | null = null;
     if (isTemplate && (has('for') || has('if'))) this.snSource.set(el, get(has('for') ? 'for' : 'if')!);
+    if (isTemplate && (has('if') || has('else')) && inElseIfChain(el)) this.chainEls.add(el);
     if (isTemplate && has('for')) content = this.forTemplate(el, node, scope, get('for')!, get('key'));
     else if (isTemplate && has('if')) {
       // a list's empty state: its condition is the compiler's, over what the list already reads (compiled quietly: the
       // list reported its own problems), and no `data-sn-else` follows it
       const empty = this.emptyOf.get(el);
-      const r = empty ? this.emptyExpr(el, empty.list, scope) : this.expr(el, 'data-sn-if', scope, { mode: 'value', cond: true });
+      // an else-if (`<template data-sn-else data-sn-if="q">`): a branch of its own, shown where no branch before it
+      // holds and `q` does, so a chain shows one branch at most; `q` is checked where none before it holds
+      const elseIf = !empty && has('else');
+      if (elseIf && get('else')) this.report(el, 'data-sn-else', 'SN401', '`data-sn-else` takes no value; an else-if is `<template data-sn-else data-sn-if="…">`', 0);
+      if (elseIf && !prevIf) this.report(el, 'data-sn-else', 'SN102', '`data-sn-else` must be on a `<template>` directly after a `data-sn-if` template, or after a `data-sn-for` (the list\'s empty state)', 0);
+      const prior = elseIf && prevIf ? this.chainOf.get(prevIf.binding) : undefined;
+      const r = empty ? this.emptyExpr(el, empty.list, scope) : this.expr(el, 'data-sn-if', prior ? this.guarded(scope, `!(${prior.src})`) : scope, { mode: 'value', cond: true });
       const tid = this.newTemplate();
-      const b = this.binding({ k: 'if', f: this.fn(r.code), d: r.deps, x: tid, ...usesEl(r) });
+      const own = prior ? { code: `($) => !(${prior.inner}) && (${r.inner})`, deps: [...new Set([...prior.deps, ...r.deps])].sort() } : r;
+      const b = this.binding({ k: 'if', f: this.fn(own.code), d: own.deps, x: tid, ...usesEl(r) });
+      if (!empty) this.chainOf.set(b, prior
+        ? { inner: `(${prior.inner}) || (${r.inner})`, deps: own.deps, src: `(${prior.src}) || (${get('if')})`, elseIf: true }
+        : { inner: r.inner, deps: r.deps, src: `(${get('if')})`, elseIf: false });
       if (r.usesEl) this.report(el, 'data-sn-if', 'SN213', '`$el` in a `data-sn-if`: the condition is marked by comments in the page, so there is no element to read', 0, 'read the element in a binding inside the template, or move the condition onto an element with `data-sn-show`');
       node.b.push(b);
       if (empty) content = { tid, scope };
       else {
         result = { node, binding: b };
-        const cond = this.branchGuard.get(el) ?? `(${get('if')})`;
-        if (this.checking) this.branchGuard.set(b, cond);
+        const cond = prior ? `!(${prior.src}) && (${get('if')})` : this.branchGuard.get(el) ?? `(${get('if')})`;
+        // (what a `data-sn-else` after it is checked under the negation of: every branch of the chain so far)
+        if (this.checking) this.branchGuard.set(b, prior ? `(${prior.src} || (${get('if')}))` : cond);
         content = { tid, scope: this.guarded(scope, cond) };
       }
     } else if (isTemplate && has('else')) {
       if (get('else')) this.report(el, 'data-sn-else', 'SN401', '`data-sn-else` takes no value; an else-if is `<template data-sn-else data-sn-if="…">`', 0);
       if (!prevIf) this.report(el, 'data-sn-else', 'SN102', '`data-sn-else` must be on a `<template>` directly after a `data-sn-if` template, or after a `data-sn-for` (the list\'s empty state)', 0);
       const tid = this.newTemplate();
-      node.b.push(this.binding({ k: 'else', x: tid }));
-      if (prevIf) prevIf.binding.y = nodeIdx;
+      // after an else-if: shown where no branch of the chain holds (the binding before it is the else-if's own)
+      const chain = prevIf ? this.chainOf.get(prevIf.binding) : undefined;
+      if (chain?.elseIf) node.b.push(this.binding({ k: 'if', f: this.fn(`($) => !(${chain.inner})`), d: chain.deps, x: tid }));
+      else {
+        node.b.push(this.binding({ k: 'else', x: tid }));
+        if (prevIf) prevIf.binding.y = nodeIdx;
+      }
       const before = prevIf && this.branchGuard.get(prevIf.binding);
       content = { tid, scope: before ? this.guarded(scope, `!${before}`) : scope };
     }
@@ -9314,6 +9335,9 @@ class Compiler {
       if (c.if) {
         // per instance (its uses too); one template in two instances nothing tells apart: decided only when they agree
         const key = this.instKey(c.el)!;
+        // a branch of a chain with an else-if: left to the browser (the second pass would take out the branches it
+        // decides, and the ones after them would follow no branch)
+        if (this.chainEls.has(c.el)) { this.decided.delete(key); this.undecided.add(key); continue; }
         if (v === FAIL) { this.decided.delete(key); this.undecided.add(key); continue; }
         if (this.undecided.has(key)) continue;
         if (this.decided.has(key) && this.decided.get(key) !== !!v) { this.decided.delete(key); this.undecided.add(key); continue; }
@@ -14917,6 +14941,19 @@ export function writeFirstPaint(el: P5Element, kind: Kind, name: string | null, 
  * element's attributes), and its value written at the end (`done`): nothing reads it in between, as nothing else writes
  * it (an element with a `data-sn-attr` of `style` is written one write at a time). `SN_STYLE_BATCH=0`: one at a time.
  */
+/**
+ * a `<template>` of an if chain with an else-if in it: the else-if itself, the branch before it, or the `data-sn-else`
+ * after one (each is a branch of its own, over the conditions before it: not decided at build time, `prerender`)
+ */
+function inElseIfChain(el: P5Element): boolean {
+  const elseIf = (e: P5Element | undefined) => !!e && e.tagName === 'template' && attr(e, 'data-sn-else') !== undefined && attr(e, 'data-sn-if') !== undefined;
+  if (elseIf(el)) return true;
+  const sibs = ((el.parentNode as P5Parent | null)?.childNodes ?? []).filter(isElement) as P5Element[];
+  const i = sibs.indexOf(el);
+  if (i < 0) return false;
+  return (attr(el, 'data-sn-if') !== undefined && elseIf(sibs[i + 1])) || (attr(el, 'data-sn-else') !== undefined && elseIf(sibs[i - 1]));
+}
+
 /**
  * whether a component's script may write its root's content (SN543): a DOM-writing property or method, an
  * element made, a template cloned, or its root (`this.root`, `root`) handed to a function or a constructor, which

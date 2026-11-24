@@ -465,6 +465,16 @@ export type Block = Para | Quote | Rule;
     expect(errors(sync(''))).toEqual([expect.stringMatching(/^SN208 Type 'Contact \| null' is not assignable/)]);
   });
 
+  test('under `strictNullChecks`, an else-if chain narrows each branch by the ones before it', () => {
+    const errors = (chain: string) => checkPage(page(`<div data-sn-state="{ sel: /** @type {Contact|null} */ (null) }"><button data-sn-on-click="sel = contacts[0]"></button>${chain}<p data-sn-text="contacts.length"></p></div>`),
+      { files: { 'src/sinter.types.ts': TYPES, 'tsconfig.json': JSON.stringify({ compilerOptions: { strict: true } }) } })
+      .map((d) => `${d.code} ${d.message.replace(/ \(TS\d+\)$/, '')}`);
+    const chain = (elseIf: string, last: string) => `<template data-sn-if="!sel"><i>none</i></template><template data-sn-else data-sn-if="${elseIf}"><b data-sn-text="sel.name"></b></template><template data-sn-else><u data-sn-text="${last}"></u></template>`;
+    expect(errors(chain('sel.emails.length', 'sel.id'))).toEqual([]);
+    // the else-if is narrowed by the branches before it only: without the first, `sel` may be null there
+    expect(errors(`<template data-sn-if="contacts.length"><i></i></template><template data-sn-else data-sn-if="sel.emails.length"><b></b></template>`)).toEqual(["SN208 'sel' is possibly 'null'."]);
+  });
+
   test('under `strictNullChecks`, a field that starts as `null` or `[]` takes what is assigned later at any depth of the state\'s object literals, and in the objects of its array literals', () => {
     const state = `{ form: { error: null, tags: [], n: 0, who: /** @type {Contact|null} */ (null), deep: { a: { b: { c: undefined } } } },
       rows: [{ id: 1, note: null }, { id: 2, note: null, seen: [] }], cast: /** @type {{ at: Contact | null }} */ ({ at: null }), made: twice(1) }`;

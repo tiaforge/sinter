@@ -60,6 +60,9 @@ export const LINK_FIELDS: Record<string, { kinds: string[]; how: 'table' | 'weak
   caseInst: { kinds: ['WeakMap'], how: 'weak' },
   caseScopes: { kinds: ['WeakMap'], how: 'weak' },
   chainCopyOf: { kinds: ['WeakMap'], how: 'weak' },
+  // (an `if` binding's chain so far, read by the `data-sn-else` or else-if right after it, in the same walk)
+  chainOf: { kinds: ['WeakMap'], how: 'weak' },
+  chainEls: { kinds: ['WeakSet'], how: 'weak' },
   // (the unit the type check reads, the page's whatever the definitions: its lists are `checkFrames`, `checkExprs` and `checkResources`)
   check: { kinds: ['empty', 'object'], how: 'fixed' },
   checking: { kinds: ['boolean'], how: 'fixed' },
