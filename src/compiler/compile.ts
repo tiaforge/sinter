@@ -678,7 +678,7 @@ interface Origin { file: string; src: string; chain: string[]; use?: string; use
  */
 const FOLD_MEMO = new WeakMap<object, FoldMemo>();
 /** one page's build-time calls: by helper and arguments; the results it handed out, by object, with their call ids */
-interface FoldMemo { file: string; calls: Map<string, { v: unknown } | { what: string }>; refs: WeakMap<object, number>; n: number }
+interface FoldMemo { file: string; page: unknown; calls: Map<string, { v: unknown } | { what: string }>; refs: WeakMap<object, number>; n: number }
 /** a logged call's argument: a value, or the result of the page's call `r` (a parse passed on), replayed from that call */
 export type FoldArg = { v: unknown } | { r: number };
 /** a result as `foldLog` reports it: tagged, so `undefined` is a result like any other */
@@ -9292,8 +9292,10 @@ class Compiler {
     if (values) {
       const m = FOLD_MEMO.get(values);
       // (the editor compiles one file again at every edit: what it no longer calls is dropped now and then)
-      if (m?.file === this.opts.file && m.calls.size < 512) rec = m;
-      else FOLD_MEMO.set(values, (rec = { file: this.opts.file, calls: new Map(), refs: new WeakMap(), n: 0 }));
+      // (a template's entries are one file and pages of their own: each entry starts again, as each page does; kept for
+      // the template's 512 calls, it held every entry's arguments and results until the build's end)
+      if (m?.file === this.opts.file && m.page === this.opts.page && m.calls.size < 512) rec = m;
+      else FOLD_MEMO.set(values, (rec = { file: this.opts.file, page: this.opts.page, calls: new Map(), refs: new WeakMap(), n: 0 }));
     }
     const memo = rec?.calls ?? null;
     /** an argument that is a result the page handed out: that call, not its (large) value */

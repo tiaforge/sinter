@@ -583,3 +583,26 @@ is once per build (the kept template's walk: 77 ms, its definitions compiled), `
 (`walkExpanded`) 1.6, of it `finishPage` 0.5 (the serializer 0.28 under the profiler, the minifier 0.38 wall),
 `copyState` ~0.3 (copying the kept walk's compiler state per entry: its `copy` 0.31, `keep` 0.1 under the profiler),
 `settle` 0.19, `compileOne`'s wrapping 0.14. So the quarter was mostly one-time work spread over the pages' mean.
+
+## Round 3: what a build keeps per page (retention)
+
+Measured with a preload that forces a collection and reads `process.memoryUsage()` after every 50th `compile()`, and
+heap snapshots after the 100th and 400th compiles of the 400-post static build (their difference by type and name,
+the retainers' chains):
+
+- **The helpers' build-time memo held every entry of a template** (`FOLD_MEMO`): its record is kept by the helpers
+  module's values and reused while the compiled file is the same, for up to 512 calls. A template's entries are one
+  file, so every entry's `md.parse` calls stayed in it: each post's argument as its key (`dataKey`, the body's JSON) and
+  its frozen tree (whose text nodes are slices of the post's source, holding it). The memo is meant for a page's passes
+  ("the next page starts again"); it is now kept per entry too (`page`). Heap after a forced collection, 400-post static
+  build: 75 MB at the 100th compile and 110 MB at the 400th before (0.12 MB a page kept), 73 and 81 after (0.027 MB a
+  page). What is left growing is needed until the build's end: the fold log's calls for the build's cross check
+  (`foldCalls`: each call's arguments, the post body, which the check runs again) and the pages' outputs.
+  What it changes: nothing in any page (byte for byte); the fold log's call ids start at 0 for each entry (they went on
+  from the entry before), and two entries with the same argument each run and log their call (the second took the
+  first's result before): the cross check checks both.
+- Whole process, 400 posts, static, two and three rounds interleaved: peak RSS 568 / 561 / 585 → 554 / 555 / 552 MB;
+  the GC's pauses (`--trace-gc`, summed) 560 / 548 → 536 / 514 ms; the build's time the same within the rounds (5.4 to
+  5.7 s).
+- Not attributed yet: garbage by function (the inspector's sampling heap profiler with the collected objects
+  included); the 1,000-post build; the other variants. Left for the next session (see the coordinator's round-3 list).
