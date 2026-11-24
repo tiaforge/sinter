@@ -171,9 +171,30 @@ describe('compiled again: each reason', () => {
     expect(r).toMatchObject({ taken: 0, why: ['diagnostics in a decided branch'] });
   });
 
-  test('a definition compiled first in a decided branch, used by the page (live data)', () => {
+  test('a definition compiled first in a decided branch, used by the page (live data): compiled again where the branch is walked', () => {
+    // (§21: its first copy, the dropped walk's, goes where nothing reaches it; the second pass's walk compiles it at the
+    // same use, in the same scope; numbered otherwise)
     const r = both(page('<div data-sn-state="{ a: true, t: { name: \'r\', kids: [] } }"><button data-sn-on-click="t = { name: \'s\', kids: [] }">x</button><template data-sn-if="a"><ul><x-tree data-sn-with="{ n: t }"></x-tree></ul></template></div>'));
-    expect(r).toMatchObject({ taken: 0, why: ['a definition compiled first in a decided branch, used by the page'] });
+    expect(r).toMatchObject({ taken: 1, why: [] });
+    expect(r.on.html).toBe(r.off.html);
+  });
+
+  test('a definition compiled first in a decided branch, used again after it by the page and by rows rendered there', () => {
+    // (the page's own use after the branch: the definition's copy the walk again made; rendered rows of it beside)
+    const r = both(page('<div data-sn-state="{ a: true, t: { name: \'r\', kids: [] } }"><button data-sn-on-click="t = { name: \'s\', kids: [] }">x</button><template data-sn-if="a"><ul><x-tree data-sn-with="{ n: t }"></x-tree></ul></template><ol><x-tree data-sn-with="{ n: { name: \'q\', kids: [{ name: \'z\', kids: [] }] } }"></x-tree></ol></div>'));
+    expect(r).toMatchObject({ taken: 1, why: [] });
+    expect(r.on.html).toBe(r.off.html);
+  });
+
+  test('a cycle of definitions in a component\'s root chain the build decides: the templates the walk again makes kept as it makes them', () => {
+    // (a template of the definition compiled again that nothing in the IR reaches, which the second pass keeps too)
+    const files: Record<string, string> = {
+      '/p/src/components/x-ping.html': '<template data-sn-props="{ n: number }"><template data-sn-if="n > 0"><x-pong data-sn-with="{ n: n - 1 }"></x-pong></template><template data-sn-else><i>ping</i></template></template>',
+      '/p/src/components/x-pong.html': '<template data-sn-props="{ n: number }"><template data-sn-if="n > 0"><x-ping data-sn-with="{ n: n - 1 }"></x-ping></template><template data-sn-else><b>pong</b></template></template>',
+    };
+    const base = options();
+    const r = both(page('<x-ping data-sn-with="{ n: 3 }"></x-ping>'), { componentNames: [...base.componentNames!, 'x-ping', 'x-pong'], readFile: (f) => files[f] ?? base.readFile!(f) });
+    expect(r).toMatchObject({ taken: 1, why: [] });
   });
 
   test('an else-if decided', () => {
@@ -326,11 +347,12 @@ describe('pages with a unit placed', () => {
     } finally { delete process.env.SN_FROM_WALK; for (const [k, v] of env) if (v === undefined) delete process.env[k]; else process.env[k] = v; }
   }
 
-  test('the tree rendered: the unit\'s definitions dead in the page, taken out; one that ships, compiled again', () => {
+  test('the tree rendered: the unit\'s definitions dead in the page, taken out; kept whole where the page keeps them', () => {
     const r = pages();
-    // (the two pages whose tree is rendered, in both rounds; the live tree's page keeps its unit's definitions)
-    expect(r.taken).toBe(4);
-    expect(r.why.filter((w) => w === 'a unit\'s definition the page keeps').length).toBe(2);
+    // (the two pages whose tree is rendered, in both rounds: the unit taken out; the live tree's page keeps its unit's
+    // definitions: the unit kept whole as the page's own, every object of it held and given back, §21)
+    expect(r.taken).toBe(6);
+    expect(r.why).toEqual([]);
     expect(r.on['a tree from a file 1']!.html).toBe(r.off['a tree from a file 1']!.html);
     expect(r.on['a tree from a file 1']!.html).toContain('<em><span>this</span></em>');
   });

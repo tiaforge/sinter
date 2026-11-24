@@ -6,7 +6,7 @@ import { boxSizesCss, type ReserveTrace, Layout, PLACEHOLDER_BASE, type Affine, 
 import { shows } from './status-eval.js';
 import { recordChild, replay as replayUnit, LINK_FIELDS, UNIT_NUMBERING, type Plan, type Refused } from './link.js';
 import { canonicalText } from './canon.js';
-import { forceUnits2, holdUnit, placeUnits, restoreUnit, touch, unitCheck, unitFallback, units2On, unitsOn, unitTable, type BuildUnit, type UnitStore } from './units.js';
+import { forceUnits2, holdUnit, holdWhole, placeUnits, restoreUnit, touch, unitCheck, unitFallback, units2On, unitsOn, unitTable, type BuildUnit, type UnitStore } from './units.js';
 import { declaringTemplate, HEAD_ELEMENTS, kindOfComponent, parseDocument, STRUCTURAL } from './head.js';
 import { minifyMarkup, type MinifyHooks } from './minify.js';
 import { prune, resourceReads } from './embed-reads.js';
@@ -1475,6 +1475,8 @@ function restoreTree(s: FwSnap) {
 // check's, which is the first pass's as its walk made it: the unit's parts it took, by reference, and where)
 const FW_IGNORED = new Set(['graphs', 'fns', 'fnAt', 'fnUses', 'fnIndex', 'callAt', 'templates', 'diagnostics', 'nextId', 'nextSid', 'useIds', 'at', 'lastExpr', 'fw', 'walk', 'walked', 'checkFrames', 'checkExprs', 'checkResources', 'keptDepth',
   'touched', 'checkParts', 'checkDone', 'frameOf', 'checkLast', 'checkOrder', 'defsAsked']);
+/** tables the walk's last steps finish (`walkPage`: sources, write-through targets, tree fills, aliases), which a block the route walks again may not add to */
+const FW_TAIL = ['srcCalls', 'pendingTargets', 'runtimePlacements', 'fillDefs'];
 /** tables `fromWalk` follows itself (`roots`, by index) */
 const FW_OWN = new Set(['roots']);
 /**
@@ -5962,8 +5964,8 @@ class Compiler {
   }
 
   /** After the walk: each shared definition's root takes the bindings for the tag attributes its uses pass. */
-  defRootBindings() {
-    for (const [, r] of this.defRoots) {
+  defRootBindings(roots: Iterable<[P5Element, { rt: string; node?: NodeDef }]> = this.defRoots) {
+    for (const [, r] of roots) {
       const keys = this.defAttrs.get(r.rt);
       if (!keys?.size || !r.node) continue;
       touch(this, r.node.b); touch(this, r.node);
@@ -11928,6 +11930,39 @@ class Compiler {
    * walks the route drops, is one it may need, which it did not add because the unit had (the route then keeps the page
    * from the walk). The tables' own methods, on the page's objects only.
    */
+  /**
+   * B1 (§21): whether the page keeps some of the unit's definitions (`fromWalk`): a point of one, or a use of one, left
+   * where the route keeps the page (not in rendered rows, not in a branch a decision drops). Then the unit is kept whole
+   * as the page's own; else what placing it added is taken out (the second pass places none)
+   */
+  fwKeepsUnit(ds: Array<{ a: FwAnchor; v: boolean; other: FwAnchor | null; rows?: RenderedRows }>, unit: NonNullable<FromWalk['unit']>, next: CompileOptions): boolean {
+    const names = new Set((unit.items.get('defs') ?? []).filter((x): x is string => typeof x === 'string'));
+    if (!names.size) return false;
+    // (what the route takes out: rendered rows, the branch a decision drops)
+    const skip = new Set<P5Element>();
+    for (const d of ds) { const x = d.rows || !d.v ? d.a.el : d.other?.el; if (x) skip.add(x); }
+    // (a branch's markup as it was before the walk compiled it, which the route walks again: its snapshot's)
+    const was = new Map<P5Node, FwSnap[number]>();
+    for (const d of ds) for (const x of d.other ? [d.a, d.other] : [d.a]) for (const e of x.snap ?? []) was.set(e.n, e);
+    const todo: P5Node[] = [...this.walk!.doc.childNodes as P5Node[]];
+    while (todo.length) {
+      const n = todo.pop()!;
+      if (!isElement(n) || skip.has(n) || this.renderedAt.has(n)) continue;
+      // (and what the second pass's expansion takes out in what the page keeps: a loop it renders, a branch it drops)
+      if (n.tagName === 'template') {
+        const k = this.instKey(n);
+        const as = was.get(n)?.attrs ?? n.attrs, has = (a: string) => as.some((x) => x.name === a);
+        if (k && ((has('data-sn-for') && next.rendered?.has(k)) || (has('data-sn-if') && next.decided?.get(k) === false))) continue;
+      }
+      const p = this.points.get(n);
+      if ((p !== undefined && names.has(p)) || names.has(n.tagName)) return true;
+      todo.push(...(was.get(n)?.kids ?? n.childNodes as P5Node[]));
+      const t = (n as P5Template).content;
+      if (t) todo.push(...(was.get(n)?.content ?? was.get(t as unknown as P5Node)?.kids ?? t.childNodes as P5Node[]));
+    }
+    return false;
+  }
+
   fwWatchUnit() {
     const fw = this.fw!, u = fw.unit!, own = this.placedUnit?.own;
     for (const [k] of u.added) {
@@ -12070,8 +12105,13 @@ class Compiler {
     // a unit placed before the walk: what placing it added, taken out as a dropped walk's (the second pass places none,
     // its points rendered), where it is still there as it was added and is no table numbered by position
     const unit = fw.unit;
-    if (unit && fw.unitRead?.size) return no(`the page reads the unit's \`${[...fw.unitRead][0]!.replace(' ', '` entry `')}\``);
-    if (unit) {
+    // (§21: where the page keeps some of the unit's definitions, a point or a use of one left where the page stays: the
+    // unit kept whole, as the page's own, every object of it held to be given back, `holdWhole`; its definitions each
+    // one the page still reaches, below. A unit that does not list its objects: as before)
+    const keepUnit = !!unit && !!this.placedUnit && this.fwKeepsUnit(ds, unit, next);
+    if (keepUnit && !this.placedUnit!.objects) return no('a unit\'s definition the page keeps');
+    if (unit && !keepUnit && fw.unitRead?.size) return no(`the page reads the unit's \`${[...fw.unitRead][0]!.replace(' ', '` entry `')}\``);
+    if (unit && !keepUnit) {
       for (const k of unit.changed) if (k !== 'earlyDefs') return no(`placing a unit changes \`${k}\``);
       for (const [k, [a]] of unit.added) {
         if (FW_REFUSED.has(k) || FW_OWN.has(k)) return no(`placing a unit adds to \`${k}\``);
@@ -12083,11 +12123,11 @@ class Compiler {
     // calls too would keep the site of the branch's call (the unit's likewise: the second pass compiles none of them)
     const uses = this.fnUses.slice();
     for (const x of all) for (const [i, n] of x.uses) uses[i]! -= n;
-    if (unit) for (let i = 0; i < unit.f1; i++) uses[i]! -= unit.fnUses[i] ?? 0;
+    if (unit && !keepUnit) for (let i = 0; i < unit.f1; i++) uses[i]! -= unit.fnUses[i] ?? 0;
     // (where the page calls it too: the function the page's, at the page's site, below; known after the route's walks)
     const shared = new Set<number>();
     for (const x of all) for (const i of x.uses.keys()) if (i >= x.f0 && uses[i]! > 0) shared.add(i);
-    if (unit) for (let i = 0; i < unit.f1; i++) if (uses[i]! > 0) shared.add(i);
+    if (unit && !keepUnit) for (let i = 0; i < unit.f1; i++) if (uses[i]! > 0) shared.add(i);
     // (one the page called outside its walk, after it: where is not recorded)
     for (const i of shared) if (!fw.pageAt?.has(i)) return no('code a decided branch compiled first is compiled elsewhere too');
     // (`dry`: whether it may be taken, nothing changed: a kept template's entry asks before it copies the kept walk)
@@ -12095,10 +12135,13 @@ class Compiler {
 
     // ---- from here on the compiler is the second pass's
     fw.routing = true;
+    // (the templates the first walk made: the route's walks make the second pass's, which it keeps as it makes them)
+    const t0 = this.templates.length;
     FW_WALKING = fw;
     // (a unit placed: what of it the steps below and `finishPage` write into outside its templates, held to be given
     // back, `touch`: the resources', syncs' and actions' records, the page's resource infos; its templates are refused below
     // where the page keeps one, and emptied, held, where it does not)
+    if (keepUnit) holdWhole(this);
     if (this.placedUnit) {
       for (const x of [...this.resources, ...this.syncs, ...this.actions, ...this.page.resources.values()]) touch(this, x);
       for (const n of this.roots) { touch(this, n); touch(this, n.b); for (const b of n.b) touch(this, b); }
@@ -12135,16 +12178,18 @@ class Compiler {
       keysOf.set(k, got);
     }
     // (the unit's keys out of the maps and sets now, before the walks below add what they compile and render)
-    if (unit) for (const [k] of unit.added) {
+    if (unit && !keepUnit) for (const [k] of unit.added) {
       const o = this.fwField(k);
       if (o instanceof Map || o instanceof Set) { touch(this, o); for (const x of unit.items.get(k)!) o.delete(x); }
     }
     const resources = new Set<string>();
     // (the definitions the dropped walks compiled: their templates are nothing's once the walks below do not use them)
-    const dropped = new Set<string>();
+    const dropped = new Map<string, number | undefined>();
     // each block: the roots it replaces (at `at`, `n` of them), and the nodes its walk made, numbered in a range of their
     // own (from `base`): all are put in place at the end, and every index of a root renumbered once
     const blocks: Array<{ at: number; n: number; nodes: NodeDef[]; base: number }> = [];
+    // (the choices and the definitions' roots the walks below add, which the walk's last steps finish: `walkPage`)
+    const newGroups: ChoiceGroup[] = [], newRoots: Array<[P5Element, { rt: string; node?: NodeDef }]> = [];
     // the last first: the positions the earlier ones recorded in the lists stay as they were
     ds.sort((x, y) => y.at - x.at);
     // (the resources a dropped walk read first: unread, before any block is walked again, which reads them again)
@@ -12156,7 +12201,7 @@ class Compiler {
         if (FW_OWN.has(k)) continue;
         const o = this.fwField(k);
         if (Array.isArray(o)) { const [s0, s1] = add as [number, number]; o.splice(s0, s1 - s0); }
-        else if (o instanceof Map || o instanceof Set) for (const key of keysOf.get(k)?.get(x) ?? []) { o.delete(key); if (k === 'defs') dropped.add(key as string); }
+        else if (o instanceof Map || o instanceof Set) for (const key of keysOf.get(k)?.get(x) ?? []) { if (k === 'defs') dropped.set(key as string, this.defs.get(key as string)?.tid); o.delete(key); }
       }
       let placed: P5Node[];
       const c = d.a.el;
@@ -12222,11 +12267,20 @@ class Compiler {
       let from = -1, to = -1;
       for (let k = 0; k < kids.length; k++) if (here.has(kids[k]!)) { if (from < 0) from = k; to = k + 1; }
       if (from < 0) from = to = 0;
-      const lens = this.fwMarks();
+      const lens = this.fwMarks(), al0 = this.page.aliases?.length ?? 0, of0 = this.page.objectFields?.size ?? 0;
       // (a list whose length starts at the block's base: what the walk reads of it is its length, and it pushes)
       const base = FW_BASE + bi * FW_SPAN, made: NodeDef[] = [];
       const list = { push: (...n: NodeDef[]) => made.push(...n), get length() { return base + made.length; } } as unknown as NodeDef[];
       if (to > from) this.walkChildren(P, { ...d.a.ctx, list }, { from, to });
+      // what the walk's last steps (`walkPage`) finish of what this walk added: its choices, its definitions' root
+      // bindings, below; what else they finish (sources, write-through targets, tree fills, aliases), refused
+      const tail = this.fwDelta(lens).added;
+      for (const k of FW_TAIL) if (tail.has(k)) return no(`a block walked again adds to \`${k}\` (the walk's last steps)`, true);
+      // (the page info's, made when first needed)
+      if ((this.page.aliases?.length ?? 0) > al0 || (this.page.objectFields?.size ?? 0) > of0) return no('a block walked again adds to `page.aliases` (the walk\'s last steps)', true);
+      const cg = tail.get('choiceGroups'), dr = tail.get('defRoots');
+      if (cg) newGroups.push(...this.choiceGroups.slice(cg[0], cg[1]));
+      if (dr) newRoots.push(...[...this.defRoots].slice(dr[0], dr[1]));
       blocks.push({ at: d.at, n: xs.reduce((n, x) => n + (x.added.get('roots')![1] - x.added.get('roots')![0]), 0), nodes: made, base });
       // what this walk added to the other lists: where the branch's walk had added it (document order)
       for (let f = 0; f < fs.length; f++) {
@@ -12240,15 +12294,18 @@ class Compiler {
       }
       if (this.diagnostics.length > this.walked) return no('diagnostics in a branch walked as the page', true);
     }
+    // the walk's last steps for what the walks above added, in their order (`walkPage`)
+    if (newRoots.length) this.defRootBindings(newRoots);
+    if (newGroups.length) this.finishChoices(newGroups);
     // (a constant the second pass writes outside the rows spliced: not the route's)
     if (next.constants?.size && this.prefoldsOutside(next.constants, prefolded, splicedRows)) return no('constants the layout or the images read (prefold)', true);
-    // a definition the dropped walk compiled first and the new one uses: compiled again here, numbered and shared otherwise
-    for (const n of dropped) if (this.defs.has(n)) return no('a definition compiled first in a decided branch, used by the page', true);
+    // (a definition the dropped walk compiled first and the new one uses: compiled again here, at the first use the
+    // second pass compiles it at, in its scope; numbered otherwise. Its first copy goes where nothing reaches it, below)
     // (a unit placed, whose definitions were taken out: one the walks above compiled again is one the second pass places
     // from a unit of its own, whose writes are not these)
-    if (unit && this.defs.size) return no('a definition the page compiles, a unit placed', true);
+    if (unit && !keepUnit && this.defs.size) return no('a definition the page compiles, a unit placed', true);
     // (the unit's items out of the lists, which come before what every walk added: the positions above hold till here)
-    if (unit) for (const [k, [a, b]] of unit.added) { const o = this.fwField(k); if (Array.isArray(o)) { touch(this, o); o.splice(a, b - a); } }
+    if (unit && !keepUnit) for (const [k, [a, b]] of unit.added) { const o = this.fwField(k); if (Array.isArray(o)) { touch(this, o); o.splice(a, b - a); } }
     // rendered rows' empty texts (elements to the minifier, nothing in the page), and their marks after the image pipeline
     for (const t of this.renderedEmpty) { const k = (t as { parentNode?: P5Parent }).parentNode?.childNodes as P5Node[] | undefined; const i = k?.indexOf(t) ?? -1; if (i >= 0) k!.splice(i, 1); }
     for (const [e, marks] of this.renderedLate) for (const m of marks) setAttr(e, m.name, m.value);
@@ -12294,12 +12351,14 @@ class Compiler {
       live.add(x);
       for (const n of this.templates[x]!.nodes) for (const y of n.b) todo.push(...templatesOf(y));
     }
-    // (a unit's definition the page keeps: `finishPage` would number, share and anchor the unit's templates, nodes and
-    // markup, which other pages place; a unit's template nothing reaches is emptied, held, like any other)
+    // (a unit's definition the page keeps, the unit taken out: refused; kept whole (`keepUnit`), every object of it held
+    // and given back, its templates as they are. A unit's template nothing reaches, the unit taken out: emptied, held,
+    // like any other. The templates the route's walks made: kept as they made them, the second pass's)
     const own = this.placedUnit?.own;
     for (const t of this.templates) {
-      if (live.has(t.id)) {
-        if (own && (own.has(t) || t.nodes.some((n) => own.has(n)))) return no('a unit\'s definition the page keeps', true);
+      const mine = !!own && (own.has(t) || t.nodes.some((n) => own.has(n)));
+      if (live.has(t.id) || t.id >= t0 || (mine && keepUnit)) {
+        if (mine && !keepUnit) return no('a unit\'s definition the page keeps', true);
         for (const n of t.nodes) if (n.b.some((y) => y.k === 'if')) { const el = this.tplEls.get(n), key = el && this.instKey(el); if (key && decided.has(key)) return no('a decided if in a template that stays', true); }
         continue;
       }
@@ -12309,6 +12368,15 @@ class Compiler {
       this.headTemplates.delete(t.id);
       touch(this, t);
       t.nodes = [];
+    }
+    // (a definition compiled again by the walks above: its first copy is one nothing reaches, or the page has it twice)
+    for (const [n, tid] of dropped) if (tid !== undefined && live.has(tid) && this.defs.has(n) && this.defs.get(n)?.tid !== tid) return no('a definition compiled first in a decided branch, used by the page', true);
+    // (the unit kept whole: each of its definitions one the second pass compiles, a point left in the page, which its unit
+    // holds, or one the page reaches; one it does not is one whose other entries the second pass would not have. Its
+    // templates as they are: the second pass's, reached or not)
+    if (keepUnit) {
+      const points = this.livePoints(this.walk!.doc);
+      for (const n of this.placedUnit!.names) { const e = this.defs.get(n); if (e && !points.has(n) && !live.has(e.tid)) return no('a unit\'s definition the page does not keep, beside one it keeps', true); }
     }
     // (which resources load late, by what still reads them)
     for (const r of this.resources) delete r.lo;

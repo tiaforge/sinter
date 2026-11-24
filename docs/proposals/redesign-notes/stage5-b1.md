@@ -4,22 +4,24 @@ Running log (2026-11-23), branch `redesign/stage5-b1`, started at `5f203af` (the
 
 ## Where the work stands (read this first)
 
-Continued on branch `redesign/stage5-b1b` (2026-11-23/24, second session; sections 11 to 18).
+Continued on branch `redesign/stage5-b1b` (2026-11-23/24, second session; sections 11 to 20), then on
+`redesign/stage5-b1c` (2026-11-24, third session; sections 21 on).
 
 - **Done**: the route (`compileTwice` → `Compiler#fromWalk`) for pages of their own, with a unit placed (11), where
   folds ship nothing (12), rendered rows under the minifier's and the page's layout (15, 16), functions a dropped walk
   or the unit made first at the page's site, loops on pages that are not quiet (template entries compiled alone, 18).
-  rendered rows with images and their image constants (19). Suite under `SN_FROM_WALK_AUDIT=1`: 368 second passes
-  routed (193 at the session's start); the apps: the blog's page-file variants 200/200, static-site 6/6,
-  multilingual-site 8/8, sinter-mail 3/16.
+  rendered rows with images and their image constants (19). Third session: a definition a dropped walk compiled first,
+  compiled again where the route walks the branch; a unit whose definitions the page keeps, kept whole as the page's own
+  and held (21). Suite under `SN_FROM_WALK_AUDIT=1`: 385 second passes routed (368 at the third session's start); the
+  apps: the blog's page-file variants 200/200, static-site 6/6, multilingual-site 8/8, sinter-mail 3/16 (not run by
+  this session: its repository could not be attached; the coordinator runs the mail audit).
 - **Counted as done**: `no second pass (nothing decided)`: a page the route looked at that needs no second pass (52).
 - **Written up, not built**: template entries (13; the coordinator holds them for stage 6's finding); prefold
   constants other than an image's own attributes in rows (realworld 1, sinter-mail 5, suite 48); the renderer's own
   fallbacks (18, stage 2/6's).
-- **Next** (the coordinator's order, 2026-11-24, after 2802ce1): (1) the second pass's unit placed in the route over
-  the routed page before `finishPage` (`placeUnits(…, second = true, livePoints)`, the first pass's unit's entries taken
-  out as now): serves `a definition compiled first in a decided branch` (9), `a unit's definition the page keeps` (6),
-  sinter-mail's `a definition the page compiles, a unit placed` (2); (2) choices (16, §18). SN501 stays a refusal.
+- **Next** (the coordinator's order, 2026-11-24, third session): (2) choices (16, §18), then (3) the old second-pass row
+  route's fallbacks (what each needs, what is contained built), then (4) the list of what still needs the second pass, by
+  reason, at this log's top. SN501 stays a refusal.
 - **For a fresh session**: the route is `Compiler#fromWalk`/`fromWalkIn` and `compileTwice` in src/compiler/compile.ts;
   tests in test/compiler/from-walk.test.ts; check with the suite plain and under `SN_FROM_WALK_AUDIT=1`
   (`SN_FROM_WALK_STATS=<file>` for the counts), the test/compiler audits, `scripts/render-audit.mjs --switch SN_FROM_WALK
@@ -591,3 +593,36 @@ whose numbers are relative, placed at the page's current counts (a change to uni
 so their numbers would have to be offsets resolved at assembly, which stage 5's assembly plan defers). Either is a step
 of its own across units.ts and the route; neither is contained in `fromWalk`. Until then the 17 suite cases (9 + 6 +
 sinter-mail's 2) take the second pass.
+
+## 21. Definitions a dropped walk compiled first, and a unit's definitions the page keeps (third session)
+
+Section 20 found the second pass's unit cannot be placed over a walked page (its numbers are absolute, the walk's from
+0). Both refusals it was to serve are served without it:
+
+- **A definition compiled first in a decided branch, used by the page** (9 in the suite): the route took the
+  definition's `defs` entry out with the dropped walk, so the walk of the kept branch compiles it again, at the use and
+  in the scope the second pass's walk compiles it at (its templates and functions numbered after the page's: numbering
+  only, canonically the same; byte for byte in the tests but for the template's generated names). Allowed now; refused
+  only where the first copy is still reached from the page (`dropped`: its root template live while the page holds
+  another: the page would have it twice). The templates the route's walks make are kept as they make them (`t0`: only
+  the first walk's are emptied where nothing reaches them): a cycle of definitions in a decided root chain
+  (component-cache.test.ts' ping/pong) has a template nothing in the IR reaches that the second pass keeps too.
+- **A unit's definition the page keeps** (6) and **a definition the page compiles, a unit placed** (sinter-mail 2):
+  where the page keeps some of the unit's definitions (`fwKeepsUnit`: a point of one, or a use of one, where the route
+  keeps the page: not in rendered rows, not in a branch or loop the second pass's expansion takes out, read from the
+  branches' snapshots), the first pass's unit is kept whole as the page's own instead of taken out: every object of it
+  held as it is (`holdWhole`, units.ts: a first pass's unit lists its objects now, `objects`) and given back after the
+  output is copied off it (`detachOutput`, `restoreUnit`, as before), its additions to the tables kept (no takeout, no
+  watched entries), its templates as they are; each of its definitions must be one the second pass compiles (a point
+  left in the page, which its unit would hold, or one the page reaches), else refused (`a unit's definition the page
+  does not keep, beside one it keeps`). The output is the page compiled with the definitions in place, which the second
+  pass's unit is canonically (stage5-a1.md); `SN_UNITS_VERIFY=1` holds over the unit tests.
+- **The walk's last steps for what the route walks again** (found on the way, a guard): `walkPage` finishes choices,
+  definitions' root bindings, sources, write-through targets, tree fills and aliases after its walk; the route's walks
+  came after that. Now the choices and definition roots they add are finished there (`finishChoices`,
+  `defRootBindings` over the new ones), and a block that adds to the others is refused (`a block walked again adds to
+  …`; none in the suite).
+
+Suite under `SN_FROM_WALK_AUDIT=1`: 385 routed (368); the 15 refusals gone; three tests added (a definition used again
+after the branch and by rows rendered there; the ping/pong cycle; the unit test now counts 6 routed, none refused).
+

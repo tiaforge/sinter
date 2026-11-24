@@ -81,6 +81,11 @@ export type BuildUnit = {
    * lookup), and the page's output is what it wrote
    */
   all?: object[];
+  /**
+   * a first pass's: every object it made, which a page that finishes it as its own holds whole (`holdWhole`: B1, the
+   * route keeping the unit's definitions, stage5-b1.md §21)
+   */
+  objects?: object[];
   /** a second pass's: its head templates, by template id, finished (`anchors`, `shareTemplates`) */
   heads?: Array<[number, unknown]>;
   /** a second pass's: what reads only its definitions is done (`anchors`, `shareTemplates`): a page's passes skip its part */
@@ -196,6 +201,18 @@ export function holdUnit(c: any) {
   const u: BuildUnit | null = c.placedUnit;
   if (!u?.all) return;
   for (const o of u.all) touch(c, o);
+}
+
+/**
+ * A first pass's unit that the page finishes as its own (B1: the route keeps its definitions, compile.ts `fromWalk`):
+ * every object of it held as it is now (`touch`), so that it is given back after the page's output is copied off it
+ * (`restoreUnit`). Returns false for a unit that does not list them.
+ */
+export function holdWhole(c: any): boolean {
+  const u: BuildUnit | null = c.placedUnit;
+  if (!u?.objects || u.finished) return false;
+  for (const o of u.objects) touch(c, o);
+  return true;
 }
 
 /** the unit compiled on this page (its writes applied to it, as the linker's recorder does) and kept */
@@ -326,7 +343,8 @@ function make(c: any, names: string[], second = false): BuildUnit | { refused: s
   // `defRootBindings`, and numbers their functions, `compactTables`)
   const all = second ? irObjects([...numbering.templates as unknown[], ...[...c.defAttrs.values()].filter((m: object) => own.has(m)).flatMap((m: Map<string, unknown>) => [...m.values()])], heads!, own) : undefined;
   if (check && !second) for (const seg of segs.values()) partOf(seg, check, file, base);
-  return { names, reads: u.reads, numbering, weak, ops, at: enc(u.atAfter), own, placed: 0, origins, file, base, rel, ...(check && !second ? { check: { frames: check.frames, exprs: check.exprs, segs, frameOf } } : {}), ...(prints ? { prints } : {}), ...(all ? { all, heads, share, finished: true } : {}) };
+  const objects = second ? undefined : [...seen].filter((v) => own.has(v));
+  return { names, reads: u.reads, numbering, weak, ops, at: enc(u.atAfter), own, placed: 0, origins, file, base, rel, ...(check && !second ? { check: { frames: check.frames, exprs: check.exprs, segs, frameOf } } : {}), ...(prints ? { prints } : {}), ...(all ? { all, heads, share, finished: true } : {}), ...(objects ? { objects } : {}) };
 }
 
 let nextPart = 0;
