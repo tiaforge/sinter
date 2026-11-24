@@ -10,11 +10,11 @@
     "render": "sinter render index.html --api mocks.json"
   },
   "dependencies": {
-    "@tiaforge-ui/sinter": "^0.22.0",
-    "@tiaforge-ui/temper": "^0.3.0"
+    "@tiaforge-ui/sinter": "^0.22.1",
+    "@tiaforge-ui/temper": "^0.4.0"
   },
   "devDependencies": {
-    "@tiaforge-ui/temper-inspect": "^0.3.0",
+    "@tiaforge-ui/temper-inspect": "^0.4.0",
     "jsdom": "^30.1.3",
     "typescript": "^7.0.2",
     "vite": "^8.3.5"

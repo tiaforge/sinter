@@ -13,7 +13,7 @@ How to write an entry (from 0.21.0 on; older sections keep their own form):
 - Implementation details and benchmark figures go in the commit or the pull request. A speed-up or a size
   change is a Performance bullet with its headline number.
 
-## Unreleased
+## 0.22.1 (2026-11-24)
 
 ### Fixed
 
