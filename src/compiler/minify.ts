@@ -64,6 +64,14 @@ export function minifyMarkup(doc: P5Parent, hooks: MinifyHooks): { comments: num
 
   /** the author's comments out of `p`, and text nodes that meet merged */
   const comments = (p: P5Parent) => {
+    // (most elements have neither: their children stay as they are, in the same list, and no list is made)
+    const kids = p.childNodes as P5Node[];
+    let change = false;
+    for (let i = 0; i < kids.length && !change; i++) {
+      const c = kids[i]!;
+      change = c.nodeName === '#comment' ? !RESERVED.test((c as DefaultTreeAdapterMap['commentNode']).data) : i > 0 && isText(c) && isText(kids[i - 1]!);
+    }
+    if (!change) return;
     const out: P5Node[] = [];
     for (const c of p.childNodes as P5Node[]) {
       if (c.nodeName === '#comment' && !RESERVED.test((c as DefaultTreeAdapterMap['commentNode']).data)) {

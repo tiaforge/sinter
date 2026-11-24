@@ -237,6 +237,68 @@ Found by the research, not changed:
   for inlined uses: the holes keep the output, and the runtime, as they are. Stage 7 is about the uses whose props
   are a frame already (definitions), and is a decision of its own.
 
+## Where it stands, and what waits for the owner (2026-11-24, 03:30 UTC)
+
+The integration branch `ccr-9ebf49d5-gpdej8` holds everything below; the full suite passes (3,025 tests at
+`cb89b74`; the status log has each run), and every merge was checked against the apps and sinter-mail.
+
+**The benchmark** (`bench/astro`, 100 posts, whole process, interleaved rounds on one machine): 13.6 to 16.8 s when
+this started; now static 2.4 to 2.7 s, live 2.7 to 3.2 s, a page file per post 2.8 to 3.3 s static and 3.3 to 3.8 s
+live, against Astro's 1.7 to 2.0 s in the same rounds: about 1.36 times Astro on the static template build. The
+compiler went from about 110 ms a post to about 6.7 ms (the library's markdown parse 1.8, the first pass's own work
+2.3, the second pass 2.4); outside the compiler a static page costs about 3.9 ms, which is Astro's whole page.
+
+**What was built** (each behind a switch, with an audit): rows rendered at build time (stages 1 and 2); one compile
+per page file and the description read off the page's head (stage 3); units kept per build, checked once (stage 4);
+second-pass units and the second pass taken from the first pass's walk (stage 5: 413 second passes in the suite;
+in the apps every page that is not a template's entry, except realworld's one prefold page and 13 of sinter-mail's
+16); the evaluation by one function per template, a render plan, the helpers' memo per entry (stage 6); the build
+outside the compiler (early scripts per shape, the Speculation Rules folded, the fold check's cache on disk, three
+scans made linear); embedded data folded into code; the bugs found on the way fixed, each with a test (`redesign-notes/bugs.md`
+and the status log).
+
+**What is left in the compiler is small or not contained.** No single step is worth more than about 1 ms a post:
+- *Rows as markup text* (assessed, `stage6-eval.md`): about 1 ms of 6.7 on the blog, up to 31% of a 2,012-element
+  email's compile; a large build whose byte identity hangs on the minifier's white-space rule. It is also what the
+  second pass's deletion waits for: a template's entries can only leave the second pass once the kept walk is small
+  (`stage5-b1.md` §13, and the 2026-11-24 02:20 entry).
+- *The second pass deleted* (stage 3's leftover): not possible without three things that are not contained steps:
+  a template's entries (rows as text first), rows that keep a residue (a per-node residue in the IR: stage 7's
+  ground), and SN501's warning from the route (unsound as found). The list by reason is at the top of
+  `stage5-b1.md`.
+- *Garbage*: 8.9 MB allocated a page; no leak; what is left of the compiler's share is the rendered rows as nodes
+  (rows as text again). `alloc.md`.
+
+**Decided by the owner on 2026-11-24, 03:41 UTC** (the coordinator's recommendation, taken as a whole): 1 and 2 go ahead (2 only
+where the app has no other HTML plugin; a failing cross check may leave `dist/` emptied), 5 goes ahead (the old
+early-script scheme deleted), 7 is confirmed (a build with only type-check warnings passes); 3, 4, 6 and 8 stay as
+they are (no rows as text now, the linker stays, the parse memo stays, no units at run time). After that the
+branch is to be reviewed and merged rather than optimised further.
+
+**Decisions for the owner**, in the order of what they buy:
+1. *The SN534 cross check run later* (after Vite's HTML step): about 0.23 s at 100 posts, 0.5 s at 400. A build that
+   fails that check would leave `dist/` emptied where it is untouched today. (`pipeline-2.md`)
+2. *Vite's HTML step skipped for pages it does not change*: about 0.1 s at 100 posts, 0.4 s at 400, and what makes
+   live builds at 1,000 posts peak at 1.4 to 1.6 GB. An app's own HTML plugins would not see those pages: the
+   coordinator's recommendation is to do it only where the app has no other HTML plugin. With 1 and 2 the static
+   build at 100 posts is about level with Astro by `pipeline-2.md`'s arithmetic; at 400 and above sinter still
+   trails (its page costs more).
+3. *Rows as markup text*: see above. Recommended only if the second pass's deletion or large emails' build time is
+   wanted; not for the blog alone.
+4. *The linker's deletion* (`stage4-units.md`): the coordinator's recommendation is not yet (units do not cover a
+   finished first pass under the type check, nor definitions first reached from a fill).
+5. *The old early-script scheme* (`SN_EARLY_SHAPES=kinds`): can go; the new one is proven (`early-script-shapes.md`).
+6. *sinter-markdown's parse memo* (`alloc.md`): leave as it is (recommended); a smaller one could make a build
+   parse a shared document twice.
+7. *A build with only type-check warnings passes* since warnings and errors are counted apart; it failed before.
+   Confirm or revert.
+8. *Units at run time* (stage 7): not started; a decision of its own.
+
+**Sessions** (all cloud; their branches are merged): `redesign/stage5-b1c` (session_01AjKzdx2BaC98XK45SbVGbn)
+stands by with context for decisions 3 and the row residues; `redesign/pipeline-2`
+(session_01AjKzdyy3dA5FDC6jCiY3dH) for decisions 1 and 2; `redesign/alloc` (session_01AjKzdxK4qaHMSKWGtkmHi2) for
+decision 6. The others are finished and archived or idle.
+
 ## What is next (the owner's instructions, 2026-11-23)
 
 1. **Stage 5 starts once the agents now running have finished and are merged** (dev rendering, the six bug fixes,
@@ -261,10 +323,9 @@ timings were not usable). A cloud session pushes to a branch of its own:
 
 | Workstream | Where | Branch | Log |
 | --- | --- | --- | --- |
-| stage 5, A1 then A2: definitions that ship, from units | cloud, `session_01AjKzdxPCdJ5nbeXvwkXoP2` | `redesign/stage5-a1` | `stage5-a1.md` |
-| the Speculation Rules made linear; the fold check's cache on disk | cloud, `session_01AjKzdyy3dA5FDC6jCiY3dH` | `redesign/pipeline-2` | `pipeline-2.md` |
-| stage 5, B1 continued: template entries, pages with a unit, folds | cloud, `session_01AjKzdx4aCc4CWZp4zJDc1m` | `redesign/stage5-b1b` | `stage5-b1.md` |
-| stage 6: the evaluation, one function per template; a render plan per template | cloud, `session_01AjKzdxcYo9FzUYyj9yNBZn` | `redesign/stage6-eval` | `stage6-eval.md` |
+| stage 5, B1 continued toward B2: the second pass's unit placed in the route, choices, the old row route's fallbacks | cloud, `session_01AjKzdx2BaC98XK45SbVGbn` | `redesign/stage5-b1c` | `stage5-b1.md` |
+| the SN534 cross check off the critical path; Vite's HTML step skipped where no other HTML plugin (decided 2026-11-24) | cloud, `session_01AjKzdyy3dA5FDC6jCiY3dH` | `redesign/pipeline-2` | `pipeline-2.md` |
+| the old early-script scheme deleted (decided 2026-11-24) | cloud, `session_01AjKzdxPErYYZv1d2K1hMsD` | `redesign/early-script-shapes` | `early-script-shapes.md` |
 
 **The bar, as the owner set it on 2026-11-23:** the output need not be byte for byte today's where only numbering
 and generated names differ (`data-sn` ids, anchor numbers, template, state and function numbers, renamed loop
@@ -634,3 +695,338 @@ decision of their own (stage 7). A step that can stay byte-identical does.
   after the merge: 1,546 tests of test/compiler, test/vite, test/check pass; `render-audit` eight apps the same;
   `mail-audit --gen 2000` 48 files identical (that build 31.2 s with rendering off, 6.2 s as it is now). Next there:
   a render plan per template for the blog's rendering, the unit's candidates kept on the unit, the `own` bug.
+- 2026-11-24, 01:00 UTC: **A1 and A2 are done and merged** (`redesign-notes/stage5-a1.md`). A2: a first pass that
+  is its output is compiled again with a unit (not under the type check). Its audit found a bug of A1's (a
+  definition's tag-attribute bindings made by the unit were renumbered in place for the next page), fixed with a
+  test; pages with a source map place no second-pass unit (a shared function's site would move). The session's
+  numbers on the merged tree: a later components-route page 97 to 66 ms (112 to 70 with TypeScript), a template's
+  entry with a live tree 280 to 52 ms; its suite 2,980, the units audit and verifier over the whole suite with no
+  difference, CI's link-audit job passing. Checked on the coordinating machine: 1,551 tests of test/compiler,
+  test/vite, test/check pass; `mail-audit --switch SN_UNITS2` under `SN_CANON=1` 48 files identical; `render-audit
+  --switch SN_UNITS2` eight apps the same. **The linker's review is ready** (`redesign-notes/stage4-units.md`, "What
+  the linker still covers that units do not" and "What deleting it removes"): after A1 and A2 it still serves a
+  unit's fallbacks (none in any app measured), a finished first pass under the type check, definitions reached
+  first from a fill's case after the walk, description compiles past the threshold, and `SN_UNITS2=0`; deleting it
+  removes about 330 of `link.ts`' 881 lines (the plan and its replay; the recorder stays, it makes the units), 40
+  lines of `definition()`, the `definitions` options in `src/vite.ts`, 60 lines of the audit in `index.ts`, six test
+  files (703 lines) and the CI job. It waits for the owner.
+- 2026-11-23, 22:30 UTC by the machine's clock (the times of the entries above ran about three hours ahead of it;
+  their order is right): **the full suite passes at `22152eb`: 2,992 tests, 312 files**; `pass-audit` nine apps the
+  same. **The fold check's on-disk cache is merged** (`redesign-notes/pipeline-2.md`; `SN_FOLD_CACHE=0` off): the
+  check's analyses are kept under `node_modules/.cache` by the modules' text, the session's `foldVerdicts` 106 to
+  132 ms cold, 4 to 9 ms warm, output identical with and without; 1,552 tests of test/compiler, test/vite,
+  test/check and the cache's 7 pass after the merge (`de23476`). With it both pipeline decisions the owner took
+  (3 and 4) are in. **A timing scare, not a regression.** Five whole-process runs at `de23476` gave medians of
+  static 3.03 s, typecheck 3.32, live 3.36, page per file 3.60 and 4.20, Astro 1.95, against 2.65 s for static in
+  the 22:50 entry with Astro the same, which read as 0.4 s lost. Switching each recent stage off in turn
+  (`SN_FROM_WALK`, `SN_RULES_FOLD`, `SN_UNITS2`, `SN_ROW_FN`) showed nothing, so five revisions were built side by
+  side and timed interleaved against the same app, six rounds, in-process ms, median: static `c4fa7e4` 2,529,
+  `e23cae1` 2,483, `7e210e5` 2,520, `c32efa4` 2,486, `de23476` 2,368; page per file 3,091, 3,029, 3,246, 3,261,
+  3,024. Then whole process, seven interleaved rounds: `c4fa7e4` 3.00 s, `de23476` 2.85 s static and 3.11 s live,
+  Astro 1.92 s. So nothing merged since `c4fa7e4` cost time and the head is the fastest of the five; this machine's
+  speed moves by 10 to 20 percent between runs minutes apart, and a figure from one run cannot be set against a
+  figure from another. **From here a timing in this log is only a comparison when both sides were run interleaved
+  in the same rounds.** On this machine today that is static 2.85 s and live 3.11 s against Astro's 1.92 s; the
+  quiet machine's figures (2.22 s against 1.65 to 1.86 s, the 23:30 entry) stand as the better measure of the gap.
+- 2026-11-23, 22:55 UTC: **stage 5's B1 continued, first milestone merged** (`redesign-notes/stage5-b1.md` §11 to
+  §14; `SN_FROM_WALK=0` off). Pages with a unit placed now take the route from the first pass's walk (the unit's
+  objects are touched and given back, a unit's definition the page keeps refuses the route, what placing the unit
+  added to the page's tables is taken out like a dropped walk), and pages with folds do where no shipped function
+  reads a folded value (`shipsFold`; else compiled the old way). It fixed a bug of the route on the way (the unit's
+  journal `touched` cut as if it were a table). In the suite 227 compiles take the route (193 before), "values
+  folded" as a refusal 124 to 16; the blog's page per file 100 of 100. The session's numbers, compiler ms a page
+  from a CPU profile, 100 posts: page per file static 15.3 to 12.3, live 14.9 to 13.3; the template variants and
+  page-compile unchanged. Its checks: suite 2,995 plain and under `SN_FROM_WALK_AUDIT=1`, the render, link and
+  one-pass audits, `pass-audit` byte-identical except one state number in the live page-per-file app (a dead unit
+  took `$s0`: the one use so far of the freedom in numbering). Checked on the coordinating machine after the merge
+  (`da15772`): 1,562 tests of test/compiler, test/vite, test/check pass; `render-audit --switch SN_FROM_WALK
+  --canon` eight apps the same; `mail-audit --switch SN_FROM_WALK` under `SN_CANON=1` 48 files byte for byte.
+  Interleaved, whole process, six rounds, median: page per file static 2.89 s with the route, 3.10 s without; live
+  3.40 s and 3.72 s; the template's static 2.59 s; Astro 1.82 s. **Template entries are measured and not built**
+  (§13): a copy of a second pass's walked state costs 2.8 ms an entry against the 2.4 ms the second pass takes, so
+  no design that copies per entry pays; doing it in place with a journal over all of `finishPage` would save under
+  0.9 ms an entry, and live entries need the folds' holes. So for a template's entries the second pass stays as
+  the cheaper route until the walk itself is cheaper (stage 6's ground). §14 lists what deleting the second pass
+  (B2) still needs: rendered rows with a layout (84 compiles in the suite), unrolled loops (65 and 35), prefold
+  (38), entries. Next there: rendered rows and a layout. Also from a profile of the 400-post static build at
+  `de23476` (6.5 s): the compiler 3.6 s, of it the first pass's deciding 2.2 s and the second pass 1.05 s; the
+  garbage collector 0.76 s; Vite's own code 0.74 s; the markdown parser 0.36 s.
+- 2026-11-23, 23:15 UTC: **stage 6's evaluation is done and merged** (`redesign-notes/stage6-eval.md`, top and "The
+  end"; `246d90e`). Since its first milestone: the render plan (a template's content copied from a flat list, a
+  node's copy by its place), the unit's candidates read once for the build (`SN_UNIT_CANDS=0`), a `file:` value's
+  heights measured once (`SN_FROZEN_HEIGHTS=0`), two questions asked once per binding, and the `own` bug fixed as a
+  guard (`bugs.md` 7: provably masked, no output could change; a test pins it). The session's numbers, wall ms, 25th
+  percentile, before against after with its ten commits reverted on the same tree, output byte-identical:
+  sinter-mail's 2,012-element email's first-pass evaluation 231 to 79, its compile 302 to 135, its build 6.2 to
+  4.2 s; the 200-element one 38 to 16; the file email 15.9 to 12.6; the API page's first pass 7.0 to 4.8 (its
+  second pass 8.3 unchanged: its own codes are compiled per page). **The blog did not move** (static `decideFor`
+  5.72 to 5.50 ms a page): its cost is the library's parse, the data checks and the walk's and renderer's work per
+  node, not the evaluation of bindings (1,063 a page). Its checks: full suite 3,002 before its last merge, every
+  bench app, example and sinter-mail page byte-identical at each merge. Checked on the coordinating machine after
+  the merge: 1,564 tests of test/compiler, test/vite, test/check pass; `render-audit --switch SN_ROW_FN --canon`
+  eight apps the same; `mail-audit --switch SN_ROW_FN --gen 2000` under `SN_CANON=1` 48 files byte for byte.
+  **What that leaves for the benchmark against Astro**: a blog post costs the compiler about 8 to 9 ms (deciding
+  5.5, the second pass 2.4) and the build about 4 ms more outside it, against Astro's 3.9 ms a page for everything.
+  The session continues on the blog's per-node walk and render (a fill plan, the decisions' keys only where the
+  second pass compiles a loop), measured part by part first, target the compiler under 4 ms a page on the static
+  template variant, and was asked to commit its measuring tools. Outside the compiler the two decisions not taken
+  (the SN534 cross check, Vite's HTML step) are now a larger share of what is left.
+- 2026-11-23, 23:25 UTC: **the full suite passes at `246d90e`: 3,005 tests, 314 files**; `pass-audit` nine apps
+  the same. The stage 6 session's measuring tools are committed (`bench/tools/`, with a README: the method wrapper,
+  the interleaved A/B, the profile readers, the byte comparison, sinter-mail's apps) and merged (`0ca7df5`). Whole
+  process, 100 posts, seven interleaved rounds on the coordinating machine, median: static 2.38 s, with the type
+  check 2.46 s, live 2.67 s, a page file per post 2.80 s static and 3.30 s live; Astro 1.72 s.
+- 2026-11-23, 23:35 UTC: **stage 5's B1 continued, second milestone merged** (`redesign-notes/stage5-b1.md` §11 to
+  §15; `2e00858`). Rendered rows under the minifier with a layout take the route from the first pass's walk
+  (`respaceRows`: the minifier's white-space rule applied again at the rows' edges, the rows' paints shown as
+  bindings; refused where a bound element is around or beside the rows). A bug of the route it exposed is fixed: an
+  embedded resource's id (its `<sn-resource>` removed by the walk) was not renumbered and could collide with an
+  element's; it is numbered where its element stood. In the suite 320 second passes take the route (193 when the
+  session started), "rows and a layout" as a refusal 48 to 8; a template's entry compiled alone routes. Its checks:
+  suite 3,008 plain and under `SN_FROM_WALK_AUDIT=1`, the render, link and one-pass audits. Checked on the
+  coordinating machine after the merge: 1,567 tests of test/compiler, test/vite, test/check pass; `render-audit
+  --switch SN_FROM_WALK --canon` eight apps the same; `mail-audit --switch SN_FROM_WALK` under `SN_CANON=1` 48
+  files byte for byte. Still refused: a page whose own layout reads it without the rows (styles and images:
+  `planSpace`, the image pipeline, the dry run), which is the examples' 12 pages. Next there: that written up
+  precisely, then loops unrolled the old way (100 in the suite).
+- 2026-11-23, 23:45 UTC: **stage 6 continued, the blog measured part by part and two steps merged**
+  (`redesign-notes/stage6-eval.md`, "Round 2"; `2c9a08d`). Where a blog post's compile goes (a profile at 50 µs,
+  ms a page under the profiler, which inflates by about 1.5; 15.9 in all, 8.6 ms wall at the 25th percentile): the
+  first pass's deciding 8.8, of it the post's `md.parse` 2.8 (markdown-it and the tree; not the compiler's), the
+  data checks 1.6, the walk 2.6, rendering 2.5 (`fill`'s own 0.84, `clone` 0.61), the rest 0.6; the second pass
+  from the kept walk 4.0 (`walkChildren` 2.3, a definition compiled 0.86, the minifier 0.78); `keepTemplate`,
+  `copyState` and the rest 3.1. Nothing in the deciding is above 0.9: it is work per node everywhere. The steps: a
+  frozen object's height kept where it is frozen (`plainData` no longer walks a helper's tree), and what `fill`
+  asks of each node asked once per template (`nodeInfo`, `ifInfo`, `forInfo`), `constantSources` and the written
+  state once per evaluation. Its numbers, seven interleaved rounds against `0efedb8`: the blog's `decideFor` 5.06 to
+  4.72 ms at the 25th percentile (median 6.00 to 5.50), `compile()` 7.82 to 7.41; the 2,012-element email's first
+  pass 70 to 66; output byte-identical. Checked on the coordinating machine after the merge: 1,567 tests of
+  test/compiler, test/vite, test/check pass; `render-audit --switch SN_ROW_FN --canon` eight apps the same;
+  `mail-audit --switch SN_ROW_FN` under `SN_CANON=1` 48 files byte for byte. **How close**: about 7.4 ms a page
+  against the 4 ms target, of which the library's parse is nearly 2. Shaving per-node work gives a few percent a
+  step; the coordinator asked the session to assess a larger step before going on: a rendered row that keeps
+  nothing live written as markup text from a plan per template, not as nodes that are cloned, walked again by the
+  second pass, minified and serialized.
+- 2026-11-23, 23:58 UTC: **the full suite passes at `03658b3`: 3,008 tests, 314 files. Stage 5's B1 continued,
+  third milestone merged** (`redesign-notes/stage5-b1.md` §16 and §17; `06abf41`): rendered rows under the page's
+  own layout take the route where nothing the layout sizes is beside them (`layoutAround` refuses beside an image, a
+  video, a frame, an object, a list whose space was planned, or under a `:has()` rule). The examples route now
+  (static-site 4 of 6 pages, multilingual-site 8 of 8); in the suite 325 second passes take the route (193 when the
+  session started). Its numbers, the compiler's ms from CPU profiles, base `22152eb`: a page file per post 15.3 to
+  12.3 static and 14.9 to 13.3 live; static-site 197 to 178 a build, multilingual-site 128 to 115; the template
+  variants, realworld and dashboard unchanged (not routed). Its checks: 3,010 tests plain and under
+  `SN_FROM_WALK_AUDIT=1`, sinter-mail's suite and bench. Checked on the coordinating machine after the merge: 1,569
+  tests of test/compiler, test/vite, test/check pass; `render-audit --switch SN_FROM_WALK --canon` eight apps the
+  same; `mail-audit --switch SN_FROM_WALK` under `SN_CANON=1` 48 files byte for byte. **How far the second pass is
+  from deletable** (§17, a table by reason for the suite, the apps and sinter-mail): in the apps it is left for a
+  template's entries (the blog's 300 pages), constants the layout or the images read (8 pages: static-site 2,
+  sinter-mail 6), a resource read only in a dropped branch whose warning the second pass reports (sinter-mail 6),
+  one unit case (sinter-mail 1) and one page of realworld whose branch is not recorded; in the suite besides those:
+  loops unrolled and not rendered (67 and 35: stage 2's old row route), nothing decided (51, needs no second pass),
+  not recorded (33), and small groups (code or a definition first compiled in a dropped branch 18 + 9 + 4, folds
+  that ship 9 + 7, choices 9, a unit's definition kept 6). The session goes on with those toward B2; the template's
+  entries wait for stage 6's assessment of rows as text, which would make the kept walk small enough to copy.
+- 2026-11-24, 00:10 UTC: **stage 6's round 2 is merged** (`redesign-notes/stage6-eval.md`, "Round 2"; `037aa23`):
+  besides the two steps above, the decisions' keys joined only where a loop the second pass compiles is committed,
+  and a case's props copied key by key. Its numbers against the integration branch without the round (`0efedb8`),
+  seven interleaved rounds, 25th percentile and median: the blog's static `decideFor` 4.43 / 5.35 to 4.09 / 4.72 ms,
+  `compile()` 7.10 / 8.13 to 6.66 / 7.57; live `decideFor` 4.68 / 5.58 to 4.33 / 5.37; sinter-mail's compiles hold
+  or gain (the 2,012-element email 103 to 102, the file email 32.5 to 30.4, the API page 87.6 to 84.1); its full
+  suite 3,008; builds byte-identical. Checked on the coordinating machine after the merge: 1,569 tests of
+  test/compiler, test/vite, test/check pass; `render-audit --switch SN_ROW_FN --canon` eight apps the same;
+  `mail-audit --switch SN_ROW_FN` under `SN_CANON=1` 48 files byte for byte. Whole process, seven interleaved
+  rounds here (a slower quarter of an hour: Astro 1.96 s where it was 1.72 s), median: static 2.66 s, with the type
+  check 2.94 s, live 3.20 s, a page file per post 3.27 s and 3.84 s; so static stays at about 1.36 times Astro, as
+  in the 23:25 entry (1.38). **Where a blog post's compile stands**: about 6.7 ms = the deciding 4.1 (of it
+  markdown-it 1.8; the compiler's own 2.3: data checks 0.6, walk 0.8, rendering 0.9, nothing above 0.4) and the
+  second pass 2.4. The session's conclusion, which the coordinator shares: the first pass cannot reach 4 ms alone;
+  a template's entry has to be finished from the first pass's records and rendered rows, not by a second pass. The
+  B1b session named what its route reads of rendered rows as nodes (the id gap keyed by a block's first row
+  element, the rows' edge elements for `respaceRows` and `layoutAround`, the second pass's minifier and image
+  pipeline) and that a summary per block of rows would serve all three. The assessment of rows as text is with
+  the stage 6 session.
+- 2026-11-24, 00:20 UTC: **rendered rows as markup text: assessed, not built** (`redesign-notes/stage6-eval.md`,
+  "Assessment"). The ceiling, ms a page under the profiler: the blog 2.5 of 11.0 (rendering the rows 1.6, the
+  second pass's minifier 0.62, serializing 0.28), perhaps 1 ms of 8.6 wall since the text still has to be escaped
+  and joined; sinter-mail's 2,012-element email 66 of 216 (31%), its file email 5 of 96, its API page nothing. The
+  second pass does not walk rendered rows already. Answerable once per template: ids and numbering, uses, files,
+  reads, state, scoped styles' marks, dev's marks, links (with stand-ins), the units' journal. Real obstacles: the
+  minifier's white-space rule over pieces with holes (per row at the rows' edges and where a bound text meets
+  static space; byte identity hangs on it), the image pipeline (rewrites each row's `<img>` in the second pass),
+  the layout reading the rows' attributes on pages with stylesheets, the description reading headings and links
+  off the page. It would be general (a live page's rendered rows too) and auditable byte for byte, but it does not
+  reach 4 ms on the blog and costs more than it gains there; it is the next large step for large file emails.
+  Also measured: "`keepTemplate`, `copyState`, the rest" was mostly once per build (the kept template's walk 77 ms,
+  the index page 117 ms); per entry, steady: `decideFor` 4.1 to 4.9 ms, the second pass from the kept walk 1.6 (of
+  it `finishPage` 0.5), `copyState` 0.3, `settle` 0.19, wrapping 0.14. **What that means for the benchmark**: the
+  compiler is at about 6.7 ms a blog post and no single step left in it is worth more than about 1 ms (the second
+  pass for a template's entries at most 0.9 to 1.6, rows as text about 1). Outside the compiler a static page costs
+  about 3.9 ms, and `pipeline-2.md`'s arithmetic stands: level with Astro at 100 posts needs the floor at about
+  1.1 s (the two decisions not taken: the SN534 cross check, 0.23 s, and Vite's HTML step, 0.1 s) and the compiler
+  at about 6 ms a page. Garbage collection is the largest item nobody owns: 0.76 s of the 6.5 s build at 400 posts,
+  about 1.9 ms a page inside and outside the compiler, and the process's memory grows by about 0.75 MB a page (356
+  MB at 100 posts, 584 MB at 400). The stage 6 session's next item is that: what a build allocates and what it
+  keeps per page.
+- 2026-11-24, 00:14 UTC (from here the times are the machine's clock; the four entries above ran 10 to 20 minutes ahead):
+  **stage 6, round 3: the helpers' build-time memo kept per entry, merged** (`redesign-notes/stage6-eval.md`,
+  "Round 3"; `f395fa2`). The memo (`FOLD_MEMO`) is reused while the compiled file is the same, for up to 512 calls,
+  and a template's entries are one file: every entry's `md.parse` key (the body's JSON) and frozen tree stayed for
+  the build. It is per entry now, as it always was per page file. The session's numbers at 400 posts: heap after a
+  forced collection 0.12 to 0.027 MB a page kept by the compiler (what still grows, about 27 kB a page, is the fold
+  log's calls for the SN534 cross check, needed until `buildEnd`); peak memory about 570 to 554 MB, the collector's
+  pauses 554 to 525 ms, the build's time unchanged. A consequence to know: a helper called with the same arguments
+  by every entry of a template is called once per entry now (as for page files), not once per 512 calls; the fold
+  log's ids start at 0 per entry and the cross check checks each. Checked on the coordinating machine: 1,569 tests
+  of test/compiler, test/vite, test/check pass; `pass-audit` nine apps the same; `mail-audit` 48 files byte for
+  byte; 400 posts three times: peak memory 554, 566, 562 MB (584 before). So the 0.7 MB a page at the peak is not
+  the compiler's: it is outside it (Vite's and Rolldown's module graph and bundle, the HTML step's trees, the
+  plugin's state). **The stage 6 session is finished** (its context was full); a fresh cloud session takes retention
+  outside the compiler and allocation by function (`redesign/alloc`, log `redesign-notes/alloc.md`).
+- 2026-11-24, 00:21 UTC: **the full suite passes at `e09b12e`: 3,010 tests, 314 files** (with stage 5's third milestone, stage 6's
+  rounds 2 and 3 and its closing log). The stage 6 session is archived; its log's top says where it ended.
+- 2026-11-24, 01:19 UTC: **memory and garbage, measured, and the first cuts merged** (`redesign-notes/alloc.md`, tools in
+  `bench/tools/mem/`; a fresh cloud session, `redesign/alloc`). **The peak is not retention.** Live heap after a
+  forced collection with every page compiled: 58, 79 and 115 MB at 100, 400 and 1,000 posts, about 0.06 MB a page
+  (a weak map's table, Vite's processed HTML, the fold log, the post's source: each needed, or Vite's). The peak is
+  about 250 MB for the process, Rolldown and code plus V8's heap, which V8 lets grow to about 4.4 times what is
+  live after each full collection. **The cost is garbage**: a 400-post static build allocates 3.8 GB, 9.6 MB a
+  page: the compiler 2.53 GB (of it the markdown tree about 0.8), Vite's HTML step 0.52, the SN534 cross check
+  0.42; 534 ms in 258 scavenges and 26 ms in 3 full collections. The first cuts, compiler only, nothing computed
+  differently: `plainData` without a pair per value, `fill`'s paint one function per fill, an element's known
+  attributes as one set for the module, a folded text's names once per distinct text, the minifier keeping an
+  element's children list where nothing changes: allocation 3,831 to 3,572 MB at 400 posts. The session's
+  numbers, interleaved, medians: the collector's time 2 to 8 percent less (400 static 600 to 572 ms; 1,000 live
+  2,516 to 2,318 ms), build time and peak memory within noise. Its findings for the owner: sinter-markdown's own
+  parse memo (8 MiB) keeps about 119 post trees through a build where each post is parsed once (6 to 10 percent
+  of the collector's time at 400 posts if it were smaller); a larger young generation (`--max-semi-space-size=64`)
+  takes a quarter off the collector's time for 150 MB more peak and no build time, not worth it; live pages at
+  1,000 posts peak at 1.4 to 1.6 GB because Vite's HTML step keeps every page's parse tree until its promises
+  settle and Rolldown starts all transforms at once (Vite's). Its summary: the compiler's own allocation is spread
+  thin; the largest item left in it is the first pass's rendered rows as nodes (about 0.8 GB, 2 MB a page), which
+  is the rows-as-text question again. Checked on the coordinating machine after the merge (the session cannot
+  reach sinter-mail): 1,569 tests of test/compiler, test/vite, test/check pass; `pass-audit` nine apps the same;
+  sinter-mail's 48 audit files and its 2,000-element page built with the tree before the session's changes
+  (`b901424`) and with the merged tree: every file identical.
+- 2026-11-24, 01:37 UTC: **the allocation session's final commit is merged** (`redesign-notes/alloc.md`; `f8df9f8`): the fold log
+  kept a clone of every folded call's arguments until `buildEnd`, so a post's body was held twice and cloned again
+  by the cross check; a string or other primitive is kept as it is now, objects copied as before. Its numbers
+  against `f395fa2`, five interleaved rounds, medians, build ms / peak MB / collector ms: static 100 posts 2,469 /
+  353 / 199 to 2,392 / 347 / 186; static 400 posts 6,553 / 569 / 619 to 6,561 / 552 / 566; live 400 posts 8,309 /
+  825 / 841 to 8,184 / 812 / 804; a page file per post at 400 the same within noise. So: 7 percent less allocated,
+  4 to 9 percent less in the collector, time and peak memory within the machine's noise. Its full suite 3,010.
+  Checked on the coordinating machine after the merge: `pass-audit` nine apps the same; sinter-mail's 48 audit
+  files and its 2,000-element page identical before and after; 1,568 of 1,569 tests of test/compiler, test/vite,
+  test/check in the first run: `test/vite/compile-hints.test.ts` ("the page modules start with the hint…") failed
+  once and passed alone and in two further runs of test/vite and test/compiler (a flake to watch, not seen
+  before). **For the owner, from that session** ("Decisions for the owner" in its log): sinter-markdown's own parse
+  memo (8 MiB, about 119 post trees kept through a build that parses each post once; the collector 6 to 10 percent
+  less at 400 posts with a smaller one; changing it changes which helper code runs); live builds at 1,000 posts
+  peak at 1.4 to 1.6 GB through Vite's HTML step (the only lever is the decision on that step). What is left in
+  the compiler's share of the garbage is spread thin; its largest piece is the rendered rows as nodes (2 MB a
+  page), the rows-as-text question.
+- 2026-11-24, 01:41 UTC: **the full suite passes at `cbd6d2a` (the allocation session's work merged): 3010 tests, 314
+  files**; `test/vite/compile-hints.test.ts` passed in it (its one failure at 01:31 has not come back in four
+  runs). The allocation session's closing notes are merged (`redesign-notes/alloc.md`: "Where a page's 9.6 MB go",
+  by owner with what each item needs, now 8.9 MB a page; "The md.parse memo": it serves the browser, dev's
+  recompiles and two pages of one build parsing the same text, and any smaller size could make a build parse
+  twice; the coordinator's recommendation to the owner is to leave it). Not merged: the stage 5 session's
+  `a196ecc`, `30c3ef9` (357 second passes routed in its suite, a guard for a unit's name-keyed entries that
+  sinter-mail needed, the counts sorted, what each small refusal needs in `stage5-b1.md` §18): its branch conflicts
+  with the allocation cuts in `compile.ts` and was sent back to be merged and verified there.
+- 2026-11-24, 01:48 UTC: **stage 5's B1 continued, fourth milestone merged** (`redesign-notes/stage5-b1.md` §18; `1afb6e0`, the
+  session's `4a70cd5`, its conflict with the allocation cuts resolved on its side: their lazy `foldedNames` kept,
+  its own `unread` helper dropped). A function a dropped walk or the unit made first is made at the page's site, so
+  those pages take the route; **a guard sinter-mail needed**: where the page's walk reads the unit's name-keyed
+  entries the route is refused (sinter-mail's `mail` namespace would have been lost; its own mail audit caught
+  it, the suite did not, and a test pins it now); loops on pages that are not quiet take the route (35 refusals to
+  1); SN501 from the route is unsound (a later read of a resource a dropped walk read first leaves no trace) and
+  stays a refusal, two false ones fixed; the stats say "no second pass (nothing decided)" for 52 and count the 33
+  "not recorded" where they belong; "unrolled, not rendered" is 63 reference compiles with rendering off and 14
+  real ones. In its suite 359 second passes take the route (333 before); in the apps: the blog's page files 200 of
+  200, static-site 4 of 6, multilingual-site 8 of 8, sinter-mail 3 of 16. Not built, written up: prefold (the image
+  pipeline per image, the eager rule, the order of CSS rules, bindings off before settle), and what each small
+  group needs (choices; shared code called from the walk's tail; folds that ship; the second pass's unit placed
+  over the routed page, which serves definitions first compiled in a dropped branch and a unit's kept definition).
+  Checked on the coordinating machine after the merge: 1,573 tests of test/compiler, test/vite, test/check pass;
+  `render-audit --switch SN_FROM_WALK --canon` eight apps the same; `mail-audit --switch SN_FROM_WALK` under
+  `SN_CANON=1` 48 files byte for byte. Next there: prefold's image-attribute case, then the unit's placement.
+- 2026-11-24, 02:17 UTC: **stage 5's B1 continued, fifth milestone merged: prefold's image case** (`redesign-notes/stage5-b1.md`
+  §19; `f7aa3fa`). Rendered rows with images go through the image pipeline where the route splices them (the
+  eager rule kept through `RewriteContext.eagerTaken` in `images.ts`; the variants and pending work merged; refused
+  where the rules would need the document's order among the page's own), and the image constants in rows (`src`,
+  `srcset`, `alt`) are written there (`prefoldRows`); a constant the rows do not take is refused only where an
+  element outside the rows has its key. A bug of the route fixed on the way: after a late refusal the fallback
+  reused rows the route had already spaced (snapshotted and restored now). static-site takes the route on 6 of 6
+  pages (4 before), byte for byte; in its suite 368 second passes take the route (357), prefold as a refusal 57 to
+  48; its suite 3,015. Checked on the coordinating machine after the merge: 1,574 tests of test/compiler,
+  test/vite, test/check pass; `render-audit --switch SN_FROM_WALK --canon` eight apps the same (static-site 6,
+  multilingual-site 8, the blog's page files 100 each, none compiled again); `mail-audit --switch SN_FROM_WALK`
+  under `SN_CANON=1` 48 files byte for byte. Left in the apps: realworld 1 and sinter-mail 5 (prefold on class or
+  style, or outside rows), sinter-mail's SN501 4, shared code 2 and unit definitions 2; and a template's entries.
+  Next there: the second pass's unit placed in the route.
+- 2026-11-24, 02:18 UTC: **the second B1 session handed over** (its context was full; `redesign-notes/stage5-b1.md`, top). Its
+  answer on a template's entries with stage 6's numbers: the route's own work on an entry is about 1.3 ms (walking
+  the rendered rows 0.8, `finishPage` 0.5) against the 1.6 ms second pass, before any journal, and a journal has to
+  snapshot and restore everything `finishPage` and the route write on the kept walk (the page's nodes, definitions,
+  bindings, templates, about 40 tables), which costs what `copyState` does; so about 0 to -0.3 ms an entry for a
+  large change (a `touch` at every write site of `finishPage`'s about 30 steps, and a verifier). **Not built for
+  speed; it is only the step that lets the second pass be deleted, and only once the kept walk is small (rows as
+  text).** So the second pass's deletion (B2, stage 3's leftover) waits for the owner's decision on rows as text;
+  until then the route's coverage of everything else goes on. A fresh cloud session takes that
+  (`redesign/stage5-b1c`): the second pass's unit placed in the route (definitions first compiled in a dropped
+  branch, a unit's definition kept, sinter-mail's two), choices, the old second-pass row route's remaining
+  fallbacks, and the exact list of what still needs the second pass.
+- 2026-11-24, 02:27 UTC: **the full suite passes at `f7aa3fa` (stage 5's fifth milestone): 3,015 tests, 314 files.** The one-off
+  failure of `test/vite/compile-hints.test.ts` at 01:31 has a cause and a fix (`eeec813`): `build.test.ts` rewrites
+  `test/fixtures/vite-app`'s page and early script in place while it runs and restores them, and the compile-hints
+  test built the same directory twice in another worker and compared the two builds, so a rewrite between its two
+  builds made it fail. It builds a copy of the fixture of its own now. The test is main's, not the redesign's; the
+  race is older than this work.
+- 2026-11-24, 02:54 UTC: **stage 5's third B1 session, first milestone merged** (`redesign-notes/stage5-b1.md` §21; `a91e70a`). The
+  two definition cases take the route, and not by placing the second pass's unit (§20 holds: a unit's numbers are
+  absolute): a definition a dropped walk compiled first is compiled again by the route's walk of the kept branch,
+  at the second pass's use and scope (refused where its first copy is still reached); where the page keeps some
+  of a first-pass unit's definitions the unit is kept whole as the page's own (`holdWhole` in `units.ts`: a
+  first-pass unit lists its objects; given back after the output is detached). A guard found on the way: the page
+  walk's tail steps (choices finished, definitions' root bindings, sources resolved, tree fills, aliases) never ran
+  for what the route walks again; choices and roots are finished for the new ones now and a block that would add
+  to the others is refused (none in the suite). In its suite 385 second passes take the route (368); "a definition
+  compiled first in a decided branch" 9 to 0, "a unit's definition the page keeps" 6 to 0; its suite 3,016 plain
+  and under the audit. Checked on the coordinating machine after the merge (the session cannot reach sinter-mail):
+  1,576 tests of test/compiler, test/vite, test/check pass; `render-audit --switch SN_FROM_WALK --canon` eight apps
+  the same; `mail-audit --switch SN_FROM_WALK` with `SN_UNITS_VERIFY=1`, raw and under `SN_CANON=1`: 48 files
+  byte for byte, and the 48 files identical to the build before the merge. sinter-mail's pages still compiled
+  again: SN501 7, prefold 5, shared code 1 (its two unit cases now stop at SN501). Next there: choices.
+- 2026-11-24, 03:22 UTC: **stage 5's third B1 session: choices merged, and the list of what still needs the second pass**
+  (`redesign-notes/stage5-b1.md` §22, §23 and its top; `cb89b74`). A page-level `<sn-component use>` choice over
+  constants takes the route (the case rendered: rows spliced at the first candidate; not rendered: the candidate
+  restored and expanded in place; all dropped: nothing; some left to the browser: walked again as a fresh group),
+  and a dropped walk's diagnostics are replaced by the new walk's in document order (`SN_FROM_WALK_DIAGS=0` off).
+  **Two bugs fixed**: in the route as it was, dropped walks' map and set keys were taken out block by block, last
+  first, so a later block's rows could add a key again (a component's file) that an earlier block's takeout then
+  removed, and the page lost a file from its list (found by the audit once choices routed; a test pins it); and in
+  the choice work itself a group's function shipped state (caught by the audit, fixed before the report). In its
+  suite 413 second passes take the route (385), "a choice decided" 16 to 0; its suite 3,025 plain and under the
+  audit. Checked on the coordinating machine after the merge: 1,584 tests of test/compiler, test/vite, test/check
+  pass; `render-audit --switch SN_FROM_WALK --canon` eight apps the same; sinter-mail (`SN_UNITS_VERIFY=1`, raw
+  and canonical) 48 files byte for byte and identical to the build before the merge. **The old row route** (§23,
+  analysis, nothing built): its 14 real compiles in the suite are rows that keep a handler 3, a text 4, something
+  not written ahead 2, links 2, an id 2, per-copy diagnostics 1; each needs a residue bound to a rendered node (the
+  row lets, or a per-node residue in the IR, which is stage 7's ground), so none is contained and `inlineInstance`
+  and the row lets stay. **What still needs the second pass** (the log's top, by reason): in the apps a template's
+  entries (the blog's 300 pages; waits for the owner on rows as text), prefold (realworld 1, sinter-mail 5), SN501
+  (sinter-mail 7, a refusal for good) and shared code (sinter-mail 1); in the suite besides: prefold 47, shared
+  code 16, the old row route 14, folds 13 + 9, single shapes about 10, and 65 reference compiles with rendering
+  off. So the second pass is not deletable without three things that are not contained steps: a template's
+  entries (rows as text first), the row residues (the IR), and SN501's warning from the route.
+- 2026-11-24, 03:30 UTC: **the full suite passes at `cb89b74` (choices from the first pass's walk; the compile-hints test's own
+  copy of the fixture): 3,025 tests, 314 files.** Nothing further is ordered; "Where it stands, and what waits for
+  the owner" above lists the decisions. (While the suite runs, `test/fixtures/vite-app/index.html` shows as
+  modified: `build.test.ts` rewrites it in place and restores it.)
+- 2026-11-24, 03:41 UTC: **the owner decided** (see "Where it stands, and what waits for the owner"): the SN534 cross check off the
+  critical path and Vite's HTML step skipped where the app has no other HTML plugin go ahead, built by the pipeline
+  session (`redesign/pipeline-2`), each behind a switch with an audit; the old early-script scheme is deleted, by
+  the session that built the new one (`redesign/early-script-shapes`); a build with only type-check warnings
+  passing is confirmed. Not taken: rows as markup text, the linker's deletion, the parse memo, units at run time.
+  The second pass's deletion therefore stays where it is (`stage5-b1.md`, top). The check-ins run again while the
+  two sessions work.

@@ -5,6 +5,7 @@
 // each alone: the results must be the same, every field.
 import { afterEach, describe, expect, test } from 'vitest';
 import { compile, type CompileOptions, type CompileResult } from '../../src/compiler/index.js';
+import { build as unitPage, PAGES as UNIT_PAGES } from './units-pages.js';
 import { caseCode, decidedEntries, failsFirst, frozenPlain, rowProgram, StyleWrites, writeFirstPaint } from '../../src/compiler/compile.js';
 
 const C: Record<string, string> = {
@@ -247,8 +248,40 @@ describe('a `file:` value copied once (`frozenCopy`)', () => {
     const a = routes(html), b = routes(html);
     process.env.SN_FILE_COPY = '0';
     try { expect(routes(html)).toBe(a); } finally { delete process.env.SN_FILE_COPY; }
+    // (and its heights measured once, `FROZEN_HEIGHTS`, or by each evaluation)
+    process.env.SN_FROZEN_HEIGHTS = '0';
+    try { expect(routes(html)).toBe(a); } finally { delete process.env.SN_FROZEN_HEIGHTS; }
     expect(b).toBe(a);
     expect(a).toContain('<li>a</li><li>b</li>');
+  });
+});
+
+describe('a persisted model\'s own path (`own`), past its candidate', () => {
+  test('what the walk and the texts after the candidates read of a persisted field: as with the model first', () => {
+    // (the model the last candidate, then first: a row, a text, a branch decided in the walk over the persisted field)
+    const parts = (model: string) => `<main data-sn-state="{ q: 'x' }">${model === 'first' ? '<input data-sn-model="q" data-sn-persist="k">' : ''}<template data-sn-if="true"><ul><template data-sn-for="r in grid.rows"><li data-sn-text="q + r.name"></li><template data-sn-if="q"><b>b</b></template></template></ul></template><template data-sn-text="q"></template>${model === 'last' ? '<input data-sn-model="q" data-sn-persist="k">' : ''}</main>`;
+    const strip = (b: string) => b.replace(/<input[^>]*>/, '').replace(/data-sn="\d+"|(?<=<!--\/?sn )\d+/g, '');
+    const last = routes(page(parts('last'))), first = routes(page(parts('first')));
+    expect(strip(last)).toBe(strip(first));
+    // (the field is read in the browser: nothing of it written at build time)
+    expect(last).not.toContain('xa');
+  });
+});
+
+describe('a unit\'s part of the evaluation\'s candidates, read once (`unitCands`)', () => {
+  test('pages through one build\'s units, each as with every binding asked on every page (`SN_UNIT_CANDS=0`)', () => {
+    // (units.test.ts holds a page through units to the page compiled without them; this, the candidates read once to the
+    // candidates asked on each page, the same units, the same order, twice over: the first page makes the unit)
+    const plain = (r: ReturnType<typeof unitPage>) => JSON.stringify({ ...r, check: undefined });
+    const pages = (off: boolean) => {
+      if (off) process.env.SN_UNIT_CANDS = '0';
+      try {
+        const units = new Map<string, unknown>(), out: string[] = [];
+        for (let round = 0; round < 2; round++) for (const [n, body] of Object.entries(UNIT_PAGES)) out.push(plain(unitPage(n, body, units)));
+        return out;
+      } finally { delete process.env.SN_UNIT_CANDS; }
+    };
+    expect(pages(false)).toEqual(pages(true));
   });
 });
 

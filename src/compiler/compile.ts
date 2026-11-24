@@ -6,9 +6,9 @@ import { boxSizesCss, type ReserveTrace, Layout, PLACEHOLDER_BASE, type Affine, 
 import { shows } from './status-eval.js';
 import { recordChild, replay as replayUnit, LINK_FIELDS, UNIT_NUMBERING, type Plan, type Refused } from './link.js';
 import { canonicalText } from './canon.js';
-import { forceUnits2, holdUnit, placeUnits, restoreUnit, touch, unitCheck, unitFallback, units2On, unitsOn, unitTable, type BuildUnit, type UnitStore } from './units.js';
+import { forceUnits2, holdUnit, holdWhole, placeUnits, restoreUnit, touch, unitCheck, unitFallback, units2On, unitsOn, unitTable, type BuildUnit, type UnitStore } from './units.js';
 import { declaringTemplate, HEAD_ELEMENTS, kindOfComponent, parseDocument, STRUCTURAL } from './head.js';
-import { minifyMarkup } from './minify.js';
+import { minifyMarkup, type MinifyHooks } from './minify.js';
 import { prune, resourceReads } from './embed-reads.js';
 import type { RemoteConfig } from '../remote.js';
 import { AUTO_FIT_HINT, AUTO_FIT_ROWS, FLUID_WIDTHS } from './images.js';
@@ -609,6 +609,17 @@ export interface CompiledParts {
 }
 
 const ATTRS = ATTRIBUTES.map((a) => a.name);
+/** the `data-sn-` attributes `element` knows (the names `declaration()` gives `data-sn-props` for the compiler; the old names are reported there) */
+const KNOWN_SN = new Set<string>([...ATTRS.map((a) => `data-sn-${a}`), 'data-sn-component', 'data-sn-head', 'data-sn-layout']);
+/** `data-sn-${n}`, made once for each name an element's attributes are asked about (`get`, `has`) */
+const SN_NAMES = new Map<string, string>();
+const snName = (n: string): string => { let x = SN_NAMES.get(n); if (x === undefined) SN_NAMES.set(n, x = `data-sn-${n}`); return x; };
+/** the names in what a decided branch or an empty list took out of the page (`foldedText`): a text once, however many rows wrote it */
+function foldedNames(texts: readonly string[]): Set<string> {
+  const out = new Set<string>();
+  for (const t of new Set(texts)) for (const m of t.match(/[A-Za-z_$][\w$]*/g) ?? []) out.add(m);
+  return out;
+}
 const METHODS = ['post', 'put', 'patch', 'delete'] as const;
 /** attributes that are gone or renamed (docs/proposals/vocabulary.md): what to write instead. Removed at 1.0, as SN316 was */
 const RETIRED: Record<string, string> = {
@@ -678,7 +689,7 @@ interface Origin { file: string; src: string; chain: string[]; use?: string; use
  */
 const FOLD_MEMO = new WeakMap<object, FoldMemo>();
 /** one page's build-time calls: by helper and arguments; the results it handed out, by object, with their call ids */
-interface FoldMemo { file: string; calls: Map<string, { v: unknown } | { what: string }>; refs: WeakMap<object, number>; n: number }
+interface FoldMemo { file: string; page: unknown; calls: Map<string, { v: unknown } | { what: string }>; refs: WeakMap<object, number>; n: number }
 /** a logged call's argument: a value, or the result of the page's call `r` (a parse passed on), replayed from that call */
 export type FoldArg = { v: unknown } | { r: number };
 /** a result as `foldLog` reports it: tagged, so `undefined` is a result like any other */
@@ -1007,7 +1018,8 @@ export function compileParts(html: string, options: CompileOptions): CompiledPar
     return on;
   }
   // `SN_RENDER_AUDIT=1`: a compile that spliced rendered rows in is compiled again without rendering, and must be the same
-  if (proc?.env.SN_RENDER_AUDIT === '1' && renderForced === null && renderOn() && fromWalkForced === null) return withoutFromWalk(() => compileParts(html, options));
+  // (B1 off under the audit, rendering or not: a page compiled with `SN_RENDER=0` beside it is the old route too)
+  if (proc?.env.SN_RENDER_AUDIT === '1' && renderForced === null && fromWalkForced === null) return withoutFromWalk(() => compileParts(html, options));
   if (proc?.env.SN_RENDER_AUDIT === '1' && renderForced === null && renderOn()) {
     const n = RENDER_STATS.spliced, on = compilePartsOnce(html, options);
     if (RENDER_STATS.spliced === n) return on;
@@ -1377,7 +1389,7 @@ function appliedLog<T>(first: Compiler, options: CompileOptions, constants: bool
 
 /** B1 (stage5-b1.md): a page-level `<template>` the first pass's walk recorded (`fwStart`, `fwEnd`) */
 type FwAnchor = {
-  el: P5Element; kind: 'if' | 'else' | 'for'; elseIf: boolean; ctx: Ctx; node: NodeDef | null;
+  el: P5Element; kind: 'if' | 'else' | 'for' | 'choice'; elseIf: boolean; ctx: Ctx; node: NodeDef | null;
   /** its content as it was before the walk (a branch's) */
   snap: FwSnap | null;
   /** the tables' sizes and the plain fields before its walk (`fwMarks`) */
@@ -1389,8 +1401,30 @@ type FwAnchor = {
   /** the resources its walk read first */
   used: string[];
   p0: number;
+  /** a candidate's tag before its walk made it a template (`recursionPoint`) */
+  tag?: string;
 };
-type FromWalk = { anchors: FwAnchor[]; byEl: Map<P5Element, FwAnchor>; fields?: FwField[]; read?: (c: unknown, page: unknown) => unknown[] };
+type FromWalk = {
+  anchors: FwAnchor[]; byEl: Map<P5Element, FwAnchor>; fields?: FwField[]; read?: (c: unknown, page: unknown) => unknown[];
+  /**
+   * what placing the build's unit before the walk added to the tables (`fwSince`: a list's range and its items, a map's or
+   * a set's keys) and changed, and the functions it made with their calls: the second pass places none (`fromWalk`)
+   */
+  unit?: { added: Map<string, [number, number]>; items: Map<string, unknown[]>; changed: string[]; f1: number; fnUses: number[] };
+  /** the embedded resources' elements the walk took out (`remove`): their ids, and where they stood (before `next`) */
+  gone?: Array<{ id: number; parent: P5Parent; next: P5Node | null }>;
+  /** the page's first call of each function made before it (`fn`): in the walk, and in the route's walks (`routing`) */
+  pageAt?: Map<number, Site | null>;
+  rewalkAt?: Map<number, Site | null>;
+  routing?: boolean;
+
+  /** the unit's entries of the page's tables by name that the page read after placing it, outside recorded walks */
+  unitRead?: Set<string>;
+  /** the tables watched for them (`fwWatchUnit`) */
+  watched?: Array<Map<unknown, unknown> | Set<unknown>>;
+  /** the minifier ran with a layout (`minify`: it reads the page's stylesheets, none loaded from elsewhere) */
+  minified?: boolean;
+};
 /** `fwMarks`' readers, by the list of fields they read: one property read per field, not a lookup by name each */
 const FW_READERS = new Map<string, (c: unknown, page: unknown) => unknown[]>();
 function fwReader(key: string, fs: FwField[]): (c: unknown, page: unknown) => unknown[] {
@@ -1403,6 +1437,8 @@ function fwReader(key: string, fs: FwField[]): (c: unknown, page: unknown) => un
 }
 /** `fn()`'s calls while a recorded template is walked (`fwStart`), by function */
 let FW_COUNTING: Map<number, number> | null = null;
+/** the page's walk that records for B1 (`walkExpanded`), and the route's (`fromWalk`): `fn()` notes the page's sites */
+let FW_WALKING: FromWalk | null = null;
 /** a field `fwMarks` reads: its name (`page.` for the page info's), where it is, and whether it is a list (0), a map or a set (1), or plain (2) */
 type FwField = { k: string; page: boolean; f: string; t: 0 | 1 | 2 };
 /** a subtree's nodes as they are (`snapTree`): what a walk changes of them, put back by `restoreTree` */
@@ -1437,7 +1473,12 @@ function restoreTree(s: FwSnap) {
   }
 }
 /** `fwMarks`: fields a walk changes that `fromWalk` follows itself (functions, templates, ids), or that are no table */
-const FW_IGNORED = new Set(['graphs', 'fns', 'fnAt', 'fnUses', 'fnIndex', 'callAt', 'templates', 'diagnostics', 'nextId', 'nextSid', 'useIds', 'at', 'lastExpr', 'fw', 'walk', 'walked', 'checkFrames', 'checkExprs', 'checkResources', 'keptDepth']);
+// (and the unit's: what of it the page changed, `touched`, which `restoreUnit` gives back, whatever walk changed it; the type
+// check's, which is the first pass's as its walk made it: the unit's parts it took, by reference, and where)
+const FW_IGNORED = new Set(['graphs', 'fns', 'fnAt', 'fnUses', 'fnIndex', 'callAt', 'templates', 'diagnostics', 'nextId', 'nextSid', 'useIds', 'at', 'lastExpr', 'fw', 'walk', 'walked', 'checkFrames', 'checkExprs', 'checkResources', 'keptDepth',
+  'touched', 'checkParts', 'checkDone', 'frameOf', 'checkLast', 'checkOrder', 'defsAsked']);
+/** tables the walk's last steps finish (`walkPage`: sources, write-through targets, tree fills, aliases), which a block the route walks again may not add to */
+const FW_TAIL = ['srcCalls', 'pendingTargets', 'runtimePlacements', 'fillDefs'];
 /** tables `fromWalk` follows itself (`roots`, by index) */
 const FW_OWN = new Set(['roots']);
 /**
@@ -1527,6 +1568,37 @@ function foldsEscape(out: CompiledParts, folds: Map<string, unknown>): boolean {
   const r = resourceReads(cmp);
   if (r.all || [...r.reads.keys()].some((n) => folds.has(n))) return true;
   return cmp.some((c) => /\$\.(?!\$(?:r|meta|url|now|locale)\b)[\w$]/.test(c));
+}
+
+/** prefold constants that are an image's own attributes only (the image pipeline reads them; the layout reads none) */
+function imageConstants(consts: Map<string, ConstantWrite[]>): boolean {
+  return [...consts.values()].every((ws) => ws.every((w) => w.k === 'attr' && (w.n === 'src' || w.n === 'srcset' || w.n === 'alt')));
+}
+
+/**
+ * B1 (`fromWalk`, whose walk compiled every read of a build-time constant as a read): whether code the finished page
+ * ships reads one of `folds` down to a value the second pass writes into the code (`foldOf`, as `foldGain` reads it),
+ * or reads them in a way the reads cannot be told (`$r` whole). Where none does, the second pass's folds change
+ * nothing that ships: they act on an expression's reads at fold sites only (its code and its dependencies, a constant
+ * either way, so the same bindings are dropped), and a binding that ships here has none.
+ */
+function shipsFold(out: CompiledParts, folds: Map<string, unknown>): boolean {
+  const r = resourceReads([...out.fns, ...(out.early?.fns ?? [])]);
+  if (r.all) return true;
+  for (const [name, paths] of r.reads) {
+    if (!folds.has(name)) continue;
+    for (const p of paths) {
+      let v = folds.get(name);
+      for (const k of p) {
+        if (!v || typeof v !== 'object' || Array.isArray(v) || !Object.prototype.hasOwnProperty.call(v, k)) break;
+        v = (v as Record<string, unknown>)[k];
+        if (v !== null && typeof v === 'object') continue;
+        if (foldsInto(v)) return true;
+        break;
+      }
+    }
+  }
+  return false;
 }
 
 /**
@@ -1703,7 +1775,9 @@ function compileTwice(html: string, options: CompileOptions, pass: { first: Comp
   if (options.prefetchLater) pass.described = first.firstPrefetch();
   // (evaluated without writing into its markup, which the second pass from this walk compiles as it was walked: when
   // that may be its output; else as before)
-  const notFromWalk = !recording ? null : first.placedUnit || first.earlyDefs ? 'a unit placed' : !first.fwPlausible() ? 'no branch the build may decide' : null;
+  // (a unit placed: the route finishes this pass, which shares the unit's objects: each it changes is held, `touch`, and
+  // its output copied off them before they are given back, `restoreUnit`)
+  const notFromWalk = !recording ? null : !first.fwPlausible() ? 'no branch the build may decide' : null;
   const fromWalk = recording && !notFromWalk;
   if (fromWalk) first.decideOnly();
   else first.settle();
@@ -1714,6 +1788,9 @@ function compileTwice(html: string, options: CompileOptions, pass: { first: Comp
   // them, in a second pass; it needs a clean first pass too. What the second pass applies at every depth comes
   // from the first pass's worklist (`worklist()`), so a page is compiled at most twice: what writes state, which
   // decides what is constant, is known only after a walk
+  // (B1: why the second pass is not taken from the walk, counted once one is compiled; a page with none, `noSecond`)
+  let pending: string | null = null;
+  const noSecond = () => { if (pending) fromWalkStat(`no second pass (${pending})`); pending = null; };
   const second = (clean: boolean) => {
     const unrolled = first.unrolls.size && clean ? first.unrolls : null;
     const constants = first.constants.size && clean ? first.constants as Map<string, ConstantWrite[]> : null;
@@ -1726,8 +1803,11 @@ function compileTwice(html: string, options: CompileOptions, pass: { first: Comp
     if (constants) for (const s of first.constantSites) frozen.add(s);
     // (counted: a page of its own, or a template's entry its kept walk does not serve, parses and expands again)
     passStat(!options.page ? 'a page of its own' : options.templates ? 'an entry compiled alone' : 'an entry, no kept templates');
-    // (counted too: why the walk was not kept for it)
-    if (notFromWalk) fromWalkStat(notFromWalk);
+    // (counted too: why the walk was not kept for it, or why the second pass was not taken from it)
+    // (a page that recorded no branch the build may decide: counted under what its second pass applies)
+    if (notFromWalk) fromWalkStat(constants ? 'constants the layout or the images read (prefold)' : [...first.decided.keys()].some((k) => k.includes('|use:')) ? 'a choice decided' : unrolled ? 'a loop unrolled, not rendered' : first.decided.size ? notFromWalk : 'values folded into the code');
+    else if (pending) fromWalkStat(pending);
+    pending = null;
     const pass = (f: Map<string, unknown> | undefined) => {
       const o2: CompileOptions = { ...options, decided: first.decided, ...(f ? { folds: f } : {}), ...(unrolled ? { unrolled } : {}), ...(first.rendered.size ? { rendered: first.rendered } : {}), ...(first.unrendered.size ? { unrendered: first.unrendered } : {}), ...(constants ? { constants } : {}), ...(first.overLimit.size ? { overLimit: first.overLimit } : {}), frozen };
       const c2 = new Compiler(o2);
@@ -1744,37 +1824,67 @@ function compileTwice(html: string, options: CompileOptions, pass: { first: Comp
   if (twice && fromWalk) {
     const quiet = first.quietFinish() && (!first.placedUnit || first.checkOrder);
     const loops = first.unrolls.size > 0, consts = first.constants.size > 0;
-    // (values folded into code: the walk compiled none, so only where no code left for the browser reads one, `foldGain`)
-    const values = first.foldValues(), folds = values && first.foldGain(values) ? values : undefined;
+    // (values folded into code: the walk compiled none, so the page is finished from it and then checked: where code it
+    // ships reads one (`shipsFold`), it is compiled again; the second pass is given them as before)
+    const values = first.foldValues();
     // (a loop unrolled only in a clean first pass, which a first pass that is not quiet knows once it is finished)
     const clean = isClean(), unrolled = loops && clean;
-    const next: CompileOptions | null = !consts && !first.needsMarkup && !folds && (!loops || quiet) && (first.decided.size || unrolled) ? {
+    // (with a unit placed, only where the type check took the unit's check data in its walk's order: `units.ts`)
+    // (a page that is not quiet: its loops unroll where the finished first pass is clean, `settles`; the route finishes
+    // this one, and where that reports an error, the page is compiled the old way, below)
+    const settles = loops && !quiet && first.fwFinishAlike();
+    // (constants the images read: an image's own attributes, which the route writes into rows it splices; on a clean
+    // first pass only, as the old route writes them, `second`)
+    const imageConsts = consts && clean && imageConstants(first.constants as Map<string, ConstantWrite[]>);
+    const frozen = first.foldedState();
+    if (imageConsts) for (const x of first.constantSites) frozen.add(x);
+    const next: CompileOptions | null = (!consts || imageConsts) && !first.needsMarkup && (!loops || quiet || settles) && (first.decided.size || unrolled) && (!first.placedUnit || first.checkOrder) ? {
       ...options, decided: new Map(first.decided), ...(unrolled ? { unrolled: new Map(first.unrolls) } : {}), ...(first.rendered.size ? { rendered: new Map(first.rendered) } : {}),
-      ...(first.unrendered.size ? { unrendered: new Map(first.unrendered) } : {}), ...(first.overLimit.size ? { overLimit: new Map(first.overLimit) } : {}), frozen: first.foldedState(),
+      ...(first.unrendered.size ? { unrendered: new Map(first.unrendered) } : {}), ...(first.overLimit.size ? { overLimit: new Map(first.overLimit) } : {}), frozen,
+      ...(imageConsts ? { constants: new Map(first.constants) as Map<string, ConstantWrite[]> } : {}),
     } : null;
     if (next) {
       // (the type check reads the first pass's unit as its walk made it: its lists' lengths before the walk is taken on,
       // which only adds to them; and the first pass's errors, as the second pass's output is given them)
       const check = first.check, lens = check && [check.frames.length, check.exprs.length, check.resources.length];
       const errors = { diagnostics: first.diagnostics.slice() } as unknown as Compiler;
+      // (the rendered rows as they are: the route splices and spaces them; where it then gives up, the second pass
+      // splices them as they were)
+      const rowsWere = next.rendered?.size ? [...next.rendered.values()].map((x) => snapTree({ nodeName: '#document-fragment', childNodes: x.nodes } as unknown as P5Parent)) : [];
       const r = first.fromWalk(next);
-      fromWalkStat(r?.why ?? null);
+      if (r?.spent) for (const x of rowsWere) restoreTree(x.slice(1));
       if (check && r?.spent !== false) { check.frames.length = lens![0]!; check.exprs.length = lens![1]!; check.resources.length = lens![2]!; }
       if (!r || r.spent || quiet) {
-        let got: CompiledParts & { canonicalOnly?: boolean };
-        if (!r) got = first.finishPage(walk);
-        else {
+        let got: (CompiledParts & { canonicalOnly?: boolean }) | null = null, why = r?.why ?? null;
+        if (!r) {
+          got = first.finishPage(walk);
+          // (the output off the unit's objects, which are given back before anything else places the unit: the audit's)
+          if (first.placedUnit) { got = detachOutput(got); restoreUnit(first); }
+          // code it ships reads a value the second pass writes into the code (the walk compiled every read as one)
+          if (values && shipsFold(got, values)) { why = 'values folded into the code that ships'; got = null; }
+          // a page that is not quiet, which its finish found not clean: the old route did not unroll its loops; compiled so
+          else if (settles && got.diagnostics.some((d) => d.severity === 'error' && d.code !== 'SN322')) {
+            fromWalkStat('a loop unrolled on a page that is not quiet, not clean');
+            const p2 = { first: null as Compiler | null };
+            try { return withoutFromWalk(() => compileTwice(html, options, p2)); } finally { if (p2.first) restoreUnit(p2.first); }
+          }
+        }
+        fromWalkStat(why);
+        if (!got) {
           passStat(!options.page ? 'a page of its own' : options.templates ? 'an entry compiled alone' : 'an entry, no kept templates');
-          const c2 = new Compiler(next);
-          got = unitPass(c2, () => c2.run(html), () => new Compiler(next).run(html));
+          // (as `second` compiles it: the values folded, unless a component script left in the page may change one)
+          const run = (f: Map<string, unknown> | undefined) => { const o2: CompileOptions = { ...next, ...(f ? { folds: f } : {}) }, c2 = new Compiler(o2); return unitPass(c2, () => c2.run(html), () => new Compiler(o2).run(html)); };
+          got = run(values);
+          if (values && foldsEscape(got, values)) got = run(undefined);
         }
         const out = withFirstErrors(errors, check ? { ...got, check } : got);
-        if (proc?.env.SN_FROM_WALK_AUDIT === '1') fromWalkAudit(html, options, out, !r);
+        if (proc?.env.SN_FROM_WALK_AUDIT === '1') { restoreUnit(first); fromWalkAudit(html, options, out, why === null); }
         return out;
       }
-    } else fromWalkStat(first.needsMarkup || consts ? 'constants the layout or the images read (prefold)' : folds ? 'values folded into the code' : loops && !quiet ? 'a loop unrolled on a page that is not quiet' : 'nothing decided');
+      pending = r.why;
+    } else pending = first.needsMarkup || consts ? 'constants the layout or the images read (prefold)' : loops && !quiet ? 'a loop unrolled on a page that is not quiet' : first.placedUnit && !first.checkOrder ? 'a unit placed, its check data out of order' : values && first.foldGain(values) ? 'values folded into the code' : 'nothing decided';
     // (the old route from here, with these decisions where they are all it reads)
-    if (!quiet || first.needsMarkup || folds || !(first.decided.size || unrolled || consts)) first.settleAgain();
+    if (!quiet || first.needsMarkup || !(first.decided.size || unrolled || consts)) first.settleAgain();
   }
   // a second pass whatever the rest of the first one does: nothing of that rest is read (its markup, its tables, its
   // diagnostics), so the first stops at its decisions. Known only when the rest cannot report an error (`quietFinish`)
@@ -1782,25 +1892,37 @@ function compileTwice(html: string, options: CompileOptions, pass: { first: Comp
   // unit placed, only where the walk took the unit's check data in its order: `units.ts`)
   if (twice && first.quietFinish() && (!first.placedUnit || first.checkOrder)) {
     const got = second(isClean()), out = got && withFirstErrors(first, first.check ? { ...got, check: first.check } : got);
-    if (out && fromWalk && proc?.env.SN_FROM_WALK_AUDIT === '1') fromWalkAudit(html, options, out, false);
+    // (the first pass's unit given back first: the audit's compile places it again)
+    if (out && fromWalk && proc?.env.SN_FROM_WALK_AUDIT === '1') { restoreUnit(first); fromWalkAudit(html, options, out, false); }
     if (out) return out;
   }
   // a first pass that is finished (its output, or its diagnostics read): compiled again without the build's units, whose
   // objects it shares and whose numbers would then reach the output (`units.ts`)
+  // (A2, stage5-a1.md: compiled again with a finished unit of its own, as a second pass places one, its output copied
+  // off it; not under the type check, whose unit this pass's output carries and a finished unit has no part of)
+  let finished: CompiledParts & { canonicalOnly?: boolean } | null = null;
   if (first.placedUnit || first.earlyDefs) {
     unitFallback('a first pass that is finished');
     restoreUnit(first);
-    first = pass.first = new Compiler({ ...options, units: undefined });
-    walk = first.walkPage(html);
-    if (options.prefetchLater) pass.described = first.firstPrefetch();
-    first.settle();
+    const again = (units: boolean) => {
+      first = pass.first = new Compiler(units ? options : { ...options, units: undefined });
+      if (units) first.finishedFirst = true;
+      walk = first.walkPage(html);
+      if (options.prefetchLater) pass.described = first.firstPrefetch();
+      first.settle();
+    };
+    if (options.units && units2On() && !options.check && !options.dev) {
+      const c = new Compiler(options);
+      finished = unitPass(c, () => { first = pass.first = c; c.finishedFirst = true; walk = c.walkPage(html); if (options.prefetchLater) pass.described = c.firstPrefetch(); c.settle(); return c.finishPage(walk, true); },
+        () => { again(false); return first.finishPage(walk, true); });
+    } else again(false);
   }
-  const out = first.finishPage(walk, true);
+  const out = finished ?? first.finishPage(walk, true);
   // `data-sn-if` templates over state nothing writes: decided now, the page compiled again with their branches in place
   const withLate = (o: typeof out) => (o.lateDiagnostics ? { ...o, diagnostics: [...o.diagnostics, ...o.lateDiagnostics] } : o);
   if (!twice) { SHIFT_STATS.first ||= first.hasDefinitions() || proc?.env.SN_UNITS_SHIFT_AT === 'walk'; return withLate(out); }
   const next = second(isClean());
-  if (!next) { SHIFT_STATS.first ||= first.hasDefinitions() || proc?.env.SN_UNITS_SHIFT_AT === 'walk'; return withLate(out); }
+  if (!next) { noSecond(); SHIFT_STATS.first ||= first.hasDefinitions() || proc?.env.SN_UNITS_SHIFT_AT === 'walk'; return withLate(out); }
   // the type check reads the page as written: in the second pass an unrolled loop's rows have no loop variable, so a
   // component prop in one (`{ post: p }`) was SN208 "Cannot find name 'p'" in `sinter check` of a `static` page
   return withFirstErrors(first, out.check ? { ...next, check: out.check } : next);
@@ -2059,6 +2181,8 @@ class Compiler {
   unitStale: string | null = null;
   /** a second pass run by `unitPass`, which copies its output off a unit of its own and gives the unit back: only such a pass places one */
   unitHeld = false;
+  /** a first pass compiled again to be the page's output (A2, `compileTwice`): it places a unit as a second pass does */
+  finishedFirst = false;
   /** a second pass with a unit: the definitions its walk asked for, each of which the unit must hold and no other (`finishPage`) */
   readonly defsAsked = new Set<string>();
   /** what this page changed of its unit's objects, as they were (`touch`, `restoreUnit`) */
@@ -2508,15 +2632,7 @@ class Compiler {
     // the lists whose rows arrive after the first paint: their space, before anything else reads the markup's bindings
     if (layout) this.planSpace(doc, layout);
     if (layout && this.dry) { this.dry.imgs = this.layoutAnswers(doc, layout); this.dry.space = this.spaceAnswers(); }
-    const images = this.opts.images ? rewriteImages(doc, {
-      host: this.opts.images, root: this.opts.root,
-      ...(layout ? { layout: (el: P5Element) => layout.box(el), maxWidth: (el: P5Element) => layout.maxWidth(el), fluidSizes: (el: P5Element, w?: number) => layout.fluidSizes(el, w), autoFitRows: () => layout.autoFitRows, scaled: (el: P5Element, what: 'box' | 'bound') => this.scaledWidth(layout, el, what) } : {}),
-      // a folded `src` is the URL the browser would have loaded, relative to the page
-      fileOf: (el) => RENDERED_FILE.get(el) ?? (this.foldedUrl.has(el) ? this.opts.file : this.origins.get(el)?.file ?? this.opts.file),
-      warn: (el, a, code, message, hint) => this.report(el, a, code, message, 0, hint),
-      // the first pass, rows rendered: a template's image as it was, which the rows it renders stand for (`rowRenderer`)
-      ...(this.keepsAttrs ? { rewrote: (el: P5Element, before: P5Element['attrs']) => REWROTE.set(el, before) } : {}),
-    }) : undefined;
+    const images = this.opts.images ? rewriteImages(doc, this.imageContext(layout)) : undefined;
     this.renderedShown.forEach(([e], i) => { e.attrs = painted[i]!; });
     // (the marks of rendered images, after the image pipeline, as the old route's walk writes them)
     for (const [e, marks] of this.renderedLate) for (const m of marks) setAttr(e, m.name, m.value);
@@ -2536,15 +2652,27 @@ class Compiler {
     // builds: the page's definitions from the build's units, before anything is numbered (`units.ts`); in a second pass
     // (whose numbers ship) a unit of its own, held whole and given back after the page's output is copied (stage5-a1.md)
     // (a second pass's: the definitions of the points left in its tree, which its walk compiles, `livePoints`)
-    // (only a second pass that gives its unit back after its output, `unitPass`: any other compiles as before)
-    const live = second && this.unitHeld && this.opts.units && unitsOn() && units2On() && !this.opts.describeOnly && !this.opts.dev ? this.livePoints(doc) : null;
-    if (this.opts.units && unitsOn() && (!second || live?.size) && !this.opts.describeOnly && !this.opts.dev) {
-      this.placedUnit = placeUnits(this, this.opts.units as UnitStore, [this.keepsAttrs, this.opts.locale?.name ?? '', this.page.axisUrl ?? ''].join('\u0001'), second, live ?? undefined);
-      if (second) holdUnit(this);
+    // (only a second pass that gives its unit back after its output, `unitPass`: any other compiles as before; a first
+    // pass that is finished, compiled again to be the output, places one as a second pass does: A2)
+    const ships = second || this.finishedFirst;
+    // (not with a source map: a function the page and the unit both write is at the unit's place, which comes first,
+    // where the old route has the page's when the page wrote it first: another site, not another number. Counted)
+    if (ships && this.unitHeld && this.opts.units && this.opts.sourcemap && unitsOn() && units2On() && !this.opts.describeOnly && !this.opts.dev && this.livePoints(doc).size) unitFallback('pass 2: a source map');
+    const live = ships && this.unitHeld && !this.opts.sourcemap && this.opts.units && unitsOn() && units2On() && !this.opts.describeOnly && !this.opts.dev ? this.livePoints(doc) : null;
+    if (this.opts.units && unitsOn() && (!ships || live?.size) && !this.opts.describeOnly && !this.opts.dev) {
+      // (B1: what placing it adds to the page's tables, which the second pass from this walk takes out: `fromWalk`)
+      const sizes = this.fw && this.pointNames.length ? this.fwSizes() : null;
+      this.placedUnit = placeUnits(this, this.opts.units as UnitStore, [this.keepsAttrs, this.opts.locale?.name ?? '', this.page.axisUrl ?? '', this.finishedFirst ? 'first' : ''].join('\u0001'), ships, live ?? undefined);
+      if (sizes && (this.placedUnit || this.earlyDefs)) { this.fw!.unit = { ...this.fwSince(sizes), f1: this.fns.length, fnUses: this.fnUses.slice() }; this.fwWatchUnit(); }
+      if (ships) holdUnit(this);
       // (a unit refused after its definitions were compiled here: the page compiled again without one, `compileTwice`)
-      if (second && !this.placedUnit && this.earlyDefs) this.unitStale = 'its unit refused';
+      if (ships && !this.placedUnit && this.earlyDefs) this.unitStale = 'its unit refused';
     }
-    this.walkChildren(doc, { scope: { loops: [], states: [] }, list: this.roots, tid: -1, path: [], stateIdx: -1 });
+    const walking = FW_WALKING;
+    FW_WALKING = this.fw;
+    try { this.walkChildren(doc, { scope: { loops: [], states: [] }, list: this.roots, tid: -1, path: [], stateIdx: -1 }); } finally { FW_WALKING = walking; }
+    // (B1: the unit's entries watched in the walk only: what follows goes over every definition, `fwWatchUnit`)
+    if (this.fw?.watched) for (const o of this.fw.watched.splice(0)) for (const m of ['get', 'has', 'set', 'delete', 'add']) delete (o as unknown as Record<string, unknown>)[m];
     this.finishTreeFills();
     this.defRootBindings();
     this.finishChoices();
@@ -2562,10 +2690,10 @@ class Compiler {
     if (this.opts.embed) this.addPlaceholders(doc);
     this.placeholders();
     // read by what the second pass decided and took out (a branch, a list with no entries): read
-    const folded = new Set(this.foldedText.flatMap((t) => t.match(/[A-Za-z_$][\w$]*/g) ?? []));
+    let folded: Set<string> | undefined;
     for (const n of this.renderedReads) { const info = this.page.resources.get(n); if (info) info.used = true; }
     for (const info of this.page.resources.values()) {
-      if (!info.used && !folded.has(info.name)) {
+      if (!info.used && !(folded ??= foldedNames(this.foldedText)).has(info.name)) {
         const el = this.resourceEls.get(info.name)!;
         this.report(el, 'name', 'SN501', `resource \`${info.name}\` is declared but never read`, 0);
       }
@@ -2573,6 +2701,21 @@ class Compiler {
     this.runTargets();
     if (this.opts.swap && !this.swapOff) this.swapScripts(doc);
     this.runCycles();
+    // (B1: where an embedded resource's element stood, whose id is in document order: `renumberIds`)
+    if (this.fw && this.embedded.size) {
+      const ids = new Map([...this.embedded].flatMap(([n, id]) => { const el = this.resourceEls.get(n); return el ? [[el, id] as const] : []; }));
+      const out = new Set<P5Node>(this.remove);
+      for (const el of this.remove) {
+        const id = ids.get(el), p = el.parentNode as P5Parent | null;
+        if (id === undefined || !p) continue;
+        // (the next node that stays and may hold an id: an element, an anchor; the elements after it may go too, the
+        // texts merge)
+        const kids = p.childNodes as P5Node[];
+        let k = kids.indexOf(el as never) + 1;
+        while (k < kids.length && (out.has(kids[k]!) || !(isElement(kids[k]!) || kids[k]!.nodeName === '#comment'))) k++;
+        (this.fw.gone ??= []).push({ id, parent: p, next: kids[k] ?? null });
+      }
+    }
     for (const el of this.remove) detach(el);
     this.markLowPriority();
     this.walked = this.diagnostics.length;
@@ -2724,7 +2867,9 @@ class Compiler {
       return !!m && m[2] !== '*' && m[2] !== '**' && !written.has(`$s${m[1]}`) && !written.has(`$s${m[1]}.${m[2]}`);
     });
     // (or a loop over constants, which it may render)
-    return this.fw.anchors.some((a) => a.node?.b.some((b) => b.f !== undefined && (b.k === 'if' ? fixed(b.d) || this.fns[b.f]!.includes('$.$build') : b.k === 'for' && !b.e && fixed(b.d))));
+    // (or a choice over constants, whose case it may render)
+    return this.fw.anchors.some((a) => a.node?.b.some((b) => b.f !== undefined && (b.k === 'if' ? fixed(b.d) || this.fns[b.f]!.includes('$.$build') : b.k === 'for' && !b.e && fixed(b.d)))
+      || (a.kind === 'choice' && ((n) => !!n && !!this.pointOf.get(n)?.pick && fixed(this.pointOf.get(n)!.pick!.deps))(this.choices.get(a.el)?.group.node)));
   }
 
   /**
@@ -2733,6 +2878,21 @@ class Compiler {
    * SN211, a model's or a binding's), and a page per entry reading its pattern's parameters (SN345); the rest
    * reports warnings, late ones, or SN322, which `clean` does not count.
    */
+  /**
+   * B1: a first pass that is not quiet (`quietFinish`), whose finish would find what the second pass from its walk finds:
+   * no decided branch or loop the route drops added what `finishPage`'s errors read (a `$url` list's binding, a page
+   * model, a write of the URL, a read of `$url` on a page per entry), and no signed-in guard. Then the route finishes it,
+   * and its errors are the old route's first pass's: none, or it is compiled the old way (`compileTwice`).
+   */
+  fwFinishAlike(): boolean {
+    if (!this.fw || this.signedIn) return false;
+    for (const a of this.fw.anchors) {
+      if (a.added.has('urlBinds') || a.added.has('pageModels') || a.added.has('page.urlWrites')) return false;
+      if (this.pagesDecl) for (const i of a.uses.keys()) if (i >= a.f0 && this.fns[i]?.includes('$url')) return false;
+    }
+    return true;
+  }
+
   quietFinish(): boolean {
     return !this.signedIn && !this.pagesDecl && !this.urlBinds.length && !this.pageModels.length && !this.page.urlWrites?.length;
   }
@@ -5808,8 +5968,8 @@ class Compiler {
   }
 
   /** After the walk: each shared definition's root takes the bindings for the tag attributes its uses pass. */
-  defRootBindings() {
-    for (const [, r] of this.defRoots) {
+  defRootBindings(roots: Iterable<[P5Element, { rt: string; node?: NodeDef }]> = this.defRoots) {
+    for (const [, r] of roots) {
       const keys = this.defAttrs.get(r.rt);
       if (!keys?.size || !r.node) continue;
       touch(this, r.node.b); touch(this, r.node);
@@ -6222,7 +6382,8 @@ class Compiler {
       if (kept && /^[A-Za-z][\w-]*$/.test(kept)) this.nextId = keptBase(kept);
       if (kept) this.keptDepth++;
       // (B1: a page-level branch or loop, recorded for the second pass from this walk: `fromWalk`)
-      const fw = ctx.tid < 0 && child.tagName === 'template' && !this.keptDepth && this.fw ? this.fwStart(child, ctx) : null;
+      // (and a candidate of a page-level `<sn-component use>`, §22)
+      const fw = ctx.tid < 0 && (child.tagName === 'template' || this.choices.has(child)) && !this.keptDepth && this.fw ? this.fwStart(child, ctx) : null;
       const res = this.element(child, ctx, i, lastIf);
       if (fw) this.fwEnd(fw);
       if (kept) this.keptDepth--;
@@ -6338,19 +6499,18 @@ class Compiler {
     }
 
     const sn = el.attrs.filter((a) => a.name.startsWith('data-sn-'));
-    const get = (n: string) => sn.find((a) => a.name === `data-sn-${n}`)?.value;
-    const has = (n: string) => sn.some((a) => a.name === `data-sn-${n}`);
+    const get = (n: string) => { const name = snName(n); for (const a of sn) if (a.name === name) return a.value; return undefined; };
+    const has = (n: string) => { const name = snName(n); for (const a of sn) if (a.name === name) return true; return false; };
 
     // unknown attributes
     // with the names `declaration()` gives `data-sn-props` for the compiler (the old names are reported there)
-    const known = new Set<string>([...ATTRS.map((a) => `data-sn-${a}`), 'data-sn-component', 'data-sn-head', 'data-sn-layout']);
     for (const a of sn) {
-      if (known.has(a.name) || a.name.startsWith('data-sn-on-') || a.name.startsWith('data-sn-debounce-')) continue;
+      if (KNOWN_SN.has(a.name) || a.name.startsWith('data-sn-on-') || a.name.startsWith('data-sn-debounce-')) continue;
       const retired = RETIRED[a.name];
       if (retired) { this.report(el, a.name, 'SN101', `\`${a.name}\` ${retired}`, 0); continue; }
       const by = SET_BY_SINTER[a.name];
       if (by) { this.report(el, a.name, 'SN101', `\`${a.name}\` is set by sinter (${by}): style it with \`[${a.name}]\`, do not write it`, 0); continue; }
-      this.report(el, a.name, 'SN101', `\`${a.name}\` is not a sinter attribute.${didYouMean(a.name, [...known, 'data-sn-on-click'])}`, 0);
+      this.report(el, a.name, 'SN101', `\`${a.name}\` is not a sinter attribute.${didYouMean(a.name, [...KNOWN_SN, 'data-sn-on-click'])}`, 0);
     }
 
     if (has('layout') && !use?.layout) this.report(el, 'data-sn-layout', 'SN101', `\`data-sn-layout\` ${RETIRED['data-sn-layout']}`, 0);
@@ -6640,8 +6800,8 @@ class Compiler {
    */
   bindings(el: P5Element, node: NodeDef, scope: Scope, ctx: Ctx, use?: Use) {
     const sn = el.attrs.filter((a) => a.name.startsWith('data-sn-'));
-    const get = (n: string) => sn.find((a) => a.name === `data-sn-${n}`)?.value;
-    const has = (n: string) => sn.some((a) => a.name === `data-sn-${n}`);
+    const get = (n: string) => { const name = snName(n); for (const a of sn) if (a.name === name) return a.value; return undefined; };
+    const has = (n: string) => { const name = snName(n); for (const a of sn) if (a.name === name) return true; return false; };
     const valueB = (k: 'text' | 'show', name: string) => {
       const r = this.expr(el, name, scope, { mode: 'value', ...(k == 'show' ? { cond: true } : {}) });
       if (r.ok) node.b.push(this.binding({ k, f: this.fn(r.code), d: r.deps, ...usesEl(r), s: this.selection(scope, attr(el, name) ?? '', r.ast, r) }));
@@ -6925,6 +7085,12 @@ class Compiler {
     if (i === undefined) {
       this.fnIndex.set(code, (i = this.fns.push(code) - 1));
       this.fnAt[i] = this.codeAt.get(code) ?? (site !== undefined ? site : this.at);
+    }
+    else if (FW_WALKING && !FW_COUNTING) {
+      // (B1: the page's own first call of code made before it, by a recorded branch's walk or the unit: its site, which
+      // the second pass gives the function, `fromWalk`; the route's walks apart, they come in another order)
+      const m = FW_WALKING.routing ? (FW_WALKING.rewalkAt ??= new Map()) : (FW_WALKING.pageAt ??= new Map());
+      if (!m.has(i)) m.set(i, site !== undefined ? site : this.at);
     }
     this.fnUses[i] = (this.fnUses[i] ?? 0) + 1;
     if (FW_COUNTING) FW_COUNTING.set(i, (FW_COUNTING.get(i) ?? 0) + 1);
@@ -8965,7 +9131,12 @@ class Compiler {
     // keeps it, whatever each page passes it, and the next page's code takes them over (swaps, §3)
     if (!reuse) {
       for (const { el, node } of this.paints) for (const b of node.b) { value(el, b, false); if (!this.inKept(el)) { decide(el, b); unroll(el, b); } }
-      for (const [node, el] of this.tplEls) for (const b of node.b) { value(el, b, true); decide(el, b); }
+      // a unit's elements come first (placed before the page's walk): its part of the candidates, read once for the build
+      // (`unitCands`), each asked here only what depends on the page
+      const mine = this.placedUnit ? unitCands(this.placedUnit, this.tplEls, this.fns) : null;
+      if (mine) for (const x of mine.list) { if (x.k === 0) { if (fixed(x.b.d)) cands.push({ el: x.el, b: x.b, f: x.b.f!, tpl: true }); } else decide(x.el, x.b); }
+      let skip = mine?.size ?? 0;
+      for (const [node, el] of this.tplEls) { if (skip) { skip--; continue; } for (const b of node.b) { value(el, b, true); decide(el, b); } }
     }
     const choosing = reuse ? kept!.choosing : this.collecting() && [...this.pointOf.values()].some((p) => p.pick);
     if (!cands.length && !choosing && !this.textRoots.length) return;
@@ -9117,7 +9288,7 @@ class Compiler {
       const odd = names.some((n) => !/^[\w$]+$/.test(n));
       rowFns = { names: names.join(','), pure: (code) => !odd && !re.test(code), make: (L, parts) => rowProgram(names, values, L, parts), audit: proc?.env.SN_ROW_FN_AUDIT === '1' };
     }
-    const work = this.worklist(fnOf, known, fixed, schemes, ROW, keep ? this.evalProgram!.walk : undefined, rowFns);
+    const work = this.worklist(fnOf, known, fixed, schemes, ROW, keep ? this.evalProgram!.walk : undefined, rowFns, written);
     for (const c of cands) {
       own = c.b.k === 'model' && c.b.p !== undefined ? (c.b.w![0] as string).split('.').slice(0, 2).join('.') : null;
       let v = known(strs(c.b.d)) ? run(this.fns[c.f]!) : FAIL;
@@ -9148,6 +9319,9 @@ class Compiler {
       // a persisted model's written value is the fallback: the early chunk still applies the stored one
       if (own === null) { this.painted.add(c.b); this.paintValue.set(c.b, { k: w[0], n: c.b.n ?? null, v: w[1] }); }
     }
+    // (a model's own path is its own: past its candidate, a persisted field is persisted for every read, the texts' and
+    // the walk's below as the candidates' before it; redesign-notes/bugs.md, 7)
+    own = null;
     // a text node over constants: plain text in the HTML, its anchor pair gone, its binding and node dropped
     for (const t of texts) {
       const v = known(strs(t.b.d)) ? run(this.fns[t.b.f!]!) : FAIL;
@@ -9194,8 +9368,10 @@ class Compiler {
     if (values) {
       const m = FOLD_MEMO.get(values);
       // (the editor compiles one file again at every edit: what it no longer calls is dropped now and then)
-      if (m?.file === this.opts.file && m.calls.size < 512) rec = m;
-      else FOLD_MEMO.set(values, (rec = { file: this.opts.file, calls: new Map(), refs: new WeakMap(), n: 0 }));
+      // (a template's entries are one file and pages of their own: each entry starts again, as each page does; kept for
+      // the template's 512 calls, it held every entry's arguments and results until the build's end)
+      if (m?.file === this.opts.file && m.page === this.opts.page && m.calls.size < 512) rec = m;
+      else FOLD_MEMO.set(values, (rec = { file: this.opts.file, page: this.opts.page, calls: new Map(), refs: new WeakMap(), n: 0 }));
     }
     const memo = rec?.calls ?? null;
     /** an argument that is a result the page handed out: that call, not its (large) value */
@@ -9272,7 +9448,7 @@ class Compiler {
           memo?.set(mk, { v: out });
           if (rec && this.opts.foldLog) {
             const id = rec.n++;
-            this.opts.foldLog(key, a.map((x): FoldArg => { const r = refOf(x); return r === undefined ? { v: structuredClone(x) } : { r }; }), resultKey(v), id);
+            this.opts.foldLog(key, a.map((x): FoldArg => { const r = refOf(x); return r === undefined ? { v: cloneArg(x) } : { r }; }), resultKey(v), id);
             // (a result shared by two calls, `frozenPlain`: named by the first)
             if (out && typeof out === 'object' && !rec.refs.has(out)) rec.refs.set(out, id);
           }
@@ -9450,18 +9626,20 @@ class Compiler {
    * instances per page, any list's rows counted (`SN536` past it, at the loop or the tree that crosses it).
    */
   /** `memo`: what the walk reads of the program, kept with a kept template's program (`evalProgram`) for its next entry */
-  worklist(fnOf: FnTable, known: (deps: string[]) => boolean, fixed: (ds: PathRef[] | undefined) => boolean, schemes: Set<string>, ROW: Set<string>, memo: WalkMemo = newWalkMemo(), rowFns: RowFns | null = null) {
+  worklist(fnOf: FnTable, known: (deps: string[]) => boolean, fixed: (ds: PathRef[] | undefined) => boolean, schemes: Set<string>, ROW: Set<string>, memo: WalkMemo = newWalkMemo(), rowFns: RowFns | null = null, writtenNow?: Set<string>) {
     // (`recs`: the top rows of a loop as `rowRenderer` reads them, `RowRec`; recorded only when rows are rendered)
     // (`decided`: a key and what it is decided, or the candidates a choice in a row does not render, as one entry: each of
     // `keys` but `picked` decided false at `prefix` + its key, in the order of `keys`; `decidedEntries` spells it out)
     // (`paints`: what each row binding paints, flat, three entries each: the binding, its row's prefix, what it writes
     // (`firstPaintValue`'s pair) or null; `paintsOf` spells them out)
-    type Found = { unrolls: Array<[string, unknown[], PathRef[] | undefined]>; decided: Array<[string, boolean, PathRef[] | undefined] | NotRendered>; paints: unknown[]; recs?: RowRec[]; rows: number; over?: true };
+    // (a key as its prefix and the template's key, joined where it is committed: a rendered loop commits none, `Decided`)
+    type Found = { unrolls: Array<[string, string, unknown[], PathRef[] | undefined]>; decided: Decided[]; paints: unknown[]; recs?: RowRec[]; rows: number; over?: true };
     const rendering = renderOn();
     /** `pick`: a choice's case expanded (decided true), else a loop unrolled (`tid`, its rows' template) */
     const pending = new Map<string, { items: unknown[]; d: PathRef[] | undefined; found: Found; pick?: true; el: P5Element; tid?: number; picked?: PickedCase } | null>();
     const placementOf = new Map(this.runtimePlacements.map((P) => [P.node, P] as const));
-    const written = this.writtenState();
+    // (the state written: the evaluation's, `prerender`'s)
+    const written = writtenNow ?? this.writtenState();
     /**
      * Item 6: a handler a static tree keeps, which the page module adopts: it writes nothing and reads only
      * constants and its own `$el` (no data, URL, clock or state something writes)
@@ -9481,6 +9659,15 @@ class Compiler {
     const chosen = new Set<string>();
     /** the bindings whose paints in rows the layout and the images read (`constantSources`), for this evaluation: the program's, which the walk does not change */
     let constB: Set<Binding> | null = null;
+    // (`constantSources`, once for the walk and its renderer: neither changes what it reads)
+    let constList: ReturnType<Compiler['constantSources']> | null = null;
+    const constSources = () => (constList ??= this.constantSources());
+    // (a plan's binding in `constB`, asked once per evaluation: `cstOf` is the evaluation it was asked for)
+    const asked = {};
+    const constOf = (p: BindPlan): boolean => {
+      if (p.cstOf !== asked) { p.cst = (constB ??= new Set(constSources().flatMap((x) => x.s.bindings))).has(p.b); p.cstOf = asked; }
+      return p.cst!;
+    };
     const limit = this.opts.expansionLimit ?? EXPANSION_LIMIT;
     let left = limit;
     const run = (sc: object, code: string): unknown => {
@@ -9541,7 +9728,8 @@ class Compiler {
     };
     // (a row's item is shared with the data it is a part of, frozen once; a helper's result is copied, as a call takes it by value)
     const isResult = (x: object) => this.folding?.isResult(x) ?? false;
-    // (the heights of the frozen data `plainData` measured, for this evaluation)
+    // (the heights of the frozen data `plainData` measured, for this evaluation, of what was frozen without them; the
+    // rest's are where it was frozen, `DEEP_FROZEN`)
     const heights = new Map<object, number>();
     const listOf = (v: unknown): unknown[] | null => (Array.isArray(v) && v.every((x) => plainData(x, heights)) ? v : null);
     // (a placement's element is its `<slot>`; an anchor's, its template)
@@ -9613,7 +9801,7 @@ class Compiler {
       // its props are decided expressions like any other: fixed (nothing writes what they read) and known
       const props = c && fixed(c.deps) && known(c.deps) ? run(sc, caseCode(c)) : FAIL;
       if (!t?.item || props === FAIL || !plainData(props, heights)) return false;
-      out.decided.push([prefix + key, true, point.pick!.deps]);
+      out.decided.push([prefix, key, true, point.pick!.deps]);
       const recs: RowRec[] | undefined = rec ? [] : undefined;
       if (rec) rec[at] = { name, tid: c!.tid, props, rec: recs } satisfies PickedCase;
       return rowsOf(t, [props], prefix + key, sc, out, recs);
@@ -9680,7 +9868,7 @@ class Compiler {
               const pw = w === FAIL ? null : w;
               // (rendering, the record holds it: collected only when the layout or the images read it, `constB`, and read
               // back from the records for a loop the second pass compiles, `replayPaints`; the audit collects all, to compare)
-              if (!rec || audit || (constB ??= new Set(this.constantSources().flatMap((x) => x.s.bindings))).has(b)) out.paints.push(b, prefix, pw);
+              if (!rec || audit || constOf(p)) out.paints.push(b, prefix, pw);
               if (rec) rec[slot] = pw;
             } else if (rec && p.text && kn) { const v = valueAt(vals, slot, sc, p.code!); rec[slot] = v === undefined ? UNDEFINED : v; }
             continue;
@@ -9690,7 +9878,7 @@ class Compiler {
           const v = key ? valueAt(vals, slot, sc, p.code!) : FAIL;
           if (v === FAIL) return false;
           if (b.k === 'if') {
-            out.decided.push([prefix + key, !!v, b.d]);
+            out.decided.push([prefix, key!, !!v, b.d]);
             if (rec) rec[slot] = !!v;
             const other = b.y !== undefined ? nodes[b.y]?.b.find((x) => x.k === 'else')?.x : undefined;
             const kept = v ? this.templates[b.x!] : other !== undefined ? this.templates[other] : undefined;
@@ -9702,7 +9890,7 @@ class Compiler {
           }
           const items = listOf(v), t = this.templates[b.x!];
           if (!items || !t?.item) return false;
-          out.unrolls.push([prefix + key, items, b.d]);
+          out.unrolls.push([prefix, key!, items, b.d]);
           const recs: RowRec[] | undefined = rec ? [] : undefined;
           if (rec) rec[slot] = recs;
           if (!rowsOf(t, items, prefix + key, sc, out, recs)) return false;
@@ -9734,7 +9922,7 @@ class Compiler {
             const top: RowRec | undefined = rendering ? [] : undefined;
             const ok = expandCase(point, ch.picked!, ck, sc, '', found, top, 0);
             // (a choice in its rows whose candidates' keys could be this one: spelled out, to leave that one out)
-            found.decided = found.decided.flatMap((e): Found['decided'] => (Array.isArray(e) ? (e[0] !== ck ? [e] : [])
+            found.decided = found.decided.flatMap((e): Found['decided'] => (Array.isArray(e) ? (e[0] + e[1] !== ck ? [e] : [])
               : [...e.keys.values()].some((k) => e.prefix + k === ck) ? [...decidedEntries([e])].filter(([k]) => k !== ck) : [e]));
             const picked = top?.[0] as PickedCase | undefined;
             pending.set(ck, pending.has(ck) || (!ok && !found.over) ? null : { items: [], d: point.pick!.deps, found, pick: true, el, ...(picked ? { picked } : {}) });
@@ -9858,7 +10046,7 @@ class Compiler {
           this.foldReads.set(key, this.stateSites(p.d));
           // rows rendered here (`rowRenderer`): the second pass splices them in, and reads nothing decided in them by
           // key; the state they read is the loop's, for `foldedState`
-          const done = rendering && (render ??= this.rowRenderer(handlerOnly, ROW, placementOf, memo))(key, p);
+          const done = rendering && (render ??= this.rowRenderer(handlerOnly, ROW, placementOf, memo, constSources))(key, p);
           if (done) {
             this.rendered.set(key, done);
             const reads = this.foldReads.get(key)!;
@@ -9871,12 +10059,12 @@ class Compiler {
               if (!s) sitesOf.set(d, s = this.stateSites(d));
               for (const x of s) reads.add(x);
             };
-            for (const [, , d] of p.found.unrolls) add(d);
-            for (const e of p.found.decided) add(Array.isArray(e) ? e[2] : e.d);
+            for (const [, , , d] of p.found.unrolls) add(d);
+            for (const e of p.found.decided) add(Array.isArray(e) ? e[e.length - 1] as PathRef[] | undefined : e.d);
             for (const x of done.state) reads.add(x);
             // what the layout and the images read of the rows (an image's attributes, a class or a style): collected as
             // the old route collects it (`collectConstants`), which decides what the second pass is handed
-            constB ??= new Set(this.constantSources().flatMap((x) => x.s.bindings));
+            constB ??= new Set(constSources().flatMap((x) => x.s.bindings));
             if (constB.size) for (const [b, prefix, w] of paintsOf(paintsFor(p, key, constB))) {
               if (!constB.has(b)) continue;
               let m = this.rowPaint.get(b);
@@ -9885,7 +10073,7 @@ class Compiler {
             }
             continue;
           }
-          for (const [k, items, d] of p.found.unrolls) { this.unrolls.set(k, items); this.foldReads.set(k, this.stateSites(d)); }
+          for (const [pre, k, items, d] of p.found.unrolls) { this.unrolls.set(pre + k, items); this.foldReads.set(pre + k, this.stateSites(d)); }
           for (const [k, v, d] of decidedEntries(p.found.decided)) { this.decided.set(k, v); this.foldReads.set(k, this.stateSites(d)); }
           for (const [b, prefix, w] of paintsOf(paintsFor(p, key))) {
             let m = this.rowPaint.get(b);
@@ -9908,7 +10096,7 @@ class Compiler {
    * component's tag attributes, diagnostics in its templates), and a page whose layout, images or scoped styles read
    * the rows, is left to the second pass as before: the reason is counted (`SN_RENDER_LOG=1`).
    */
-  rowRenderer(handlerOnly: (b: Binding) => boolean, ROW: Set<string>, placementOf: Map<NodeDef, Compiler['runtimePlacements'][number]>, memo: WalkMemo = newWalkMemo()):
+  rowRenderer(handlerOnly: (b: Binding) => boolean, ROW: Set<string>, placementOf: Map<NodeDef, Compiler['runtimePlacements'][number]>, memo: WalkMemo = newWalkMemo(), constSources: () => ReturnType<Compiler['constantSources']> = () => this.constantSources()):
     (key: string, p: { items: unknown[]; found: { recs?: RowRec[]; rows: number }; pick?: true; tid?: number; el: P5Element; picked?: PickedCase }) => RenderedRows | null {
     // scoped styles: the minifier leaves their components' markup as written (`SCOPED`), and the walk marks the roots of
     // the uses it sees (`data-sn-c`/`-r`/`-s`, after the walk); in dev builds every root's `data-sn-c`, for devtools
@@ -9934,7 +10122,7 @@ class Compiler {
       if (folds) return folds;
       folds = new Map();
       const keys = new Map<string, number>();
-      const list = this.constantSources().filter((x) => FOLDED.includes(x.s.attr));
+      const list = constSources().filter((x) => FOLDED.includes(x.s.attr));
       for (const { key } of list) keys.set(key, (keys.get(key) ?? 0) + 1);
       for (const { s, key } of list) {
         let l = folds.get(s.node);
@@ -10008,6 +10196,67 @@ class Compiler {
      */
     type ClonePlan = { sinter: boolean; pre: P5Element['attrs'] | undefined; base: P5Element['attrs']; id: string | undefined; use: ReturnType<Compiler['useOf']['get']>; marks: P5Element['attrs']; marksOut: P5Element['attrs']; scoped: boolean; opaque: boolean };
     const clonePlans = new Map<P5Element, ClonePlan>();
+    /**
+     * A template's content as `render` copies it, the same in every row: its nodes in the order a walk of it meets them
+     * (an element, then its children, then a template's content, unless it is an anchor's, whose content is not
+     * copied), each with where its copy goes (`up`: the node whose copy holds it, -1 the row's own fragment; `content`:
+     * in that template's content), and each node's place in the list (`at`), by which `fill` finds a node's copy. An
+     * image the first pass rewrote in the template (its `<picture>`) is the image it was, at the picture's place too
+     */
+    type CloneList = { ops: Array<{ n: P5Node; up: number; content: boolean }>; at: Map<P5Node, number> };
+    const cloneLists = new Map<number, CloneList>();
+    /** what each node of a template is for `fill`, the same in every row: a choice or recursion point, a tree placement, a text, an element */
+    type NodeInfo = { point: ReturnType<Compiler['pointOf']['get']>; P: ReturnType<typeof placementOf.get>; text: boolean; el: P5Element | undefined };
+    const nodeInfos = new Map<NodeDef[], NodeInfo[]>();
+    const nodeInfo = (nodes: NodeDef[]): NodeInfo[] => {
+      let l = nodeInfos.get(nodes);
+      if (!l) nodeInfos.set(nodes, l = nodes.map((n) => ({ point: this.pointOf.get(n), P: placementOf.get(n), text: this.textMarks.has(n), el: this.tplEls.get(n) })));
+      return l;
+    };
+    /** an `if`'s `else` and what it folds (`fill`), by binding; a loop's list as written (null: no loop head), by binding */
+    const ifInfo = new Map<Binding, { other: NodeDef | undefined; otherTid: number | undefined; otherEl: P5Element | undefined; src: string; empty: string }>();
+    const forInfo = new Map<Binding, string | null>();
+    /** the component files of a case's markup, in the order a walk of it meets them (its elements' files and their CSS): the same in every row */
+    const caseFileLists = new Map<number, string[]>();
+    const caseFilesOf = (tid: number): string[] => {
+      let l = caseFileLists.get(tid);
+      if (l) return l;
+      l = [];
+      const walk = (p: P5Parent | undefined) => {
+        for (const x of p?.childNodes ?? []) {
+          if (!isElement(x)) continue;
+          const f = this.origins.get(x)?.file;
+          if (f && f !== this.opts.file) { l!.push(f); const css = cssOf.get(f); if (css) l!.push(css); }
+          walk(x);
+          if (x.tagName === 'template') walk((x as P5Template).content);
+        }
+      };
+      walk(contentOf(tid));
+      caseFileLists.set(tid, l);
+      return l;
+    };
+    const cloneList = (tid: number, src: P5Parent): CloneList => {
+      let l = cloneLists.get(tid);
+      if (l) return l;
+      const ops: CloneList['ops'] = [], at = new Map<P5Node, number>();
+      const visit = (n: P5Node, up: number, content: boolean) => {
+        if (isElement(n) && n.tagName === 'picture' && !this.origins.has(n) && REWROTE.has(n.childNodes.at(-1) as P5Element)) {
+          const img = n.childNodes.at(-1)!;
+          visit(img, up, content);
+          at.set(n, at.get(img)!);
+          return;
+        }
+        const i = ops.length;
+        ops.push({ n, up, content });
+        at.set(n, i);
+        if (!isElement(n)) return;
+        for (const c of n.childNodes) visit(c, i, false);
+        if (n.tagName === 'template' && !anchors.has(n)) for (const c of (n as P5Template).content.childNodes) visit(c, i, true);
+      };
+      for (const c of src.childNodes) visit(c, -1, false);
+      cloneLists.set(tid, l = { ops, at });
+      return l;
+    };
     const foldPlans = new Map<NodeDef, { fold: Compiler['attrSources']; folded: Set<Binding> } | null>();
     const clonePlan = (n: P5Element): ClonePlan => {
       let cp = clonePlans.get(n);
@@ -10031,12 +10280,14 @@ class Compiler {
      * not rendered if it is one they cannot be (a handler that stays, a kind no row paints), and whether the element's
      * style is written by its style bindings alone (no `data-sn-attr` of `style`), so that they can be written at once
      */
-    const fillPlans = new Map<NodeDef, { acts: Array<{ b: Binding; j: number; why: string | null }>; styles: boolean }>();
+    const fillPlans = new Map<NodeDef, { acts: Array<{ b: Binding; j: number; rd: boolean; why: string | null }>; styles: boolean }>();
     const fillPlan = (n: NodeDef, folded: Set<Binding>) => {
       let f = fillPlans.get(n);
       if (f) return f;
-      const acts = n.b.flatMap((b, j) => (defAttr.has(b) || b.k === 'else' || folded.has(b) ? [] : [{ b, j, why: b.k === 'if' || b.k === 'for' ? null : handlerOnly(b) ? 'handler' : !ROW.has(b.k) ? `a binding of kind ${b.k}` : null }]));
-      fillPlans.set(n, f = { acts, styles: styleBatchOn() && !acts.some(({ b }) => b.k === 'attr' && b.n?.toLowerCase() === 'style') });
+      // (`rd`: whether its dependencies add anything to the rows' reads, a resource or a state's site; most of a
+      // definition's read only its props, which have none)
+      const acts = n.b.flatMap((b, j) => (defAttr.has(b) || b.k === 'else' || folded.has(b) ? [] : [{ b, j, rd: strs(b.d).some((d) => /^\$(?:r|meta)\.[A-Za-z_$]/.test(d)) || this.stateSites(b.d).size > 0, why: b.k === 'if' || b.k === 'for' ? null : handlerOnly(b) ? 'handler' : !ROW.has(b.k) ? `a binding of kind ${b.k}` : null }]));
+      fillPlans.set(n, f = { acts, styles: styleBatchOn() && acts.some(({ b }) => b.k === 'style') && !acts.some(({ b }) => b.k === 'attr' && b.n?.toLowerCase() === 'style') });
       return f;
     };
     return (key, p) => {
@@ -10106,15 +10357,12 @@ class Compiler {
        * (`rootCopies`), slot content's copy none
        */
       let live = false;
-      const clone = (n: P5Node, parent: P5Parent, map: Map<P5Node, P5Node>): P5Node => {
+      /** a copy of one node of a template's content, its children not yet (`render` copies them in `cloneList`'s order) */
+      const clone = (n: P5Node, parent: P5Parent): P5Node => {
         let c: P5Node;
         if (n.nodeName === '#text') c = { nodeName: '#text', value: (n as DefaultTreeAdapterMap['textNode']).value, parentNode: parent } as unknown as P5Node;
         else if (n.nodeName === '#comment') c = { nodeName: '#comment', data: (n as DefaultTreeAdapterMap['commentNode']).data, parentNode: parent } as unknown as P5Node;
-        else if (isElement(n) && n.tagName === 'picture' && !this.origins.has(n) && REWROTE.has(n.childNodes.at(-1) as P5Element)) {
-          // an image the first pass rewrote in the template: the image it was, which the second pass rewrites in the
-          // row as it would rewrite the row's image (eager or not, in its box)
-          c = clone(n.childNodes.at(-1)!, parent, map);
-        } else if (isElement(n)) {
+        else if (isElement(n)) {
           const cp = clonePlan(n);
           // (one the walk keeps for the runtime, `data-sn-options`, `-navigate`, …: the walk adds what it needs)
           // (the first pass's marks of scoped styles aside: below)
@@ -10154,15 +10402,9 @@ class Compiler {
           if (pre) shownOf.set(e, pre);
           // a component's root whose tag binds what it shows: the minifier leaves it as written (`minify`'s `opaque`)
           if (cp.opaque) WRITTEN.set(e, 'opaque');
-          e.childNodes = n.childNodes.map((x) => clone(x, e, map)) as never[];
-          if (n.tagName === 'template') {
-            const content = { nodeName: '#document-fragment', childNodes: [] } as unknown as P5Template['content'];
-            if (!anchors.has(n)) content.childNodes = (n as P5Template).content.childNodes.map((x) => clone(x, content, map)) as never[];
-            (e as P5Template).content = content;
-          }
+          if (n.tagName === 'template') (e as P5Template).content = { nodeName: '#document-fragment', childNodes: [] } as unknown as P5Template['content'];
           c = e;
         } else c = { ...n, parentNode: parent } as P5Node;
-        map.set(n, c);
         return c;
       };
       /** `from` through `to` (siblings) replaced by `nodes` */
@@ -10193,9 +10435,15 @@ class Compiler {
         const t = this.templates[tid], src = contentOf(tid);
         if (!t || !src || !rec) no('no template');
         const frag = { nodeName: '#document-fragment', childNodes: [] } as unknown as P5Parent;
-        const map = new Map<P5Node, P5Node>();
-        frag.childNodes = src!.childNodes.map((c) => clone(c, frag, map)) as never[];
-        fill(t!.nodes, map, rec!);
+        // (the content copied node by node in the order a walk of it meets them, each into its place: `cloneList`)
+        const list = cloneList(tid, src!), ops = list.ops, out = new Array<P5Node>(ops.length);
+        for (let i = 0; i < ops.length; i++) {
+          const op = ops[i]!, up = op.up < 0 ? frag : op.content ? (out[op.up] as P5Template).content as unknown as P5Parent : out[op.up] as P5Parent;
+          const c = clone(op.n, up);
+          out[i] = c;
+          (up.childNodes as P5Node[]).push(c);
+        }
+        fill(t!.nodes, { get: (x: P5Node) => { const i = list.at.get(x); return i === undefined ? undefined : out[i]; } }, rec!);
         return frag.childNodes as P5Node[];
       };
       /** the attributes `prefold` writes on the element, in its order (its own attributes', then its tag's, each in `FOLDED` order) */
@@ -10211,12 +10459,28 @@ class Compiler {
         if (f === null) no('constants');
         return f!;
       };
-      const fill = (nodes: NodeDef[], map: Map<P5Node, P5Node>, rec: RowRec) => {
-        // (the record's places: by node, its bindings after it, `rowLayout`)
-        const L = rowLayout(memo, nodes);
+      const fill = (nodes: NodeDef[], map: { get(x: P5Node): P5Node | undefined }, rec: RowRec) => {
+        // (the record's places: by node, its bindings after it, `rowLayout`; what each node is: `nodeInfo`)
+        const L = rowLayout(memo, nodes), info = nodeInfo(nodes);
+        // (one binding of element `cl` (node `n`, its record's places from `pos`) written as its row decided: a function
+        // of the fill, not a closure made for each element, redesign-notes/alloc.md)
+        const paint = (cl: P5Element, n: NodeDef, pos: number, styles: StyleWrites | null, b: Binding, why?: string | null, j = n.b.indexOf(b), rd = true) => {
+          if (why === undefined) {
+            if (handlerOnly(b)) no('handler');
+            if (!ROW.has(b.k)) no(`a binding of kind ${b.k}`);
+          } else if (why) no(why);
+          // (what it writes, `firstPaintValue`'s pair; null: not written ahead)
+          const w = j < 0 ? undefined : rec[pos + 1 + j] as [Kind, unknown] | null | undefined;
+          if (w === undefined) no('not painted');
+          if (w === null) no('not written ahead');
+          if (w![0] === 'text') WRITTEN.set(cl, 'content');
+          if (styles && w![0] === 'style') styles.write(b.n!, w![1] as string | null);
+          else writeFirstPaint(cl, w![0], b.n ?? null, w![1], true);
+          if (rd) read(b.d);
+        };
         for (let i = 0; i < nodes.length; i++) {
-          const n = nodes[i]!, pos = L.base[i]!;
-          const point = this.pointOf.get(n);
+          const n = nodes[i]!, pos = L.base[i]!, ni = info[i]!;
+          const point = ni.point;
           if (point) {
             const cl = map.get(this.anchorEls.get(n)!);
             if (!cl) no('markup');
@@ -10233,7 +10497,7 @@ class Compiler {
             replace(cl, cl, instance(point.el, this.points.get(point.el), b!.x!, rows![0], rows![0]![0]));
             continue;
           }
-          const P = placementOf.get(n);
+          const P = ni.P;
           if (P) {
             const c = rec[pos] as { k: number; rec?: RowRec } | undefined;
             if (!c) no('placement');
@@ -10263,20 +10527,11 @@ class Compiler {
             }
             // (the files of the markup it renders: a default's components are a template of their own, and so are the
             // default's children a fill's `<slot>` places, which the old route's expansion reads where they render)
-            const caseFiles = (p: P5Parent | undefined) => {
-              for (const x of p?.childNodes ?? []) {
-                if (!isElement(x)) continue;
-                const f = this.origins.get(x)?.file;
-                if (f && f !== this.opts.file) { st.files.add(f); const css = cssOf.get(f); if (css) st.files.add(css); }
-                caseFiles(x);
-                if (x.tagName === 'template') caseFiles((x as P5Template).content);
-              }
-            };
-            caseFiles(contentOf(P.cases[c!.k]!));
+            for (const f of caseFilesOf(P.cases[c!.k]!)) st.files.add(f);
             try { replace(cl, cl, render(P.cases[c!.k]!, c!.rec)); } finally { for (const t of tops) fillMarks.delete(t); if (root !== undefined) for (const t of contentOf(P.cases[0]!)?.childNodes ?? []) fillMarks.delete(t); }
             continue;
           }
-          if (this.textMarks.has(n)) {
+          if (ni.text) {
             // (a text's value as it was, `UNDEFINED` for undefined; none: not recorded)
             const b = n.b[0], m = b && n.b.length === 1 ? rec[pos + 1] : undefined;
             if (m === undefined) no('text');
@@ -10295,31 +10550,17 @@ class Compiler {
             st.ids++;
             continue;
           }
-          const el = this.tplEls.get(n), cl = el && map.get(el) as P5Element | undefined;
+          const el = ni.el, cl = el && map.get(el) as P5Element | undefined;
           if (!el || !cl) no('markup');
           let bound = false;
           // (the element's style, when its style bindings alone write it: their declarations at once, `StyleWrites`)
           let styles: StyleWrites | null = null;
-          const paint = (b: Binding, why?: string | null, j = n.b.indexOf(b)) => {
-            if (why === undefined) {
-              if (handlerOnly(b)) no('handler');
-              if (!ROW.has(b.k)) no(`a binding of kind ${b.k}`);
-            } else if (why) no(why);
-            // (what it writes, `firstPaintValue`'s pair; null: not written ahead)
-            const w = j < 0 ? undefined : rec[pos + 1 + j] as [Kind, unknown] | null | undefined;
-            if (w === undefined) no('not painted');
-            if (w === null) no('not written ahead');
-            if (w![0] === 'text') WRITTEN.set(cl!, 'content');
-            if (styles && w![0] === 'style') styles.write(b.n!, w![1] as string | null);
-            else writeFirstPaint(cl!, w![0], b.n ?? null, w![1], true);
-            read(b.d);
-          };
           // what the second pass writes before the layout and the images (`prefold`: an image's attributes, a class or
           // style the layout reads): first, in its order; the element then has only the others' bindings (and an id only
           // for them), and the layout, the images and the minifier read those as bindings (`shownOf`)
           const { fold, folded } = foldOf(el!, n);
           for (const x of fold) for (const b of x.bindings) {
-            paint(b);
+            paint(cl!, n, pos, styles, b);
             // (a `src` written there is the page's: `foldedUrl`)
             if (cl!.tagName === 'img' && x.attr === 'data-sn-attr' && (b.n === 'src' || b.n === 'srcset')) RENDERED_FILE.set(cl!, this.opts.file);
           }
@@ -10332,43 +10573,53 @@ class Compiler {
             if (WRITTEN.get(cl!) === 'opaque' && host && !host.attrs.some((a) => /^data-sn-(class|style|show|attr)$/.test(a.name) && !hostGone.has(a.name))) WRITTEN.delete(cl!);
           }
           // (an axis list's link: marked as the walk meets it, after `prefold`'s writes)
-          const pt = axisMark.get(cl!);
+          const pt = axisMark.size ? axisMark.get(cl!) : undefined;
           if (pt) cl!.attrs.push(pt);
           // (the marks of scoped styles, after `prefold`'s writes and before the paints)
-          const marks = MARKED.get(cl!);
+          const marks = marking ? MARKED.get(cl!) : undefined;
           if (marks && cl!.tagName === 'img' && !n.b.some((b) => !defAttr.has(b) && b.k !== 'else' && !folded.has(b))) late.push([cl!, marks]);
           else if (marks) for (const m of marks) setAttr(cl!, m.name, m.value);
           const plan = fillPlan(n, folded);
           if (plan.styles) styles = new StyleWrites(cl!);
-          for (const { b, why, j } of plan.acts) {
+          for (const { b, why, j, rd } of plan.acts) {
             if (b.k === 'if') {
               const v = rec[pos + 1 + j] as boolean | undefined;
               if (v === undefined || b.x === undefined) no('if');
-              const other = b.y !== undefined ? nodes[b.y] : undefined, otherTid = other?.b.find((x) => x.k === 'else')?.x;
-              const otherEl = other && (this.tplEls.get(other) ?? this.anchorEls.get(other));
+              // (its `else`, and what it folds: the node's, `ifInfo`)
+              let fi = ifInfo.get(b);
+              if (!fi) {
+                const other = b.y !== undefined ? nodes[b.y] : undefined;
+                ifInfo.set(b, fi = { other, otherTid: other?.b.find((x) => x.k === 'else')?.x, otherEl: other && (this.tplEls.get(other) ?? this.anchorEls.get(other)), src: this.snSource.get(el!) ?? '', empty: this.emptyOf.get(el!)?.list ?? '' });
+              }
+              const { other, otherTid, otherEl } = fi;
               if (other && (otherTid === undefined || !otherEl || !map.get(otherEl))) no('else');
-              st.folded.push(this.snSource.get(el!) ?? '', this.emptyOf.get(el!)?.list ?? '');
+              st.folded.push(fi.src, fi.empty);
               const kept = v ? b.x : otherTid;
               read(b.d);
               replace(cl, otherEl ? map.get(otherEl) : cl, kept !== undefined ? render(kept, rec[pos] as RowRec | undefined) : []);
               continue;
             }
             if (b.k === 'for') {
-              const rows = rec[pos + 1 + j] as RowRec[] | undefined, src = this.snSource.get(el!) ?? '';
-              const head = LOOP_HEAD.exec(src);
-              if (!rows || b.x === undefined || !head) no('for');
-              if (!rows!.length) st.folded.push(src.slice(head![0].length));
+              const rows = rec[pos + 1 + j] as RowRec[] | undefined;
+              // (its list as written: the node's, `forInfo`)
+              let fo = forInfo.get(b);
+              if (fo === undefined) {
+                const src = this.snSource.get(el!) ?? '', head = LOOP_HEAD.exec(src);
+                forInfo.set(b, fo = head ? src.slice(head[0].length) : null);
+              }
+              if (!rows || b.x === undefined || fo === null) no('for');
+              if (!rows!.length) st.folded.push(fo!);
               read(b.d);
               const out: P5Node[] = [], was = live;
               live = false;
-              const list = src.slice(head![0].length);
+              const list = fo!;
               try {
                 for (const r of rows!) { loops.push({ list, value: r[0] }); try { out.push(...render(b.x!, r)); } finally { loops.pop(); } }
               } finally { live = was; }
               replace(cl, cl, out);
               continue;
             }
-            paint(b, why, j);
+            paint(cl!, n, pos, styles, b, why, j, rd);
             bound = true;
           }
           styles?.done();
@@ -10498,10 +10749,137 @@ class Compiler {
       }
     };
     scan(doc);
-    const scoped = new Set([...this.componentFiles.values()].filter((f) => f?.css).map((f) => f!.file));
     const layout = styles && !remote ? new Layout(styles, doc, this.layoutOptions()) : null;
-    minifyMarkup(doc, {
-      layout,
+    if (this.fw) this.fw.minified = !!layout;
+    minifyMarkup(doc, { layout, ...this.minifyHooks() });
+  }
+
+  /**
+   * B1 (`fromWalk`): what the page's layout (its stylesheets, `this.layout`) answered before the walk that rendered rows
+   * spliced where their template was would change, or null. The layout answers a structural or sibling selector for an
+   * element beside a template as not known (`siblingsUnknown`), and the second pass, with the rows there, as it is; and
+   * it sizes nothing by its content (an `auto` width that would follow it is not known either). So what can change is
+   * what it was asked about the rows' parent's other children and what is in them: an image's size, a late list's space
+   * (`planSpace`); and a `:has()` rule, which the rows may match from above.
+   */
+  layoutAround(tpl: P5Element, rows: RenderedRows): string | null {
+    const sheets = this.opts.styles ?? this.opts.images?.styles ?? [];
+    if (sheets.some((x) => /:has\(/i.test(x.css))) return 'a `:has()` rule';
+    if (!rows.nodes.some(isElement)) return 'no element in the rows';
+    const P = tpl.parentNode as P5Parent | null;
+    if (!P) return 'a template out of the page';
+    const MEDIA = /^(img|picture|source|video|iframe|embed|object)$/;
+    let why: string | null = null;
+    const look = (p: P5Parent) => {
+      for (const c of p.childNodes as P5Node[]) {
+        if (why || !isElement(c) || c === tpl) continue;
+        if (MEDIA.test(c.tagName)) { why = 'an image beside them'; return; }
+        if (c.tagName === 'template') { const plan = this.spacePlan.get(c); if (plan && (plan.sized || plan.space)) { why = 'a late list\'s space beside them'; return; } look((c as P5Template).content); continue; }
+        look(c);
+      }
+    };
+    look(P);
+    return why;
+  }
+
+  /** the image pipeline's questions about the page (`walkExpanded`; `fromWalk` again for rows it splices) */
+  imageContext(layout: Layout | null, eagerTaken = false): Parameters<typeof rewriteImages>[1] {
+    return {
+      host: this.opts.images!, root: this.opts.root,
+      ...(layout ? { layout: (el: P5Element) => layout.box(el), maxWidth: (el: P5Element) => layout.maxWidth(el), fluidSizes: (el: P5Element, w?: number) => layout.fluidSizes(el, w), autoFitRows: () => layout.autoFitRows, scaled: (el: P5Element, what: 'box' | 'bound') => this.scaledWidth(layout, el, what) } : {}),
+      // a folded `src` is the URL the browser would have loaded, relative to the page
+      fileOf: (el) => RENDERED_FILE.get(el) ?? (this.foldedUrl.has(el) ? this.opts.file : this.origins.get(el)?.file ?? this.opts.file),
+      warn: (el, a, code, message, hint) => this.report(el, a, code, message, 0, hint),
+      // the first pass, rows rendered: a template's image as it was, which the rows it renders stand for (`rowRenderer`)
+      ...(this.keepsAttrs ? { rewrote: (el: P5Element, before: P5Element['attrs']) => REWROTE.set(el, before) } : {}),
+      ...(eagerTaken ? { eagerTaken } : {}),
+    };
+  }
+
+  /**
+   * B1 (`fromWalk`): the constants the second pass writes before the images read the page (`prefold`), written into
+   * rendered rows just spliced, their bindings taken off; the keys found there, into `found`
+   */
+  prefoldRows(rows: P5Node[], consts: Map<string, ConstantWrite[]>, found: Set<string>) {
+    const seen = new Map(consts);
+    const get = seen.get.bind(seen);
+    seen.get = (k: string) => { const v = get(k); if (v) found.add(k); return v; };
+    this.prefold({ nodeName: '#document-fragment', childNodes: rows } as unknown as P5Parent, seen);
+  }
+
+  /**
+   * B1 (`fromWalk`): whether a constant the rows did not take is one the second pass writes outside them (`prefold`): an
+   * element of the page there with its key (as `prefold` keys them; the walk took the binding's attribute off, so the key
+   * is what tells; a constant is collected for a binding only). One in the rows that took none: painted there already
+   * (`rowRenderer`), which the second pass's `prefold` finds no attribute on either.
+   */
+  prefoldsOutside(consts: Map<string, ConstantWrite[]>, found: Set<string>, rows: Set<P5Node>): boolean {
+    const left = new Set([...consts.keys()].filter((k) => !found.has(k)));
+    if (!left.size) return false;
+    let hit = false;
+    const look = (src: P5Element, prefix: string) => {
+      for (const name of FOLDED) {
+        const key = this.constKey(src, name);
+        if (key && (left.has(prefix + key) || left.has(key))) hit = true;
+      }
+    };
+    const visit = (parent: P5Parent, prefix: string) => {
+      for (const c of parent.childNodes as P5Node[]) {
+        if (hit || !isElement(c) || rows.has(c)) continue;
+        const row = this.instAt.get(c) ?? this.rowOf.get(c)?.inst ?? prefix;
+        look(c, row);
+        const use = this.useOf.get(c);
+        if (use && !use.head && !use.layout) look(use.host, row);
+        visit(c, row);
+        if (c.tagName === 'template') visit((c as P5Template).content, row);
+      }
+    };
+    visit(this.walk!.doc, '');
+    return hit;
+  }
+
+  /**
+   * B1 (`fromWalk`): rendered rows with images, spliced into the page after the image pipeline ran over it: their images
+   * through it now, as the second pass's runs over them in place (the rows' paints shown as their bindings, a layout over
+   * the page as it is), its variants and pending files added to the page's; the page's first image, the eager one, the
+   * one before them if there is one. Why not, where its rules would not be in the page's order (rules the page had none of,
+   * on a page with rules of its own: they go in document order).
+   */
+  imagesInRows(rows: P5Node[], done: RenderedRows): string | null {
+    const sheets = this.opts.styles ?? this.opts.images?.styles;
+    const layout = sheets?.length ? new Layout(sheets, this.walk!.doc, this.layoutOptions()) : null;
+    // (an image before the rows, outside templates: the page's eager one)
+    const first = rows.find(isElement);
+    let before = false, found = false;
+    const scan = (p: P5Parent) => {
+      for (const c of p.childNodes as P5Node[]) {
+        if (found || before) return;
+        if (c === first) { found = true; return; }
+        if (!isElement(c)) continue;
+        if (c.tagName === 'template') continue;
+        if (c.tagName === 'img') { before = true; return; }
+        scan(c);
+      }
+    };
+    scan(this.walk!.doc);
+    const painted = done.shown.map(([e]) => e.attrs);
+    for (const [e, a] of done.shown) e.attrs = a;
+    let got: ReturnType<typeof rewriteImages>;
+    try { got = rewriteImages({ nodeName: '#document-fragment', childNodes: rows } as unknown as P5Parent, this.imageContext(layout, before)); } finally { done.shown.forEach(([e], i) => { e.attrs = painted[i]!; }); }
+    const page = this.walk!.images ??= { pending: [], variants: [], css: '' };
+    const had = new Set(page.css.split('\n').filter(Boolean)), mine = got.css.split('\n').filter(Boolean);
+    if (mine.some((r) => !had.has(r)) && had.size) return 'its rules among the page\'s';
+    for (const f of got.pending) if (!page.pending.includes(f)) page.pending.push(f);
+    const urls = new Set(page.variants.map((v) => this.opts.images!.url(v)));
+    for (const v of got.variants) if (!urls.has(this.opts.images!.url(v))) { urls.add(this.opts.images!.url(v)); page.variants.push(v); }
+    if (!had.size) page.css = got.css;
+    return null;
+  }
+
+  /** the minifier's questions about the page's elements (`minify`; `fromWalk` again for rows it splices) */
+  minifyHooks(): Omit<MinifyHooks, 'layout'> {
+    const scoped = new Set([...this.componentFiles.values()].filter((f) => f?.css).map((f) => f!.file));
+    return {
       opaque: (el) => {
         const o = this.origins.get(el);
         if ((o && scoped.has(o.file)) || SCOPED.has(el)) return true;
@@ -10511,7 +10889,85 @@ class Compiler {
       },
       removed: (el) => el.tagName === 'sn-resource' || el.tagName === 'sn-sync',
       written: (n) => { const w = WRITTEN.get(n); return w === 'opaque' ? undefined : w; },
-    });
+    };
+  }
+
+  /**
+   * B1 (`fromWalk`): rendered rows spliced into `P` where their template was, after the minifier ran with a layout,
+   * which the second pass runs with the rows in place. The minifier judged the white space beside the template by what
+   * is past it; beside rows that start (end) with a block-level box (an item, in a flex, grid or table container) it is
+   * removed whatever is past it, and a text there loses its white space on the rows' side: that, for the text right
+   * before and right after the rows. Rows that start or end otherwise are judged as the template was (what it renders is
+   * no block). False where that cannot be told from the walked page: `P` or an element above it bound (its class,
+   * style or display the walk took off), no element in the rows.
+   */
+  respaceRows(P: P5Parent, rows: P5Node[], shown: RenderedRows['shown'] = []): boolean {
+    // (the rows as the markup they stand for, to the minifier and its layout: the bindings, not their paint, as the
+    // second pass shows them, `walkExpanded`)
+    const painted = shown.map(([e]) => e.attrs);
+    for (const [e, a] of shown) e.attrs = a;
+    try { return this.respaceRowsAs(P, rows); } finally { shown.forEach(([e], i) => { e.attrs = painted[i]!; }); }
+  }
+
+  respaceRowsAs(P: P5Parent, rows: P5Node[]): boolean {
+    const sheets = (typeof this.opts.minify === 'object' ? this.opts.minify.styles : undefined) ?? this.opts.styles;
+    if (!sheets) return true;
+    if (!isElement(P as P5Node) || !rows.some(isElement)) return false;
+    const ids = new Map(this.roots.flatMap((n) => (n.id !== undefined ? [[n.id, n] as const] : [])));
+    // (an element the walk took a class, a style or a display off: the layout would judge it otherwise now)
+    const bound = (e: P5Element) => { const a = attr(e, 'data-sn'); return a !== undefined && (!/^\d+$/.test(a) || !!ids.get(+a)?.b.some((b) => b.k !== 'on' && b.k !== 'model' && b.k !== 'text')); };
+    for (let e: P5Node | null = P as P5Node; e && isElement(e); e = (e as P5Element).parentNode as P5Node | null) if (bound(e as P5Element)) return false;
+    const el = P as unknown as P5Element, hooks = this.minifyHooks();
+    if (el.namespaceURI !== parse5.html.NS.HTML || /^(script|style|textarea|title|noscript|xmp|iframe|noembed|noframes|plaintext|pre|listing)$/.test(el.tagName)) return true;
+    const layout = new Layout(sheets, this.walk!.doc, this.layoutOptions());
+    if (hooks.opaque(el) || !layout.collapsesSpace(el)) return true;
+    const kind = layout.childLayout(el);
+    if (kind === null) return true;
+    const isText = (n: P5Node): n is DefaultTreeAdapterMap['textNode'] => n.nodeName === '#text' && hooks.written?.(n) !== 'text';
+    const SPACE_ONLY = /^[\t\n\f\r ]*$/;
+    const kids = P.childNodes as P5Node[], mine = new Set(rows);
+    let i0 = kids.indexOf(rows[0] as never), i1 = kids.indexOf(rows[rows.length - 1] as never);
+    if (i0 < 0 || i1 < 0) return false;
+    // texts that meet, merged (the minifier's first step: a row's last text and the next row's first are one run)
+    for (let k = Math.max(1, i0); k <= Math.min(kids.length - 1, i1 + 1); k++) {
+      const a = kids[k - 1]!, b = kids[k]!;
+      if (!isText(a) || !isText(b)) continue;
+      a.value = (a.value + b.value).replace(/[\t\n\f\r ]+/g, (run) => (/[\n\r]/.test(run) ? '\n' : ' '));
+      if (mine.has(b)) mine.add(a);
+      kids.splice(k, 1);
+      i1--;
+      k--;
+    }
+    i0 = Math.max(0, i0);
+    let ok = true;
+    // what is past the text at `i` in direction `d`, as the minifier's `side` and `item` ask it (an element past
+    // the rows that the walk changed: not known)
+    const side = (i: number, d: -1 | 1): 'block' | 'other' => {
+      for (let k = i + d; k >= 0 && k < kids.length; k += d) {
+        const n = kids[k]!;
+        if (n.nodeName === '#comment' || (isText(n) && SPACE_ONLY.test(n.value))) continue;
+        if (!isElement(n) || n.namespaceURI !== parse5.html.NS.HTML || hooks.opaque(n)) return 'other';
+        if (hooks.removed(n)) continue;
+        if (n.tagName === 'template' || (!mine.has(n) && bound(n))) { ok = false; return 'other'; }
+        return (kind === 'items' ? layout.isItem(n) : layout.blockLevel(n)) ? 'block' : 'other';
+      }
+      return kind === 'items' ? 'block' : layout.edgesStartLines(el) ? 'block' : 'other';
+    };
+    // the texts whose neighbours the rows changed: the rows' own (a row's edge was its template content's), and the one
+    // right before and right after them; the rest of the rows' white space is as the minifier left it there
+    const drop = new Set<P5Node>();
+    for (let k = Math.max(0, i0 - 1); k <= Math.min(kids.length - 1, i1 + 1); k++) {
+      const n = kids[k]!;
+      if (!isText(n)) continue;
+      const left = side(k, -1), right = side(k, 1);
+      if (SPACE_ONLY.test(n.value)) { if (left !== 'other' || right !== 'other') drop.add(n); continue; }
+      if (left !== 'other') n.value = n.value.replace(/^[\t\n\f\r ]+/, '');
+      if (right !== 'other') n.value = n.value.replace(/[\t\n\f\r ]+$/, '');
+    }
+    if (!ok) return false;
+    // (in place: the caller holds the list)
+    for (let k = kids.length - 1; k >= 0; k--) if (drop.has(kids[k]!)) kids.splice(k, 1);
+    return true;
   }
 
   layoutOptions() {
@@ -11433,14 +11889,15 @@ class Compiler {
 
   /** the walk is at a page-level `<template>` (`walkChildren`): a branch or a loop is recorded, its markup as it is before its walk */
   fwStart(el: P5Element, ctx: Ctx): FwAnchor | null {
-    const kind: FwAnchor['kind'] | null = attr(el, 'data-sn-for') !== undefined ? 'for' : attr(el, 'data-sn-if') !== undefined ? 'if' : attr(el, 'data-sn-else') !== undefined ? 'else' : null;
+    const kind: FwAnchor['kind'] | null = this.choices.has(el) ? 'choice' : attr(el, 'data-sn-for') !== undefined ? 'for' : attr(el, 'data-sn-if') !== undefined ? 'if' : attr(el, 'data-sn-else') !== undefined ? 'else' : null;
     if (!kind) return null;
     const unused: string[] = [];
     for (const r of this.page.resources.values()) if (!r.used) unused.push(r.name);
     const a: FwAnchor = {
       el, kind, elseIf: kind === 'if' && attr(el, 'data-sn-else') !== undefined, ctx, node: null,
-      snap: kind === 'for' ? null : snapTree((el as P5Template).content), marks: this.fwMarks(),
+      snap: kind === 'for' ? null : snapTree(kind === 'choice' ? { nodeName: '#document-fragment', childNodes: [el] } as unknown as P5Parent : (el as P5Template).content), marks: this.fwMarks(),
       d0: this.diagnostics.length, d1: 0, f0: this.fns.length, uses: new Map(), added: new Map(), changed: [], used: unused, p0: this.paints.length,
+      ...(kind === 'choice' ? { tag: el.tagName } : {}),
     };
     FW_COUNTING = a.uses;
     return a;
@@ -11451,18 +11908,113 @@ class Compiler {
     FW_COUNTING = null;
     a.d1 = this.diagnostics.length;
     for (let i = a.p0; i < this.paints.length; i++) if (this.paints[i]!.el === a.el) { a.node = this.paints[i]!.node; break; }
-    const fs = this.fwFields(), m = a.marks;
+    const d = this.fwDelta(a.marks);
+    a.added = d.added;
+    a.changed = d.changed;
+    a.used = a.used.filter((n) => this.page.resources.get(n)?.used);
+    this.fw!.anchors.push(a);
+    this.fw!.byEl.set(a.el, a);
+  }
+
+  /** what was added to each table since `m` (`fwMarks`): a list's range, a map's or a set's sizes; the plain fields changed */
+  fwDelta(m: unknown[]): { marks: unknown[]; added: Map<string, [number, number]>; changed: string[] } {
+    const fs = this.fwFields(), added = new Map<string, [number, number]>(), changed: string[] = [];
     const me = this as unknown as Record<string, unknown>, page = this.page as unknown as Record<string, unknown>;
     for (let i = 0; i < fs.length; i++) {
       const x = fs[i]!, v = (x.page ? page : me)[x.f], v0 = m[i];
       const v1 = x.t === 0 ? (v as unknown[]).length : x.t === 1 ? (v as Set<unknown>).size : v;
       if (v1 === v0) continue;
-      if (x.t < 2 && (v1 as number) > (v0 as number)) a.added.set(x.k, [v0 as number, v1 as number]);
-      else a.changed.push(x.k);
+      if (x.t < 2 && (v1 as number) > (v0 as number)) added.set(x.k, [v0 as number, v1 as number]);
+      else changed.push(x.k);
     }
-    a.used = a.used.filter((n) => this.page.resources.get(n)?.used);
-    this.fw!.anchors.push(a);
-    this.fw!.byEl.set(a.el, a);
+    return { marks: m, added, changed };
+  }
+
+  /**
+   * B1: the entries by name that placing the unit added to the page's tables (a component's `uses`, `files`, `scripts`, a
+   * namespace, ...), watched until the route takes them out (`fromWalk`): one the page reads after placing it, outside the
+   * walks the route drops, is one it may need, which it did not add because the unit had (the route then keeps the page
+   * from the walk). The tables' own methods, on the page's objects only.
+   */
+  /**
+   * B1 (§21): whether the page keeps some of the unit's definitions (`fromWalk`): a point of one, or a use of one, left
+   * where the route keeps the page (not in rendered rows, not in a branch a decision drops). Then the unit is kept whole
+   * as the page's own; else what placing it added is taken out (the second pass places none)
+   */
+  fwKeepsUnit(ds: Array<{ a: FwAnchor; v: boolean; other: FwAnchor | null; rows?: RenderedRows }>, unit: NonNullable<FromWalk['unit']>, next: CompileOptions): boolean {
+    const names = new Set((unit.items.get('defs') ?? []).filter((x): x is string => typeof x === 'string'));
+    if (!names.size) return false;
+    // (what the route takes out: rendered rows, the branch a decision drops)
+    const skip = new Set<P5Element>();
+    for (const d of ds) { const x = d.rows || !d.v ? d.a.el : d.other?.el; if (x) skip.add(x); }
+    // (a branch's markup as it was before the walk compiled it, which the route walks again: its snapshot's)
+    const was = new Map<P5Node, FwSnap[number]>();
+    for (const d of ds) for (const x of d.other ? [d.a, d.other] : [d.a]) for (const e of x.snap ?? []) was.set(e.n, e);
+    const todo: P5Node[] = [...this.walk!.doc.childNodes as P5Node[]];
+    while (todo.length) {
+      const n = todo.pop()!;
+      if (!isElement(n) || skip.has(n) || this.renderedAt.has(n)) continue;
+      // (and what the second pass's expansion takes out in what the page keeps: a loop it renders, a branch it drops)
+      if (n.tagName === 'template') {
+        const k = this.instKey(n);
+        const as = was.get(n)?.attrs ?? n.attrs, has = (a: string) => as.some((x) => x.name === a);
+        if (k && ((has('data-sn-for') && next.rendered?.has(k)) || (has('data-sn-if') && next.decided?.get(k) === false))) continue;
+      }
+      const p = this.points.get(n);
+      if ((p !== undefined && names.has(p)) || names.has(n.tagName)) return true;
+      todo.push(...(was.get(n)?.kids ?? n.childNodes as P5Node[]));
+      const t = (n as P5Template).content;
+      if (t) todo.push(...(was.get(n)?.content ?? was.get(t as unknown as P5Node)?.kids ?? t.childNodes as P5Node[]));
+    }
+    return false;
+  }
+
+  fwWatchUnit() {
+    const fw = this.fw!, u = fw.unit!, own = this.placedUnit?.own;
+    for (const [k] of u.added) {
+      const o = this.fwField(k) as Map<unknown, unknown> | Set<unknown>;
+      if (!(o instanceof Map || o instanceof Set) || own?.has(o)) continue;
+      const names = new Set(u.items.get(k)!.filter((x) => typeof x === 'string'));
+      if (!names.size) continue;
+      const watch = (m: string) => {
+        const f = (o as unknown as Record<string, (...a: unknown[]) => unknown>)[m]!;
+        Object.defineProperty(o, m, { configurable: true, writable: true, value(this: unknown, ...a: unknown[]) { if (!FW_COUNTING && names.has(a[0] as string)) (fw.unitRead ??= new Set()).add(`${k} ${String(a[0])}`); return f.apply(this, a); } });
+      };
+      for (const m of o instanceof Map ? ['get', 'has', 'set', 'delete'] : ['has', 'add', 'delete']) watch(m);
+      (fw.watched ??= []).push(o);
+    }
+  }
+
+  /** `fwFields`' sizes and values now, by name, its list made afresh (before the walk: placing a unit makes fields of the page info) */
+  fwSizes(): Map<string, unknown> {
+    const out = new Map<string, unknown>();
+    const take = (pre: string, o: Record<string, unknown>) => {
+      for (const f of Object.keys(o)) {
+        if (!pre && FW_IGNORED.has(f)) continue;
+        const v = o[f];
+        if (Array.isArray(v)) out.set(pre + f, v.length);
+        else if (v instanceof Map || v instanceof Set) out.set(pre + f, v.size);
+        else if (v === null || (typeof v !== 'object' && typeof v !== 'function')) out.set(pre + f, v);
+      }
+    };
+    take('', this as unknown as Record<string, unknown>);
+    take('page.', this.page as unknown as Record<string, unknown>);
+    return out;
+  }
+
+  /** what was added to each table since `fwSizes` gave `m` (a table made since: all of it), and the plain fields changed */
+  fwSince(m: Map<string, unknown>): { added: Map<string, [number, number]>; items: Map<string, unknown[]>; changed: string[] } {
+    const added = new Map<string, [number, number]>(), items = new Map<string, unknown[]>(), changed: string[] = [];
+    for (const [k, v1] of this.fwSizes()) {
+      const o = this.fwField(k), table = Array.isArray(o) || o instanceof Map || o instanceof Set;
+      const v0 = m.has(k) ? m.get(k) : table ? 0 : undefined;
+      if (v1 === v0) continue;
+      if (table && typeof v0 === 'number' && (v1 as number) > v0) {
+        added.set(k, [v0, v1 as number]);
+        items.set(k, Array.isArray(o) ? o.slice(v0) : [...(o as Map<unknown, unknown> | Set<unknown>).keys()].slice(v0));
+      } else changed.push(k);
+    }
+    return { added, items, changed };
   }
 
   /** a table of the compiler (`k`), or of its page info (`page.k`) */
@@ -11479,27 +12031,61 @@ class Compiler {
    * done; else why not, and whether the compiler is spent (it changed already: the second pass is compiled after all).
    */
   fromWalk(next: CompileOptions, dry = false): { why: string; spent: boolean } | null {
+    const was = FW_WALKING;
+    try { return this.fromWalkIn(next, dry); } finally { FW_WALKING = was; }
+  }
+
+  /** `fromWalk` itself (its walks note the page's sites, `FW_WALKING`) */
+  fromWalkIn(next: CompileOptions, dry: boolean): { why: string; spent: boolean } | null {
     const fw = this.fw;
     const no = (why: string, spent = false) => ({ why, spent });
     if (!fw) return no('not recorded');
-    if (this.placedUnit || this.earlyDefs) return no('a unit placed');
-    if (next.constants?.size) return no('constants the layout or the images read (prefold)');
+    // (the unit's entries, no longer watched: the page's walk is over)
+    if (!dry) for (const o of fw.watched?.splice(0) ?? []) for (const m of ['get', 'has', 'set', 'delete', 'add']) delete (o as unknown as Record<string, unknown>)[m];
+    // (constants the second pass writes before the layout and the images read the page: only an image's own
+    // attributes, in rendered rows, which the route writes where it splices them, `prefoldRows`)
+    if (next.constants?.size && !imageConstants(next.constants)) return no('constants the layout or the images read (prefold)');
+    const prefolded = new Set<string>(), splicedRows = new Set<P5Node>();
     if (next.overLimit?.size) return no('over the expansion limit');
     // a loop unrolled outside rows is one the first pass rendered (one in a row goes with its row)
-    for (const k of next.unrolled?.keys() ?? []) if (!k.includes('#') && !next.rendered?.has(k)) return no('a loop unrolled, not rendered');
+    for (const k of next.unrolled?.keys() ?? []) if (!k.includes('#') && !next.rendered?.has(k)) return no(renderOn() ? 'a loop unrolled, not rendered' : 'a loop unrolled, rendering off (SN_RENDER=0)');
     // the minifier and the image pipeline go over rendered rows in the second pass, before its walk; the layout reads them
     const sheets = (typeof this.opts.minify === 'object' ? this.opts.minify.styles : undefined) ?? this.opts.styles;
     const minLayout = !!this.opts.minify && !!sheets;
     const decided = next.decided ?? new Map<string, boolean>();
-    for (const k of decided.keys()) if (k.includes('|use:')) return no('a choice decided');
     // the branches decided at the page's level, and the `data-sn-else` after each
-    type D = { a: FwAnchor; v: boolean; other: FwAnchor | null; at: number; rows?: RenderedRows };
+    type D = { a: FwAnchor; v: boolean; other: FwAnchor | null; at: number; rows?: RenderedRows; group?: FwAnchor[]; pick?: P5Element; left?: P5Element[] };
     const ds: D[] = [];
     const index = new Map(this.roots.map((n, i) => [n, i]));
     const real = (c: P5Node) => isElement(c) || (c.nodeName === '#text' && (c as DefaultTreeAdapterMap['textNode']).value.trim() !== '');
     const IMG = /^(img|picture|source|video)$/;
     const imgs = (ns: P5Node[]): boolean => ns.some((n) => isElement(n) && (IMG.test(n.tagName) || imgs(n.childNodes as P5Node[]) || (n.tagName === 'template' && imgs((n as P5Template).content.childNodes as P5Node[]))));
     for (const a of fw.anchors) {
+      // a page-level `<sn-component use>` the evaluation decided (§22): its candidates, each walked as a recursion point,
+      // the first's node among the roots; the case it renders, rendered rows spliced in their place (as the second pass's
+      // expansion splices them), or nothing
+      if (a.kind === 'choice') {
+        const ch = this.choices.get(a.el)!;
+        if (!ch.first) continue;
+        const group = fw.anchors.filter((x) => x.kind === 'choice' && this.choices.get(x.el)?.group === ch.group);
+        const keys = group.map((x) => this.choiceKey(x.el, this.choices.get(x.el)!.name));
+        const vs = keys.map((k) => (k ? decided.get(k) : undefined));
+        if (vs.every((v) => v === undefined)) continue;
+        // (some decided away, the others left to the browser: those walked again as a choice of their own, §22)
+        const left = group.filter((_, n) => vs[n] === undefined).map((x) => x.el);
+        if (left.length && vs.includes(true)) return no('a choice partly decided');
+        const node = a.node ?? ch.group.node, at = node ? index.get(node) : undefined, r = a.added.get('roots');
+        if (at === undefined || !r || r[0] !== at || r[1] !== at + 1 || group.slice(1).some((x) => x.added.has('roots'))) return no('a choice not among the roots');
+        const k = vs.indexOf(true), pick = k >= 0 ? group[k]!.el : undefined, rows = k >= 0 ? next.rendered?.get(keys[k]!) : undefined;
+        if (pick && rows) {
+          const here = this.renderedHere(pick, rows);
+          if (here) return no(`a choice's case rendered ${here}`);
+          if (rows.idAttrs.length) return no('ids in rendered rows');
+          if (this.layout) { const why = this.layoutAround(a.el, rows); if (why) return no(`rendered rows and a layout: ${why}`); }
+        }
+        ds.push({ a, v: !!pick || left.length > 0, other: null, at, ...(rows ? { rows } : {}), group, ...(pick ? { pick } : {}), ...(left.length ? { left } : {}) });
+        continue;
+      }
       if (a.kind === 'for' && a.node) {
         // a loop the first pass rendered: its rows in its place, as the second pass splices them
         const key = this.instKey(a.el), rows = key && next.unrolled?.has(key) ? next.rendered?.get(key) : undefined;
@@ -11508,8 +12094,10 @@ class Compiler {
         if (at === undefined || !r || r[0] !== at) return no('a loop not among the roots');
         if (this.renderedHere(a.el, rows)) return no(`rendered rows ${this.renderedHere(a.el, rows)}`);
         if (rows.idAttrs.length) return no('ids in rendered rows');
-        if (this.layout || minLayout) return no('rendered rows and a layout');
-        if (this.opts.images && imgs(rows.nodes)) return no('an image in rendered rows');
+        // (the minifier's layout: the white space beside them as the minifier leaves it beside rows, `respaceRows`; the
+        // page's own layout, which the images, the space of late rows and the dry run of constants read: not yet)
+        if (this.layout) { const why = this.layoutAround(a.el, rows); if (why) return no(`rendered rows and a layout: ${why}`); }
+        // (an image in them: through the image pipeline where they are spliced, `imagesInRows`)
         ds.push({ a, v: true, other: null, at, rows });
         continue;
       }
@@ -11534,25 +12122,66 @@ class Compiler {
       ds.push({ a, v, other, at });
     }
     if (!ds.length) return no('nothing decided at the page\'s level');
-    const all = ds.flatMap((d) => (d.other ? [d.a, d.other] : [d.a]));
+    const all = ds.flatMap((d) => d.group ?? (d.other ? [d.a, d.other] : [d.a]));
     // what the walk of a decided branch did that the second pass would not have done, and cannot be taken out
     for (const x of all) {
-      if (x.d1 > x.d0) return no(x.kind === 'for' ? 'diagnostics in a rendered loop' : 'diagnostics in a decided branch');
+      // (its diagnostics: taken out with its walk, the new walk's put where they were, below; a rendered loop's, which the
+      // rows' splice does not report again, refused)
+      if (x.d1 > x.d0 && x.kind === 'for') return no('diagnostics in a rendered loop');
+      if (x.d1 > x.d0 && proc?.env.SN_FROM_WALK_DIAGS === '0') return no('diagnostics in a decided branch');
       for (const k of x.changed) if (!FW_CHANGES.has(k)) return no(`a decided branch changes \`${k}\``);
       for (const k of x.added.keys()) if (FW_REFUSED.has(k)) return no(`a decided branch adds to \`${k}\``);
-      if (!x.snap) continue;
+      // (a choice's candidate: its markup walked again only where its case is expanded in place)
+      if (!x.snap || (x.kind === 'choice' && !ds.some((d) => (d.pick === x.el && !d.rows) || d.left?.includes(x.el)))) continue;
       if (this.layout && x.snap.some((e) => isElement(e.n))) return no('a layout');
       if (this.opts.images && x.snap.some((e) => isElement(e.n) && IMG.test((e.n as P5Element).tagName))) return no('an image in a decided branch');
     }
+    // a unit placed before the walk: what placing it added, taken out as a dropped walk's (the second pass places none,
+    // its points rendered), where it is still there as it was added and is no table numbered by position
+    const unit = fw.unit;
+    // (§21: where the page keeps some of the unit's definitions, a point or a use of one left where the page stays: the
+    // unit kept whole, as the page's own, every object of it held to be given back, `holdWhole`; its definitions each
+    // one the page still reaches, below. A unit that does not list its objects: as before)
+    const keepUnit = !!unit && !!this.placedUnit && this.fwKeepsUnit(ds, unit, next);
+    if (keepUnit && !this.placedUnit!.objects) return no('a unit\'s definition the page keeps');
+    if (unit && !keepUnit && fw.unitRead?.size) return no(`the page reads the unit's \`${[...fw.unitRead][0]!.replace(' ', '` entry `')}\``);
+    if (unit && !keepUnit) {
+      for (const k of unit.changed) if (k !== 'earlyDefs') return no(`placing a unit changes \`${k}\``);
+      for (const [k, [a]] of unit.added) {
+        if (FW_REFUSED.has(k) || FW_OWN.has(k)) return no(`placing a unit adds to \`${k}\``);
+        const o = this.fwField(k), was = unit.items.get(k)!;
+        if (Array.isArray(o) ? was.some((x, i) => o[a + i] !== x) : !was.every((x) => (o as Map<unknown, unknown> | Set<unknown>).has(x))) return no(`a unit's entries of \`${k}\` changed`);
+      }
+    }
     // the functions the walks of the decided branches compiled: theirs no longer; one they made first and something else
-    // calls too would keep the site of the branch's call
+    // calls too would keep the site of the branch's call (the unit's likewise: the second pass compiles none of them)
     const uses = this.fnUses.slice();
     for (const x of all) for (const [i, n] of x.uses) uses[i]! -= n;
-    for (const x of all) for (const i of x.uses.keys()) if (i >= x.f0 && uses[i]! > 0) return no('code a decided branch compiled first is compiled elsewhere too');
+    // (a choice's own function, which the walk's last steps made for its group, `finishChoices`: its node goes too)
+    for (const d of ds) { const f = d.group ? this.choices.get(d.a.el)?.group.node?.b[0]?.f : undefined; if (f !== undefined) uses[f]! -= 1; }
+    if (unit && !keepUnit) for (let i = 0; i < unit.f1; i++) uses[i]! -= unit.fnUses[i] ?? 0;
+    // (where the page calls it too: the function the page's, at the page's site, below; known after the route's walks)
+    const shared = new Set<number>();
+    for (const x of all) for (const i of x.uses.keys()) if (i >= x.f0 && uses[i]! > 0) shared.add(i);
+    if (unit && !keepUnit) for (let i = 0; i < unit.f1; i++) if (uses[i]! > 0) shared.add(i);
+    // (one the page called outside its walk, after it: where is not recorded)
+    for (const i of shared) if (!fw.pageAt?.has(i)) return no('code a decided branch compiled first is compiled elsewhere too');
     // (`dry`: whether it may be taken, nothing changed: a kept template's entry asks before it copies the kept walk)
     if (dry) return null;
 
     // ---- from here on the compiler is the second pass's
+    fw.routing = true;
+    // (the templates the first walk made: the route's walks make the second pass's, which it keeps as it makes them)
+    const t0 = this.templates.length;
+    FW_WALKING = fw;
+    // (a unit placed: what of it the steps below and `finishPage` write into outside its templates, held to be given
+    // back, `touch`: the resources', syncs' and actions' records, the page's resource infos; its templates are refused below
+    // where the page keeps one, and emptied, held, where it does not)
+    if (keepUnit) holdWhole(this);
+    if (this.placedUnit) {
+      for (const x of [...this.resources, ...this.syncs, ...this.actions, ...this.page.resources.values()]) touch(this, x);
+      for (const n of this.roots) { touch(this, n); touch(this, n.b); for (const b of n.b) touch(this, b); }
+    }
     (this as { opts: CompileOptions }).opts = next;
     this.keepsAttrs = false;
     this.dry = null;
@@ -11584,26 +12213,49 @@ class Compiler {
       }
       keysOf.set(k, got);
     }
+    // (the unit's keys out of the maps and sets now, before the walks below add what they compile and render)
+    if (unit && !keepUnit) for (const [k] of unit.added) {
+      const o = this.fwField(k);
+      if (o instanceof Map || o instanceof Set) { touch(this, o); for (const x of unit.items.get(k)!) o.delete(x); }
+    }
     const resources = new Set<string>();
     // (the definitions the dropped walks compiled: their templates are nothing's once the walks below do not use them)
-    const dropped = new Set<string>();
+    const dropped = new Map<string, number | undefined>();
     // each block: the roots it replaces (at `at`, `n` of them), and the nodes its walk made, numbered in a range of their
     // own (from `base`): all are put in place at the end, and every index of a root renumbered once
     const blocks: Array<{ at: number; n: number; nodes: NodeDef[]; base: number }> = [];
+    // (the choices and the definitions' roots the walks below add, which the walk's last steps finish: `walkPage`)
+    const newGroups: ChoiceGroup[] = [], newRoots: Array<[P5Element, { rt: string; node?: NodeDef }]> = [];
     // the last first: the positions the earlier ones recorded in the lists stay as they were
     ds.sort((x, y) => y.at - x.at);
+    // (the resources a dropped walk read first: unread, before any block is walked again, which reads them again)
+    for (const x of all) for (const n of x.used) { const r = this.page.resources.get(n); if (r) { touch(this, r); r.used = false; resources.add(n); } }
+    // what the dropped walks added to the maps and sets: their keys out, before any block is walked again or spliced, which
+    // may add one of them again (a component's file that a dropped candidate's walk added first, and rows a later block
+    // renders add too)
+    for (const x of all) for (const [k] of x.added) {
+      if (FW_OWN.has(k)) continue;
+      const o = this.fwField(k);
+      if (o instanceof Map || o instanceof Set) for (const key of keysOf.get(k)?.get(x) ?? []) { if (k === 'defs') dropped.set(key as string, this.defs.get(key as string)?.tid); o.delete(key); }
+    }
     for (const [bi, d] of ds.entries()) {
-      const xs = d.other ? [d.a, d.other] : [d.a];
+      const xs = d.group ?? (d.other ? [d.a, d.other] : [d.a]);
       // what the walks of the branch and its else added to the tables: taken out (the walk below adds what it compiles)
+      // (its walks' diagnostics, out: the second pass reports what its walk of the block reports, there, in document order)
+      const dAt = Math.min(...xs.map((x) => x.d0));
+      for (const x of [...xs].sort((p, q) => q.d0 - p.d0)) if (x.d1 > x.d0) { this.diagnostics.splice(x.d0, x.d1 - x.d0); this.walked -= x.d1 - x.d0; }
+      const dLen = this.diagnostics.length;
+      // (a list's range; a map's or a set's keys went before the first block, above)
       for (const x of [...xs].reverse()) for (const [k, add] of x.added) {
         if (FW_OWN.has(k)) continue;
         const o = this.fwField(k);
         if (Array.isArray(o)) { const [s0, s1] = add as [number, number]; o.splice(s0, s1 - s0); }
-        else if (o instanceof Map || o instanceof Set) for (const key of keysOf.get(k)?.get(x) ?? []) { o.delete(key); if (k === 'defs') dropped.add(key as string); }
       }
-      for (const x of xs) for (const n of x.used) { const r = this.page.resources.get(n); if (r) { r.used = false; resources.add(n); } }
       let placed: P5Node[];
-      const c = d.a.el;
+      // (a choice's: the candidate it renders, where its rows go, as the second pass's expansion has it)
+      const c = d.pick ?? d.a.el;
+      // (where it goes: a choice's first candidate is in place, the others out of the page)
+      const P = d.a.el.parentNode as P5Parent;
       if (d.rows) {
         // the rows, with what compiling them would have done that the page keeps (`expandConstants`' splice)
         const done = d.rows;
@@ -11626,9 +12278,13 @@ class Compiler {
         RENDER_STATS.spliced++;
         placed = done.nodes;
       } else {
-        for (const x of xs) restoreTree(x.snap!);
-        const kept = d.v ? d.a : d.other;
-        const nodes = kept ? [...(kept.el as P5Template).content.childNodes] as P5Node[] : [];
+        for (const x of xs) if (x.snap) restoreTree(x.snap);
+        // (a choice's: the case it renders, the candidate as it was, expanded in place by the second pass's expansion below)
+        for (const x of d.group ?? []) if (x.tag) x.el.tagName = x.el.nodeName = x.tag;
+        const kept = d.group ? null : d.v ? d.a : d.other;
+        const nodes = kept ? [...(kept.el as P5Template).content.childNodes] as P5Node[] : d.pick ? [d.pick] : d.left ? [...d.left] : [];
+        // (the candidates left: a choice of their own, as the second pass's walk meets them)
+        if (d.left) { const g: ChoiceGroup = { node: null, cases: [], pick: null, warn: '', site: null }; for (const el of d.left) this.choices.set(el, { ...this.choices.get(el)!, group: g }); }
         if (kept) (kept.el as P5Template).content.childNodes = [];
         // the branches decided in it, as the second pass's expansion decides them
         const box = { nodeName: '#document-fragment', childNodes: nodes } as unknown as P5Parent;
@@ -11637,11 +12293,19 @@ class Compiler {
         APPLIED = new Set();
         let got: Set<string>;
         try { this.expandConstants(box, '', false); } finally { got = APPLIED; APPLIED = was; }
-        for (const k of got) { was?.add(k); if (k !== 'if:page' && k !== 'loop rendered') return no(`${k} in a decided branch`, true); }
+        // (a choice's case expanded in place: as an instance, whose own decisions the expansion applies with its key)
+        for (const k of got) { was?.add(k); if (k !== 'if:page' && k !== 'loop rendered' && !(d.pick && (k === 'choice inlined:page' || k.endsWith(':instance')))) return no(`${k} in a decided branch`, true); }
         placed = box.childNodes as P5Node[];
+        // (a choice's case expanded in place: the image pipeline goes over its markup in the second pass, before its walk)
+        if (d.pick && this.opts.images && imgs(placed)) return no('an image in a choice\'s case expanded in place', true);
+        if (d.pick && this.layout && placed.some(isElement)) return no('a layout', true);
       }
-      const P = c.parentNode as P5Parent, kids = P.childNodes as P5Node[];
-      const i = kids.indexOf(c), j = d.other ? kids.indexOf(d.other.el) : i;
+      const kids = P.childNodes as P5Node[];
+      // (a choice's candidates: side by side, from the first)
+      const at = d.group ? d.group.map((x) => kids.indexOf(x.el as never)) : null;
+      // (the first walked as a recursion point, in place; the others out of the page, `remove`)
+      if (at && (at[0]! < 0 || at.some((x, n) => x >= 0 && x !== at[0]! + n))) return no('a choice\'s candidates moved', true);
+      const i = at ? at[0]! : kids.indexOf(c), j = at ? Math.max(...at) : d.other ? kids.indexOf(d.other.el) : i;
       for (const n of placed) {
         (n as { parentNode: P5Parent }).parentNode = P;
         for (const map of [this.fillOf, this.defaultOf, this.childrenOf]) if (isElement(n) && map.has(c) && !map.has(n)) map.set(n, map.get(c)!);
@@ -11649,21 +12313,38 @@ class Compiler {
       this.inheritSlot(c, placed);
       const start = this.scopeStart.get(c);
       if (start) for (const n of placed) if (isElement(n)) this.scopeStart.set(n, outerFirst(start, this.scopeStart.get(n)));
+      const after = kids[j + 1] ?? null;
       kids.splice(i, j - i + 1, ...(placed as never[]));
-      if (!d.rows) this.foldedText.push(this.snSource.get(c) ?? '', this.emptyOf.get(c)?.list ?? '');
+      if (!d.rows && !d.group) this.foldedText.push(this.snSource.get(c) ?? '', this.emptyOf.get(c)?.list ?? '');
+      if (d.rows && minLayout && fw.minified && !this.respaceRows(P, placed, d.rows.shown)) return no('rendered rows and a layout: a bound element around them', true);
       mergeText(P);
+      // the second pass's steps over the rows before its walk: the constants written into them, then the images
+      if (d.rows) for (const n of placed) splicedRows.add(n);
+      if (d.rows && next.constants?.size) this.prefoldRows(placed, next.constants as Map<string, ConstantWrite[]>, prefolded);
+      if (d.rows && this.opts.images && imgs(placed)) { const why = this.imagesInRows(placed, d.rows); if (why) return no(`an image in rendered rows: ${why}`, true); }
       // the range the branch's markup is in now (a text that met another is in that one; the parent's other texts may
       // meet too, where what the first walk took out stood)
+      // (an embedded resource's element that stood right before the template: before what took its place)
+      for (const g of fw.gone ?? []) if (g.parent === P && (g.next === c || g.next === d.other?.el || d.group?.some((x) => x.el === g.next))) g.next = placed.find((n) => kids.includes(n as never)) ?? (after && kids.includes(after) ? after : null);
       const here = new Set(placed);
       let from = -1, to = -1;
       for (let k = 0; k < kids.length; k++) if (here.has(kids[k]!)) { if (from < 0) from = k; to = k + 1; }
       if (from < 0) from = to = 0;
-      const lens = this.fwMarks();
+      const lens = this.fwMarks(), al0 = this.page.aliases?.length ?? 0, of0 = this.page.objectFields?.size ?? 0;
       // (a list whose length starts at the block's base: what the walk reads of it is its length, and it pushes)
       const base = FW_BASE + bi * FW_SPAN, made: NodeDef[] = [];
       const list = { push: (...n: NodeDef[]) => made.push(...n), get length() { return base + made.length; } } as unknown as NodeDef[];
       if (to > from) this.walkChildren(P, { ...d.a.ctx, list }, { from, to });
-      blocks.push({ at: d.at, n: xs.reduce((n, x) => n + (x.added.get('roots')![1] - x.added.get('roots')![0]), 0), nodes: made, base });
+      // what the walk's last steps (`walkPage`) finish of what this walk added: its choices, its definitions' root
+      // bindings, below; what else they finish (sources, write-through targets, tree fills, aliases), refused
+      const tail = this.fwDelta(lens).added;
+      for (const k of FW_TAIL) if (tail.has(k)) return no(`a block walked again adds to \`${k}\` (the walk's last steps)`, true);
+      // (the page info's, made when first needed)
+      if ((this.page.aliases?.length ?? 0) > al0 || (this.page.objectFields?.size ?? 0) > of0) return no('a block walked again adds to `page.aliases` (the walk\'s last steps)', true);
+      const cg = tail.get('choiceGroups'), dr = tail.get('defRoots');
+      if (cg) newGroups.push(...this.choiceGroups.slice(cg[0], cg[1]));
+      if (dr) newRoots.push(...[...this.defRoots].slice(dr[0], dr[1]));
+      blocks.push({ at: d.at, n: xs.reduce((n, x) => { const r = x.added.get('roots'); return n + (r ? r[1] - r[0] : 0); }, 0), nodes: made, base });
       // what this walk added to the other lists: where the branch's walk had added it (document order)
       for (let f = 0; f < fs.length; f++) {
         if (fs[f]!.t !== 0) continue;
@@ -11674,10 +12355,21 @@ class Compiler {
         const tail = o.splice(n1);
         o.splice(at, 0, ...tail);
       }
-      if (this.diagnostics.length > this.walked) return no('diagnostics in a branch walked as the page', true);
+      // (what its expansion and its walk reported: where the dropped walks' diagnostics were)
+      if (this.diagnostics.length > dLen) { const got = this.diagnostics.splice(dLen); this.diagnostics.splice(dAt, 0, ...got); this.walked += got.length; }
     }
-    // a definition the dropped walk compiled first and the new one uses: compiled again here, numbered and shared otherwise
-    for (const n of dropped) if (this.defs.has(n)) return no('a definition compiled first in a decided branch, used by the page', true);
+    // the walk's last steps for what the walks above added, in their order (`walkPage`)
+    if (newRoots.length) this.defRootBindings(newRoots);
+    if (newGroups.length) this.finishChoices(newGroups);
+    // (a constant the second pass writes outside the rows spliced: not the route's)
+    if (next.constants?.size && this.prefoldsOutside(next.constants, prefolded, splicedRows)) return no('constants the layout or the images read (prefold)', true);
+    // (a definition the dropped walk compiled first and the new one uses: compiled again here, at the first use the
+    // second pass compiles it at, in its scope; numbered otherwise. Its first copy goes where nothing reaches it, below)
+    // (a unit placed, whose definitions were taken out: one the walks above compiled again is one the second pass places
+    // from a unit of its own, whose writes are not these)
+    if (unit && !keepUnit && this.defs.size) return no('a definition the page compiles, a unit placed', true);
+    // (the unit's items out of the lists, which come before what every walk added: the positions above hold till here)
+    if (unit && !keepUnit) for (const [k, [a, b]] of unit.added) { const o = this.fwField(k); if (Array.isArray(o)) { touch(this, o); o.splice(a, b - a); } }
     // rendered rows' empty texts (elements to the minifier, nothing in the page), and their marks after the image pipeline
     for (const t of this.renderedEmpty) { const k = (t as { parentNode?: P5Parent }).parentNode?.childNodes as P5Node[] | undefined; const i = k?.indexOf(t) ?? -1; if (i >= 0) k!.splice(i, 1); }
     for (const [e, marks] of this.renderedLate) for (const m of marks) setAttr(e, m.name, m.value);
@@ -11704,11 +12396,16 @@ class Compiler {
     this.roots.splice(0, this.roots.length, ...roots);
     // the type check reads the page as written: its frames and expressions are the first pass's
     this.checkFrames.length = checks[0]!; this.checkExprs.length = checks[1]!; this.checkResources.length = checks[2]!;
-    for (const n of resources) if (!this.page.resources.get(n)!.used && !this.foldedText.some((t) => ((t.match(/[A-Za-z_$][\w$]*/g) ?? []) as string[]).includes(n))) return no('a resource read only in a decided branch (SN501)', true);
+    // (what the rows spliced above read: read, as the second pass's walk has it, `walkExpanded`)
+    for (const n of this.renderedReads) { const info = this.page.resources.get(n); if (info && !info.used) { touch(this, info); info.used = true; } }
+    // a resource read only in a dropped branch, which the second pass reports (SN501): not known here, where a read of it
+    // by the page after the branch's walk left no trace (the branch's walk read it first)
+    let foldedIn: Set<string> | undefined;
+    for (const n of resources) if (!this.page.resources.get(n)!.used && !(foldedIn ??= foldedNames(this.foldedText)).has(n)) return no('a resource read only in a decided branch (SN501)', true);
     for (const n of resources) this.page.resources.get(n)!.used = true;
     // the walk's last steps, again for what it walked: scoped styles' marks, what it removes
     this.markScoped();
-    for (const el of this.remove) if (el.parentNode?.childNodes.includes(el as never)) detach(el);
+    for (const el of this.remove) if (el.parentNode?.childNodes.includes(el as never)) { touch(this, el); touch(this, el.parentNode.childNodes); detach(el); }
     // the templates nothing reaches now: empty (`compactTables` drops them), and a decided `if` in one that stays is
     // one the second pass decides in it
     const live = new Set<number>(), todo = this.roots.flatMap((n) => n.b.flatMap(templatesOf));
@@ -11718,20 +12415,46 @@ class Compiler {
       live.add(x);
       for (const n of this.templates[x]!.nodes) for (const y of n.b) todo.push(...templatesOf(y));
     }
+    // (a unit's definition the page keeps, the unit taken out: refused; kept whole (`keepUnit`), every object of it held
+    // and given back, its templates as they are. A unit's template nothing reaches, the unit taken out: emptied, held,
+    // like any other. The templates the route's walks made: kept as they made them, the second pass's)
+    const own = this.placedUnit?.own;
     for (const t of this.templates) {
-      if (live.has(t.id)) {
+      const mine = !!own && (own.has(t) || t.nodes.some((n) => own.has(n)));
+      if (live.has(t.id) || t.id >= t0 || (mine && keepUnit)) {
+        if (mine && !keepUnit) return no('a unit\'s definition the page keeps', true);
         for (const n of t.nodes) if (n.b.some((y) => y.k === 'if')) { const el = this.tplEls.get(n), key = el && this.instKey(el); if (key && decided.has(key)) return no('a decided if in a template that stays', true); }
         continue;
       }
-      // (and out of the tables keyed by its nodes that `finishPage` goes over: an anchor's, a text's)
+      // (and out of the tables keyed by its nodes that \`finishPage\` goes over: an anchor's, a text's)
       for (const n of t.nodes) { this.tplEls.delete(n); this.anchorEls.delete(n); this.textAt.delete(n); this.textMarks.delete(n); }
+      // (its head template, which a definition's walk made: `compactTables` would take it out; a unit's markup, not walked again)
+      this.headTemplates.delete(t.id);
+      touch(this, t);
       t.nodes = [];
+    }
+    // (a definition compiled again by the walks above: its first copy is one nothing reaches, or the page has it twice)
+    for (const [n, tid] of dropped) if (tid !== undefined && live.has(tid) && this.defs.has(n) && this.defs.get(n)?.tid !== tid) return no('a definition compiled first in a decided branch, used by the page', true);
+    // (the unit kept whole: each of its definitions one the second pass compiles, a point left in the page, which its unit
+    // holds, or one the page reaches; one it does not is one whose other entries the second pass would not have. Its
+    // templates as they are: the second pass's, reached or not)
+    if (keepUnit) {
+      const points = this.livePoints(this.walk!.doc);
+      for (const n of this.placedUnit!.names) { const e = this.defs.get(n); if (e && !points.has(n) && !live.has(e.tid)) return no('a unit\'s definition the page does not keep, beside one it keeps', true); }
     }
     // (which resources load late, by what still reads them)
     for (const r of this.resources) delete r.lo;
     this.markLowPriority();
     // the page's ids, in document order (a kept element's keep theirs)
-    this.renumberIds(this.walk!.doc);
+    // a function a dropped walk or the unit made first that the page calls too: at the site the second pass gives it, the
+    // page's first call (a definition's own code, `codeAt`, keeps its); the page's walk and the route's both calling it:
+    // which comes first in the page is not known here
+    for (const i of shared) {
+      const a = fw.pageAt?.get(i), b = fw.rewalkAt?.get(i), code = this.fns[i]!;
+      if (a !== undefined && b !== undefined) return no('code a decided branch compiled first is compiled elsewhere too', true);
+      this.fnAt[i] = this.codeAt.get(code) ?? (a !== undefined ? a : b)!;
+    }
+    if (!this.renumberIds(this.walk!.doc)) return no('an embedded resource\'s place', true);
     return null;
   }
 
@@ -11739,12 +12462,24 @@ class Compiler {
    * `fromWalk`: the ids of the page's bound nodes and anchors, handed out again in the order the markup has them, with
    * the gap a rendered block leaves (the ids its rows' bindings would have taken: today's numbering, where it is free)
    */
-  renumberIds(doc: P5Parent) {
+  renumberIds(doc: P5Parent): boolean {
     const map = new Map<number, number>();
     let next = 0;
     const id = (old: number) => { if (old >= KEPT_FROM) return old; let n = map.get(old); if (n === undefined) map.set(old, (n = next++)); return n; };
+    // (an embedded resource's id, where its element stood: the walk numbered it there)
+    const gone = this.fw?.gone ?? [], before = new Map<P5Node, number[]>(), last = new Map<P5Parent, number[]>();
+    for (const g of gone) {
+      if (g.next && !g.parent.childNodes.includes(g.next as never)) return false;
+      const m = g.next ? before : last, k = (g.next ?? g.parent) as never;
+      let l = m.get(k);
+      if (!l) m.set(k, (l = []));
+      l.push(g.id);
+    }
+    let seen = 0;
     const visit = (p: P5Parent) => {
       for (const c of p.childNodes as P5Node[]) {
+        const b = before.get(c);
+        if (b) for (const x of b) { id(x); seen++; }
         if (isElement(c)) {
           // (rendered rows: the ids their bindings would have taken, as the walk leaves them, `walkChildren`)
           const r = this.renderedAt.get(c);
@@ -11757,10 +12492,17 @@ class Compiler {
           if (m) (c as DefaultTreeAdapterMap['commentNode']).data = `sn ${id(+m[1]!)}`;
         }
       }
+      const e = last.get(p);
+      if (e) for (const x of e) { id(x); seen++; }
     };
     visit(doc);
+    if (seen < gone.length) return false;
     for (const n of this.roots) if (n.id !== undefined) n.id = id(n.id);
+    // (the embedded data's ids, where the resources hold them)
+    for (const [k, v] of this.embedded) if (v < KEPT_FROM) this.embedded.set(k, id(v));
+    for (const r of this.resources) if (typeof r.data === 'number' && r.data < KEPT_FROM) { touch(this, r); r.data = id(r.data); }
     this.nextId = next;
+    return true;
   }
 
   /** For the second pass: the state fields the decided `data-sn-if`s and unrolled loops read. */
@@ -13547,17 +14289,23 @@ const PLAIN_DEPTH = 1024;
  * tree does not exhaust the call stack; an object reached twice (a shared subtree) is walked once
  * unless it is reached again less deep.
  */
-export function plainData(v: unknown, heights?: Map<object, number>): boolean {
-  const scalar = (x: unknown) => x === null || ['string', 'number', 'boolean', 'undefined'].includes(typeof x);
-  if (scalar(v)) return true;
+export function plainData(v: unknown, heights?: Heights): boolean {
+  if (scalarData(v)) return true;
   // (the worklist asks this of every level of a tree, each level a part of the one above: what is frozen is measured
   // once, and a walk that cannot tell, past the bound or through a cycle, is this one)
-  if (heights) { let h = -1; try { h = plainHeight(v as object, 0, heights, new Map()); } catch { /* the walk below */ } if (h >= 0) return true; }
+  if (heights) {
+    // (a height known already, as `plainHeight` reads it first: no walk, and no table made for one)
+    const fh = heightsOn() ? DEEP_FROZEN.get(v as object) : undefined;
+    const known = fh !== undefined && fh !== UNMEASURED ? fh : heights.get(v as object);
+    if (known !== undefined && known >= 0 && known <= PLAIN_DEPTH) return true;
+    let h = -1; try { h = plainHeight(v as object, 0, heights, new Map()); } catch { /* the walk below */ } if (h >= 0) return true;
+  }
   const seen = new Map<object, number>();
-  const stack: [unknown, number][] = [[v, 0]];
+  // (the values to look at and their depths, side by side: no pair made for each)
+  const stack: unknown[] = [v], depths: number[] = [0];
   while (stack.length) {
-    const [x, depth] = stack.pop()!;
-    if (scalar(x)) continue;
+    const x = stack.pop(), depth = depths.pop()!;
+    if (scalarData(x)) continue;
     if (depth > PLAIN_DEPTH || typeof x !== 'object') return false;
     const at = seen.get(x as object);
     if (at !== undefined && at <= depth) continue;
@@ -13566,19 +14314,33 @@ export function plainData(v: unknown, heights?: Map<object, number>): boolean {
       const proto = Object.getPrototypeOf(x);
       if (proto !== Object.prototype && proto !== null) return false;
     }
-    for (const c of Array.isArray(x) ? x : Object.values(x as object)) stack.push([c, depth + 1]);
+    const cs = Array.isArray(x) ? x : Object.values(x as object);
+    for (let i = 0; i < cs.length; i++) { stack.push(cs[i]); depths.push(depth + 1); }
   }
   return true;
 }
 
+/** `plainData`'s scalars: null and the primitives JSON holds, and undefined */
+function scalarData(x: unknown): boolean {
+  if (x === null) return true;
+  const t = typeof x;
+  return t === 'string' || t === 'number' || t === 'boolean' || t === 'undefined';
+}
+
+/** the heights of frozen data (`plainHeight`'s `frozen`): only of data frozen at every depth, whose height cannot change */
+type Heights = Map<object, number>;
+/** frozen data's heights read where it was frozen (`DEEP_FROZEN`) unless `SN_FROZEN_HEIGHTS=0` (measured by each evaluation, as before) */
+let heightsFlag: boolean | undefined;
+const heightsOn = () => (heightsFlag ??= proc?.env.SN_FROZEN_HEIGHTS !== '0');
 /**
  * How deep plain data nests below `x` (0: no object in it) when every path through it stays within `PLAIN_DEPTH` of
  * the root `plainData` was asked about (`depth`: how deep `x` is), else -1 (not plain data, too deep, or a cycle).
  * `frozen`: the heights of data frozen at every depth (`DEEP_FROZEN`), which cannot change, kept by the caller;
  * `seen`: this walk's other objects (-2 while on the path).
  */
-function plainHeight(x: object, depth: number, frozen: Map<object, number>, seen: Map<object, number>): number {
-  const known = frozen.get(x) ?? seen.get(x);
+function plainHeight(x: object, depth: number, frozen: Heights, seen: Map<object, number>): number {
+  const fh = heightsOn() ? DEEP_FROZEN.get(x) : undefined;
+  const known = fh !== undefined && fh !== UNMEASURED ? fh : frozen.get(x) ?? seen.get(x);
   if (known !== undefined) return known >= 0 && depth + known <= PLAIN_DEPTH ? known : -1;
   if (depth > PLAIN_DEPTH || typeof x !== 'object') return -1;
   seen.set(x, -2);
@@ -13625,7 +14387,15 @@ function pickFields(v: unknown, fields: string[]): unknown {
 }
 
 /** values `deepFreeze` froze at every depth: build-time constants may share them without a copy */
-const DEEP_FROZEN = new WeakSet<object>();
+/**
+ * Data frozen at every depth, with its height as `plainHeight` measures it (how deep objects nest below it; `UNMEASURED`
+ * when not known): frozen data cannot change, so its height is known where it is frozen, and `plainData` reads it there
+ * instead of walking it again (a helper's tree is a list at every level, measured by every list the walk checks)
+ */
+const DEEP_FROZEN = new WeakMap<object, number>();
+const UNMEASURED = -2;
+/** the height of children: one more than the highest object among them, `UNMEASURED` if one is */
+const above = (h: number, ch: number) => (h === UNMEASURED || ch === UNMEASURED ? UNMEASURED : Math.max(h, ch + 1));
 
 /**
  * Whether `v` is what `deepFreeze(structuredClone(v))` would make of it, as it is: frozen at every depth, every object a
@@ -13634,33 +14404,49 @@ const DEEP_FROZEN = new WeakSet<object>();
  * keeps one, but the purity check's `JSON.stringify` throws on it). What it walks is marked frozen at every depth
  * (`DEEP_FROZEN`), as `deepFreeze` marks its copy, once the whole of it is known to be.
  */
+/**
+ * A folded call's argument as the build keeps it for its cross check (`foldLog`): an object copied, a string or another
+ * primitive as it is (a copy of one is the same value, and the post a call reads would be kept twice until the end)
+ */
+export const cloneArg = (x: unknown): unknown => (x !== null && typeof x === 'object' ? structuredClone(x) : x);
+
 export function frozenPlain(v: object): boolean {
-  const done = new Set<object>(), path = new Set<object>(), all: object[] = [];
-  const walk = (x: object): boolean => {
-    if (done.has(x) || DEEP_FROZEN.has(x)) return true;
-    if (path.has(x) || !Object.isFrozen(x)) return false;
+  // (with each object's height, `DEEP_FROZEN`: -1 is not plain)
+  const done = new Map<object, number>(), path = new Set<object>(), all: object[] = [];
+  const walk = (x: object): number => {
+    const known = done.get(x) ?? DEEP_FROZEN.get(x);
+    if (known !== undefined) return known;
+    if (path.has(x) || !Object.isFrozen(x)) return -1;
     const proto = Object.getPrototypeOf(x), array = Array.isArray(x);
-    if (proto !== (array ? Array.prototype : Object.prototype)) return false;
+    if (proto !== (array ? Array.prototype : Object.prototype)) return -1;
     path.add(x);
     const keys = Reflect.ownKeys(x);
-    if (array && keys.length !== (x as unknown[]).length + 1) return false;
-    for (const k of keys) {
-      if (typeof k !== 'string') return false;
-      if (array && k === 'length') continue;
-      if (array && (String(+k >>> 0) !== k || +k >= (x as unknown[]).length)) return false;
+    const len = array ? (x as unknown[]).length : 0;
+    if (array && keys.length !== len + 1) return -1;
+    // (an array's own keys list its indexes first, ascending, then `length`, made with it, then any other string key and
+    // the symbols: with one key more than its length and that one `length`, the rest are 0 to length - 1, every index
+    // there and nothing else, and the keys are not read as numbers one by one; in another order, a proxy's, they are)
+    const ordered = array && keys[len] === 'length';
+    let h = 0;
+    for (let i = 0; i < keys.length; i++) {
+      const k = keys[i]!;
+      if (typeof k !== 'string') return -1;
+      if (ordered && i === len) continue;
+      if (array && !ordered && k === 'length') continue;
+      if (array && !ordered && (String(+k >>> 0) !== k || +k >= len)) return -1;
       const d = Object.getOwnPropertyDescriptor(x, k)!;
-      if (!('value' in d) || !d.enumerable) return false;
+      if (!('value' in d) || !d.enumerable) return -1;
       const c = d.value;
-      if (c !== null && typeof c === 'object' && !walk(c)) return false;
-      if (typeof c === 'function' || typeof c === 'symbol' || typeof c === 'bigint') return false;
+      if (c !== null && typeof c === 'object') { const ch = walk(c); if (ch === -1) return -1; h = above(h, ch); }
+      if (typeof c === 'function' || typeof c === 'symbol' || typeof c === 'bigint') return -1;
     }
     path.delete(x);
-    done.add(x);
+    done.set(x, h);
     all.push(x);
-    return true;
+    return h;
   };
-  if (!walk(v)) return false;
-  for (const x of all) DEEP_FROZEN.add(x);
+  if (walk(v) === -1) return false;
+  for (const x of all) DEEP_FROZEN.set(x, done.get(x)!);
   return true;
 }
 
@@ -13675,14 +14461,24 @@ const FROZEN_COPY = new WeakMap<object, object>();
 function frozenCopy(v: object): object {
   if (proc?.env.SN_FILE_COPY === '0') return deepFreeze(structuredClone(v) as object);
   let c = FROZEN_COPY.get(v);
-  if (!c) FROZEN_COPY.set(v, c = deepFreeze(structuredClone(v) as object));
+  if (!c) {
+    FROZEN_COPY.set(v, c = deepFreeze(structuredClone(v) as object));
+  }
   return c;
 }
 
 function deepFreeze<T extends object>(v: T): T {
-  DEEP_FROZEN.add(v);
-  for (const x of Object.values(v)) if (x && typeof x === 'object') deepFreeze(x);
-  return Object.freeze(v);
+  freezeDeep(v);
+  return v;
+}
+/** `deepFreeze`, its height the result (`DEEP_FROZEN`) */
+function freezeDeep(v: object): number {
+  DEEP_FROZEN.set(v, UNMEASURED);
+  let h = 0;
+  for (const x of Object.values(v)) if (x && typeof x === 'object') h = above(h, freezeDeep(x));
+  DEEP_FROZEN.set(v, h);
+  Object.freeze(v);
+  return h;
 }
 
 /**
@@ -13710,8 +14506,19 @@ export function frozenData(v: unknown, fresh?: (x: object) => boolean): unknown 
   if (!simple) return deepFreeze({ v: structuredClone(v) }).v;
   const copy = (x: unknown): unknown => {
     if (!x || typeof x !== 'object' || DEEP_FROZEN.has(x)) return x;
-    const out = Array.isArray(x) ? x.map(copy) : Object.fromEntries(Object.entries(x).map(([k, c]) => [k, copy(c)]));
-    DEEP_FROZEN.add(out);
+    // (as `Object.fromEntries(Object.entries(x)…)` makes it: its own keys in their order, `__proto__` an own key too)
+    let out: unknown[] | Record<string, unknown>, h = 0;
+    const take = (c: unknown) => { const v = copy(c); if (v && typeof v === 'object') h = above(h, DEEP_FROZEN.get(v) ?? UNMEASURED); return v; };
+    if (Array.isArray(x)) out = x.map(take);
+    else {
+      const o: Record<string, unknown> = {};
+      for (const k of Object.keys(x)) {
+        const v = take((x as Record<string, unknown>)[k]);
+        if (k === '__proto__') Object.defineProperty(o, k, { value: v, enumerable: true, writable: true, configurable: true }); else o[k] = v;
+      }
+      out = o;
+    }
+    DEEP_FROZEN.set(out, h);
     return Object.freeze(out);
   };
   return copy(v);
@@ -13866,6 +14673,57 @@ export function failsFirst(code: string): boolean {
   return !!m && !SCOPE_NAMES.has(m[1]!) && !/^\$s\d+$/.test(m[1]!);
 }
 
+/**
+ * A unit's part of `prerender`'s candidates, the same on every page that places it (`BuildUnit.evalCands`): the unit's
+ * elements are the first of a page's `tplEls` (placed before its walk, in the unit's order), and of their bindings, in
+ * their order, each a value candidate could be but for `fixed` (`k` 0: what `value` asks of a binding in a template,
+ * but `fixed`, which reads the page's writes and resources) and each `if` (`k` 1: `decide`'s questions read the page).
+ * Left out: a value candidate whose code fails at its first step (`failsFirst`: a definition's props, `$.$p<n>`, read
+ * first: 2,229 of a sinter-mail page's 2,250), whose evaluation is FAIL without running it, and a value in a template
+ * that is FAIL does nothing. Checked on each page against its `tplEls` (the same elements, the same order) and its codes;
+ * null when it does not hold, and the page asks every binding as before (counted)
+ */
+type UnitCands = { size: number; nodes: NodeDef[]; els: P5Element[]; codes: Array<string | undefined>; list: Array<{ el: P5Element; b: Binding; k: 0 | 1 }> };
+function unitCands(u: BuildUnit, tplEls: Map<NodeDef, P5Element>, fns: string[]): UnitCands | null {
+  if (proc?.env.SN_UNIT_CANDS === '0') return null;
+  const size = u.placedEls ?? 0;
+  if (!size || tplEls.size < size) return null;
+  let c = u.evalCands as UnitCands | undefined;
+  if (c) {
+    // (the page's first elements the unit's, its codes the unit's)
+    let i = 0, k = 0, ok = c.size === size;
+    for (const [node, el] of tplEls) {
+      if (!ok || i === size) break;
+      if (node !== c.nodes[i] || el !== c.els[i]) ok = false;
+      else for (const b of node.b) if ((b.f === undefined ? undefined : fns[b.f]) !== c.codes[k++]) { ok = false; break; }
+      i++;
+    }
+    if (ok) return c;
+    unitFallback('a page whose unit\'s elements or codes are not the unit\'s (the evaluation\'s candidates asked again)');
+    return null;
+  }
+  c = { size, nodes: [], els: [], codes: [], list: [] };
+  let i = 0;
+  for (const [node, el] of tplEls) {
+    if (i++ === size) break;
+    c.nodes.push(node);
+    c.els.push(el);
+    for (const b of node.b) {
+      const code = b.f === undefined ? undefined : fns[b.f];
+      c.codes.push(code);
+      if (code === undefined) continue;
+      if (b.k === 'if') { c.list.push({ el, b, k: 1 }); continue; }
+      if (b.e) continue;
+      // (`value`'s questions of a binding in a template, but `fixed`)
+      if (!['text', 'attr', 'class', 'style', 'show'].includes(b.k) || (b.k === 'class' && !b.n) || (b.k === 'text' && el.childNodes.some(isElement)) || b.w?.length) continue;
+      if (failsFirst(code)) continue;
+      c.list.push({ el, b, k: 0 });
+    }
+  }
+  u.evalCands = c;
+  return c;
+}
+
 /** a binding `prerender` evaluates: `tpl`, in a template's content, written there only when it can never change; `if`, a condition decided for a second pass; `for`, a loop unrolled in it */
 type EvalCand = { el: P5Element; b: Binding; f: number; tpl?: true; if?: true; for?: true };
 
@@ -13887,13 +14745,15 @@ export function caseCode(c: { props: string }): string {
 
 /** the worklist's reading of a binding in a row (`bindPlan`) */
 const SKIP = 0, STOP = 1, PAINTED = 2, CONTROL = 3;
-type BindPlan = { b: Binding; j: number; k: typeof SKIP | typeof STOP | typeof PAINTED | typeof CONTROL; ds: string[]; kn?: boolean; code?: string; paint?: boolean; text?: boolean; key?: string | null };
+type BindPlan = { b: Binding; j: number; k: typeof SKIP | typeof STOP | typeof PAINTED | typeof CONTROL; ds: string[]; kn?: boolean; code?: string; paint?: boolean; text?: boolean; key?: string | null; cst?: boolean; cstOf?: object };
 /** the candidates of a choice in a row that it does not render: each of `keys` but `picked`, decided false at `prefix` + its key */
 type NotRendered = { prefix: string; keys: Map<string, string>; picked: string | null; d: PathRef[] | undefined };
+/** a worklist's decision: its key (or its prefix and the template's key, joined where it is committed), its value, its dependencies; or a choice's candidates it does not render */
+type Decided = [string, boolean, PathRef[] | undefined] | [string, string, boolean, PathRef[] | undefined] | NotRendered;
 /** a worklist's decisions, a choice's candidates spelled out one by one, in order */
-export function* decidedEntries(list: Array<[string, boolean, PathRef[] | undefined] | NotRendered>): Generator<[string, boolean, PathRef[] | undefined]> {
+export function* decidedEntries(list: Decided[]): Generator<[string, boolean, PathRef[] | undefined]> {
   for (const e of list) {
-    if (Array.isArray(e)) { yield e; continue; }
+    if (Array.isArray(e)) { yield e.length === 4 ? [e[0] + e[1], e[2], e[3]] : e; continue; }
     for (const [name, ck] of e.keys) if (name !== e.picked) yield [e.prefix + ck, false, e.d];
   }
 }

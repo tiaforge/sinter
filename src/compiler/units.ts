@@ -66,6 +66,10 @@ export type BuildUnit = {
    * definition, numbered from there (`unitCheck`)
    */
   check?: { frames: any[]; exprs: any[]; segs: Map<string, Seg>; frameOf: Array<{ key: object; at: number }> };
+  /** its part of the first pass's evaluation's candidates, read once (`unitCands`, compile.ts) */
+  evalCands?: unknown;
+  /** where it was placed last (the page being compiled): how many of the page's first `tplEls` are its elements (0: not known) */
+  placedEls?: number;
   /** its functions as the first pass's evaluation runs them, compiled once (`unitTable`): by the names they see */
   tables?: Map<string, { bind: (values: unknown[]) => void; fns: Map<string, ($: unknown) => unknown> | null }>;
   /** (`SN_UNITS_VERIFY=1`) each object's own values as it was made, which every page must leave as they were */
@@ -77,6 +81,11 @@ export type BuildUnit = {
    * lookup), and the page's output is what it wrote
    */
   all?: object[];
+  /**
+   * a first pass's: every object it made, which a page that finishes it as its own holds whole (`holdWhole`: B1, the
+   * route keeping the unit's definitions, stage5-b1.md §21)
+   */
+  objects?: object[];
   /** a second pass's: its head templates, by template id, finished (`anchors`, `shareTemplates`) */
   heads?: Array<[number, unknown]>;
   /** a second pass's: what reads only its definitions is done (`anchors`, `shareTemplates`): a page's passes skip its part */
@@ -169,6 +178,7 @@ const VARIANTS = 3;
  * are placed). Not their markup: a page writes into that only where it paints, which it holds itself (`touchEl`).
  */
 function irObjects(templates: unknown[], heads: Array<[number, unknown]>, own: WeakSet<object>): object[] {
+  // (`templates`: its templates, and the bindings of its definitions' tag attributes)
   const out = new Set<object>();
   const add = (v: unknown, depth: number) => {
     if (!v || typeof v !== 'object' || out.has(v) || !own.has(v) || 'nodeName' in v) return;
@@ -191,6 +201,18 @@ export function holdUnit(c: any) {
   const u: BuildUnit | null = c.placedUnit;
   if (!u?.all) return;
   for (const o of u.all) touch(c, o);
+}
+
+/**
+ * A first pass's unit that the page finishes as its own (B1: the route keeps its definitions, compile.ts `fromWalk`):
+ * every object of it held as it is now (`touch`), so that it is given back after the page's output is copied off it
+ * (`restoreUnit`). Returns false for a unit that does not list them.
+ */
+export function holdWhole(c: any): boolean {
+  const u: BuildUnit | null = c.placedUnit;
+  if (!u?.objects || u.finished) return false;
+  for (const o of u.objects) touch(c, o);
+  return true;
 }
 
 /** the unit compiled on this page (its writes applied to it, as the linker's recorder does) and kept */
@@ -317,9 +339,12 @@ function make(c: any, names: string[], second = false): BuildUnit | { refused: s
     const hit = vals.find(named);
     if (hit) return { refused: `names its page's file (${JSON.stringify(String(hit).slice(0, 60))})` };
   }
-  const all = second ? irObjects(numbering.templates as unknown[], heads!, own) : undefined;
+  // (and the bindings its definitions' tag attributes made, in `defAttrs`: each page puts them on a definition's root,
+  // `defRootBindings`, and numbers their functions, `compactTables`)
+  const all = second ? irObjects([...numbering.templates as unknown[], ...[...c.defAttrs.values()].filter((m: object) => own.has(m)).flatMap((m: Map<string, unknown>) => [...m.values()])], heads!, own) : undefined;
   if (check && !second) for (const seg of segs.values()) partOf(seg, check, file, base);
-  return { names, reads: u.reads, numbering, weak, ops, at: enc(u.atAfter), own, placed: 0, origins, file, base, rel, ...(check && !second ? { check: { frames: check.frames, exprs: check.exprs, segs, frameOf } } : {}), ...(prints ? { prints } : {}), ...(all ? { all, heads, share, finished: true } : {}) };
+  const objects = second ? undefined : [...seen].filter((v) => own.has(v));
+  return { names, reads: u.reads, numbering, weak, ops, at: enc(u.atAfter), own, placed: 0, origins, file, base, rel, ...(check && !second ? { check: { frames: check.frames, exprs: check.exprs, segs, frameOf } } : {}), ...(prints ? { prints } : {}), ...(all ? { all, heads, share, finished: true } : {}), ...(objects ? { objects } : {}) };
 }
 
 let nextPart = 0;
@@ -340,6 +365,8 @@ function partOf(seg: Seg, check: { frames: any[]; exprs: any[] }, file: string, 
 
 /** the unit put on a page that is numbered as it was made (nothing yet), reading its page alike */
 function place(c: any, u: BuildUnit) {
+  // (how many of the page's bound template elements are the unit's: all of them, as the page has none before its walk)
+  const els0 = c.tplEls instanceof Map ? c.tplEls.size : -1;
   for (const [f, v] of Object.entries(u.numbering)) c[f] = v instanceof Map ? new Map(v) : Array.isArray(v) ? v.slice() : v;
   for (const [f, t] of u.weak) c[f] = t instanceof WeakSet ? new OverlaySet(c[f], t) : new OverlayMap(c[f], t as WeakMap<object, unknown>);
   for (const o of u.ops) {
@@ -355,6 +382,7 @@ function place(c: any, u: BuildUnit) {
     else t[key as string] = v;
   }
   c.at = val(c, u.at);
+  u.placedEls = els0 === 0 ? c.tplEls.size : 0;
   ownContainers(c, u);
   if (u.heads) for (const [tid, tpl] of u.heads) c.headTemplates.set(tid, tpl);
   // its origins that name its page: this page's
@@ -481,7 +509,7 @@ export function unitCheck(c: any, name: string) {
  * not constants of it). The map holds the unit's functions the page uses; null when the table does not compile (the
  * page then compiles all it uses, as without units).
  */
-export function unitTable(u: BuildUnit, params: Map<string, unknown>, used: string[]): Map<string, ($: unknown) => unknown> | null {
+export function unitTable(u: BuildUnit, params: Map<string, unknown>, _used: string[]): Map<string, ($: unknown) => unknown> | null {
   const names = [...params.keys()], key = names.join(',');
   const tables = (u.tables ??= new Map());
   let t = tables.get(key);
@@ -496,8 +524,8 @@ export function unitTable(u: BuildUnit, params: Map<string, unknown>, used: stri
     tables.set(key, t);
   }
   if (!t.fns) { fallback('a unit whose functions do not compile together'); return null; }
-  const out = new Map<string, ($: unknown) => unknown>();
   t.bind([...params.values()]);
-  for (const c of used) { const f = t.fns.get(c); if (f) out.set(c, f); }
-  return out;
+  // (all of them: the evaluation asks only for the codes it uses, `used`, so the unit's table serves it as it is, without
+  // a map per page of the ones it uses)
+  return t.fns;
 }

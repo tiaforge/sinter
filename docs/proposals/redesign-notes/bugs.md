@@ -172,3 +172,28 @@ pass's output is returned. A kept template's entries (`fromTemplate`) are not ch
 build (and `sinter check`, the editor); before, it built, with its loops over constants left to the browser. In the
 test suites, nothing else adds an error (probed: only the new tests' pages); every app and sinter-mail are
 byte-identical.
+
+## 7. A persisted model's own path outlived its candidate (found by the evaluation's work; masked, fixed as a guard)
+
+**Found.** `evaluation.md` ("A rule that looks wrong") recorded it: `prerender` sets `own` (the path of the model
+candidate being evaluated, whose persisted field reads as its initial value: the fallback written into the HTML) at
+the start of each candidate of its loop, and left it at the last candidate's value after the loop, where the texts and
+the worklist's `finish` walk (choices at the roots, loops in decided branches, rows) evaluate with the same `known` and
+the same state proxies (`isPersisted`). If the last candidate was a persisted model, its field would read as known
+there and not in the loop's own `unroll`s.
+
+**Reproduction: none possible through the output** (stage6-eval.md, 7). Every evaluation after the loop is behind
+`fixed` of the same dependencies (a text's at collection; a row binding's and a control's in `bindPlan`, a stop
+otherwise; a choice's pick, a case's props, a placement's data, a decided branch's loops in `caseOf`, `expandCase`,
+`nodesOf`, `pageOf`), and `fixed` refuses every written field, while `writtenState` adds every persisted path
+(`for (const p of this.persisted) add([p])`): a dependency set that passes `fixed` names no persisted field, so
+`known`'s answer for it does not depend on `own`. A state proxy answers a read of a field that the code's dependencies
+name (the compiled code reads state only through names whose reads `expr.ts` records), so it is not reached either. A
+test pins it: a page whose last candidate is a persisted model, with a row, a decided branch and a text over its
+field after it, compiles as the page with the model first (up to the numbering its place changes), both routes,
+rendered and not; it passes before and after the fix, as the argument says it must.
+
+**Fix.** `own` is null again once the candidates are evaluated: the rule is the one its comment states (a persisted
+model's own path is the fallback for that model's first paint, and for nothing else). No output changes, for any page:
+a guard, as bug 1's placement data, so that a later change that lets `known` decide a dependency `fixed` does not
+(stage 6's deciding from summaries) does not inherit it. No changelog bullet: nothing a user sees changes.
