@@ -861,3 +861,12 @@ decision of their own (stage 7). A step that can stay byte-identical does.
   peak at 1.4 to 1.6 GB through Vite's HTML step (the only lever is the decision on that step). What is left in
   the compiler's share of the garbage is spread thin; its largest piece is the rendered rows as nodes (2 MB a
   page), the rows-as-text question.
+- 2026-11-24, 01:41 UTC: **the full suite passes at `cbd6d2a` (the allocation session's work merged): 3010 tests, 314
+  files**; `test/vite/compile-hints.test.ts` passed in it (its one failure at 01:31 has not come back in four
+  runs). The allocation session's closing notes are merged (`redesign-notes/alloc.md`: "Where a page's 9.6 MB go",
+  by owner with what each item needs, now 8.9 MB a page; "The md.parse memo": it serves the browser, dev's
+  recompiles and two pages of one build parsing the same text, and any smaller size could make a build parse
+  twice; the coordinator's recommendation to the owner is to leave it). Not merged: the stage 5 session's
+  `a196ecc`, `30c3ef9` (357 second passes routed in its suite, a guard for a unit's name-keyed entries that
+  sinter-mail needed, the counts sorted, what each small refusal needs in `stage5-b1.md` §18): its branch conflicts
+  with the allocation cuts in `compile.ts` and was sent back to be merged and verified there.
