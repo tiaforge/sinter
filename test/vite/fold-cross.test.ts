@@ -8,7 +8,7 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { build } from 'vite';
+import { build, type AliasOptions } from 'vite';
 import { afterAll, beforeAll, describe, expect, test, vi } from 'vitest';
 import sinter from '../../src/vite.js';
 import { crossCheck, crossMessage, hashOf } from '../../src/fold-cross.js';
@@ -172,7 +172,7 @@ describe('the check beside Vite\'s HTML step (`SN_CROSS_LATE=1`) against the che
   /** the message without its stack, its differences sorted (they follow the build's page order, which is not fixed) */
   const text = (m: string | null) => { const t = (m ?? '').split(/\n\s+at /)[0]!.replace(/in the build \(\d+\)/g, 'in the build (N)').split('\n'); return [...t.filter((l) => !/^ {2}idOf\(/.test(l)), ...t.filter((l) => /^ {2}idOf\(/.test(l)).sort()].join('\n'); };
   /** a build of `files`, with a file in `dist/` from before; its error and whether that file is still there */
-  async function run(late: '0' | '1', files: Record<string, string>, calls: string[], o: { alias?: unknown; pages?: string[] } = {}) {
+  async function run(late: '0' | '1', files: Record<string, string>, calls: string[], o: { alias?: AliasOptions; pages?: string[] } = {}) {
     process.env.SN_CROSS_LATE = late;
     process.env.SN_CROSS_LOG = '1';
     const said: string[] = [];
