@@ -844,3 +844,20 @@ decision of their own (stage 7). A step that can stay byte-identical does.
   reach sinter-mail): 1,569 tests of test/compiler, test/vite, test/check pass; `pass-audit` nine apps the same;
   sinter-mail's 48 audit files and its 2,000-element page built with the tree before the session's changes
   (`b901424`) and with the merged tree: every file identical.
+- 2026-11-24, 01:37 UTC: **the allocation session's final commit is merged** (`redesign-notes/alloc.md`; `f8df9f8`): the fold log
+  kept a clone of every folded call's arguments until `buildEnd`, so a post's body was held twice and cloned again
+  by the cross check; a string or other primitive is kept as it is now, objects copied as before. Its numbers
+  against `f395fa2`, five interleaved rounds, medians, build ms / peak MB / collector ms: static 100 posts 2,469 /
+  353 / 199 to 2,392 / 347 / 186; static 400 posts 6,553 / 569 / 619 to 6,561 / 552 / 566; live 400 posts 8,309 /
+  825 / 841 to 8,184 / 812 / 804; a page file per post at 400 the same within noise. So: 7 percent less allocated,
+  4 to 9 percent less in the collector, time and peak memory within the machine's noise. Its full suite 3,010.
+  Checked on the coordinating machine after the merge: `pass-audit` nine apps the same; sinter-mail's 48 audit
+  files and its 2,000-element page identical before and after; 1,568 of 1,569 tests of test/compiler, test/vite,
+  test/check in the first run: `test/vite/compile-hints.test.ts` ("the page modules start with the hint…") failed
+  once and passed alone and in two further runs of test/vite and test/compiler (a flake to watch, not seen
+  before). **For the owner, from that session** ("Decisions for the owner" in its log): sinter-markdown's own parse
+  memo (8 MiB, about 119 post trees kept through a build that parses each post once; the collector 6 to 10 percent
+  less at 400 posts with a smaller one; changing it changes which helper code runs); live builds at 1,000 posts
+  peak at 1.4 to 1.6 GB through Vite's HTML step (the only lever is the decision on that step). What is left in
+  the compiler's share of the garbage is spread thin; its largest piece is the rendered rows as nodes (2 MB a
+  page), the rows-as-text question.
