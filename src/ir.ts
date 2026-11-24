@@ -328,6 +328,8 @@ export interface ActionDef {
   ap?: ApplyDef;
   /** `data-sn-retry`: the retry policy of a mutation */
   retry?: string;
+  /** `data-sn-when`: the action starts only where this holds (asked first, after a debounce) */
+  when?: number;
 }
 
 /** What a mutation is about and what its response holds, for the `write-through` feature. */

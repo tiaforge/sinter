@@ -158,9 +158,9 @@ tsconfig, the check uses its own options and nulls are not checked.
 What only runs where a condition holds is narrowed by it, as TypeScript narrows an `if`: the content of a
 `<template data-sn-if>` by its condition (and a `data-sn-else` by the negation of the ones before), a resource's
 `src`, `call` and `body` by its `when` (`<sn-resource when="ref" src="/thread?id={ref.id}">`), and an
-`<sn-event>`'s `value` and `then` by its `when` (`when="$event.contact" value="$event.contact"`). An action's
-URL and body are evaluated when it starts, which the check cannot follow through a `run('id')` or a
-`data-sn-trigger`: [docs/actions.md](actions.md#run-an-action-from-a-handler) says what to write.
+`<sn-event>`'s `value` and `then` by its `when` (`when="$event.contact" value="$event.contact"`), and an
+action's call, URL, body, confirm and optimistic change by its `data-sn-when` (`data-sn-when="pubKey"
+data-sn-body="pubKey"`): [docs/actions.md](actions.md#a-guard-data-sn-when).
 
 An app with a strict tsconfig whose expressions were checked without `strictNullChecks` (sinter 0.21 and earlier)
 can get many errors at once (SN208) on upgrading, mostly reads of a value that starts `null`:
@@ -171,7 +171,8 @@ can get many errors at once (SN208) on upgrading, mostly reads of a value that s
 - a resource loaded by state that may be `null`: `when="ref"` on the resource narrows its `src` and `call`;
 - a prop given a value that may be `undefined` (`at: last?.tick`): give a default (`?? 0`), or declare the prop
   optional;
-- state an action reads after a handler set it: [run an action](actions.md#run-an-action-from-a-handler);
+- state an action reads after a handler set it (`open = m; run('mark-read')`, a drag before a drop):
+  [`data-sn-when="open"`](actions.md#a-guard-data-sn-when) on the action;
 - a field that is `null` only before the first load and a cast is honest: `/** @type {Message} */ (open)`.
 
 It also reports `then`/`catch` handlers that start each other through `run()` (`SN509`).

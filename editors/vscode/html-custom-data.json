@@ -254,6 +254,10 @@
       "description": "local action: a function of the actions module, e.g. pgp.decrypt(msg); a handler starts it with run('id'). The function gets a trailing context; its `ctx.request(url, { method, body })` encodes `body` as JSON: pass the object, not `JSON.stringify(…)` (a string) (action call)"
     },
     {
+      "name": "data-sn-when",
+      "description": "the action starts only where this holds; it narrows the URL and body⟪FULL⟫: asked as its trigger fires or run('id') starts it (after a debounce), otherwise nothing happens. sinter check narrows the call's arguments, the URL, the body, data-sn-confirm and data-sn-optimistic by it (not then/catch, which run later): data-sn-when=\"pubKey\" data-sn-body=\"pubKey\"⟪SHORT⟫⟪END⟫ (value expression)"
+    },
+    {
       "name": "data-sn-body",
       "description": "JSON request body; overrides form serialization (value expression)"
     },

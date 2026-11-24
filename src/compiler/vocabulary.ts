@@ -38,6 +38,7 @@ export const ATTRIBUTES: AttrDoc[] = [
   { name: 'patch', value: 'URL template', doc: 'PATCH action' },
   { name: 'delete', value: 'URL template', doc: 'DELETE action' },
   { name: 'call', value: 'action call', doc: 'local action: a function of the actions module, e.g. pgp.decrypt(msg); a handler starts it with run(\'id\'). The function gets a trailing context; its `ctx.request(url, { method, body })` encodes `body` as JSON: pass the object, not `JSON.stringify(…)` (a string)' },
+  { name: 'when', value: 'value expression', doc: 'the action starts only where this holds; it narrows the URL and body⟪FULL⟫: asked as its trigger fires or run(\'id\') starts it (after a debounce), otherwise nothing happens. sinter check narrows the call\'s arguments, the URL, the body, data-sn-confirm and data-sn-optimistic by it (not then/catch, which run later): data-sn-when="pubKey" data-sn-body="pubKey"⟪SHORT⟫⟪END⟫' },
   { name: 'body', value: 'value expression', doc: 'JSON request body; overrides form serialization' },
   { name: 'trigger', value: 'DOM event name', doc: 'overrides the default trigger' },
   { name: 'debounce', value: 'duration', doc: 'delays the action\'s trigger, resets on each event' },
