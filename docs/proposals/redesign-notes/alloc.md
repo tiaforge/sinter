@@ -13,7 +13,7 @@ largest cost nobody owned. Branch `redesign/alloc`, base `f395fa2` (the integrat
   that ends before reaching the next limit peaks lower: that, not retention, is the slope from 100 to 400 posts.
 - **Step 2 (allocation), first milestone**: attributed (below: 3.83 GB at 400 posts, 9.6 MB a page; 46 % of it is not the
   compiler's: markdown-it and sinter-markdown's tree, Vite's parse5, the SN534 cross check), and five local cuts in the
-  compiler, byte-identical: 3,831 → 3,615 MB (−5.6 %); the GC's pauses −2 to −5 %, time and peak memory within noise.
+  compiler, byte-identical: 3,831 → 3,572 MB (−6.8 %); the GC's pauses −2 to −8 %, time and peak memory within noise.
   The compiler's own allocation is spread: the largest left is the first pass's rendered rows as DOM (≈0.8 GB, 2 MB
   a page), which is stage 6's ground (rows as text, assessed there).
 - **Next**: what else is cheap in the compiler's share (iterators of Maps and Sets in the walk, `copyState`'s copy);
@@ -175,8 +175,10 @@ second pass 39 MB, the cross check 32 MB, the minifier 20 MB.
    than its length and that key `length` in its place, its keys are exactly the indexes (a proxy's, in another order,
    checked as before). Allocation unchanged within the profile's noise (V8 caches small numbers' strings); kept for the
    time, measured below.
+6. **The minifier's comment pass** (`minify.ts`, `comments`): a new list of children was made for every element it
+   visits; now only for one that loses a comment or whose texts meet, the others' list kept as it is. `visit` 50 → 26 MB.
 
-Sampling heap profile, 400 posts static: 3,831 MB → 3,615 MB.
+Sampling heap profile, 400 posts static: 3,831 MB → 3,615 MB (cuts 1 to 5) → 3,572 MB (6).
 
 ### Before and after (whole process, interleaved rounds: base `f395fa2` and this branch alternating within each round)
 
@@ -191,9 +193,28 @@ Five rounds at 100 and 400 posts, medians; build ms / peak RSS MB / GC pauses ms
 | live 400 | 8,018 / 846 / 818 (290) | 7,856 / 837 / 803 (272) |
 | a page file per post, 400 | 8,029 / 598 / 718 (306) | 8,141 / 609 / 702 (293) |
 
+Three rounds at 1,000 posts (cuts 1 to 5), medians:
+
+| app | base | this branch |
+| --- | --- | --- |
+| static 1,000 | 15,052 / 787 / 1,590 (630) | 14,969 / 760 / 1,527 (598) |
+| live 1,000 | 19,645 / 1,585 / 2,516 (713) | 18,945 / 1,578 / 2,318 (670) |
+| a page file per post, 1,000 | 19,137 / 826 / 1,952 (753) | 19,194 / 819 / 1,878 (720) |
+
 Checked: `bench/tools/ident.mjs` against the base, nine apps (the five benchmark variants at 100 posts and the four
 examples), every file the same; `pass-audit` and `render-audit --canon`, every app "same"; 1,569 tests of
 test/compiler, test/vite, test/check, check-cli and fold-cache.
+
+### Live pages at 1,000 posts: Vite's HTML step holds every page's tree at once
+
+The live variant peaks at 1.4–1.6 GB at 1,000 posts (static: 0.76–0.79). After a forced collection while Vite's HTML
+step runs, 275 MB are live; once it is done, 121 MB. `vite:build-html`'s transform parses the page (`traverseHtml`)
+and keeps the tree in its visitor's closure until the `this.resolve` of the page's module script and its asset URLs
+have settled (`await Promise.all(setModuleSideEffectPromises)`); Rolldown starts every page's transform at once, so
+every live page's parse5 tree (its text nodes `chars += c` cons strings) is alive together: ≈155 kB a page, and V8's
+high-water is 950 MB. Static pages have no module script to resolve and their trees go sooner (35 MB at 400 posts).
+Vite's code; the only lever sinter has is the one already in "Decisions for the owner" of pipeline-2.md (Vite's HTML
+step for pages it does not change), and live pages are pages it changes.
 
 ## Decisions for the owner
 
