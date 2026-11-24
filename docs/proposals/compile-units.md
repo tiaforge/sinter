@@ -819,3 +819,5 @@ decision of their own (stage 7). A step that can stay byte-identical does.
   the compiler's: it is outside it (Vite's and Rolldown's module graph and bundle, the HTML step's trees, the
   plugin's state). **The stage 6 session is finished** (its context was full); a fresh cloud session takes retention
   outside the compiler and allocation by function (`redesign/alloc`, log `redesign-notes/alloc.md`).
+- 2026-11-24, 00:21 UTC: **the full suite passes at `e09b12e`: 3,010 tests, 314 files** (with stage 5's third milestone, stage 6's
+  rounds 2 and 3 and its closing log). The stage 6 session is archived; its log's top says where it ended.
