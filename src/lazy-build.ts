@@ -21,8 +21,15 @@ export const LAZY = '/@sinter/lazy/';
 /** the build writes the URL of each lazy chunk where the generated code has this (patched in generateBundle) */
 export const CHUNK_MARK = '__SN_CHUNK__';
 
-/** the lazy package a specifier names (`openpgp`, `openpgp/lightweight`), or null */
+/** a stylesheet or asset file: Vite bundles it into the page's CSS or URLs, so importing it loads none of the package's code */
+const ASSET = /\.(?:css|scss|sass|less|styl|stylus|pcss|postcss|sss|svg|png|jpe?g|gif|webp|avif|ico|woff2?|ttf|otf)(?:\?[^#]*)?(?:#.*)?$/i;
+
+/**
+ * the lazy package a specifier names (`openpgp`, `openpgp/lightweight`), or null. Not a stylesheet or an asset
+ * of it (`@acme/mail/mail.css`): that is no code of the package, so it neither loads it nor needs it loaded
+ */
 export function lazyPackage(spec: string, pkgs: readonly string[]): string | null {
+  if (ASSET.test(spec)) return null;
   for (const p of pkgs) if (spec === p || spec.startsWith(p + '/')) return spec;
   return null;
 }

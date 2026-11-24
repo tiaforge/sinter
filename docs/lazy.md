@@ -55,6 +55,9 @@ package loaded at once:
 | `keys.map(openpgp.readKey)`, passing `openpgp` around | a function or the namespace as a value: call it where it is needed |
 | `import 'openpgp'`, `export … from 'openpgp'` | side effects and re-exports need the package: import what you call where you call it |
 
+A stylesheet or asset of a lazy package (`import '@acme/mail/mail.css'`, `.svg`, a font) is not its code: Vite
+bundles it with the page, the package still loads on first call, and the import is not refused.
+
 Helpers are different: a helper module that reaches a lazy package loads whole, and only a
 `data-sn-let` can wait for it ([below](#helpers-that-wait)).
 

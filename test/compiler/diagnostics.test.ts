@@ -17,7 +17,7 @@ const files: Record<string, string> = {
   '/p/src/components/x-two.html': '<template data-sn-props=""><p></p><p></p></template>',
   '/p/src/components/x-maybe.html': '<template data-sn-props="{ on?: boolean }"><template data-sn-if="on"><p></p></template></template>',
   '/p/src/components/x-fill.html': '<template data-sn-props="{ n: number }"><div></div></template>',
-  '/p/src/components/x-fill.ts': 'export class XFill {}',
+  '/p/src/components/x-fill.ts': 'export class XFill { connected() { this.root.textContent = String(this.props.n); } }',
 };
 
 const SPEC = { file: '/p/openapi.json', doc: {
