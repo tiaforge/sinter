@@ -508,3 +508,37 @@ text separators); a row starting with text as the old route's copies number it; 
 `$slot`); the copy's own diagnostics (reported at the copy's chain, as the old route words them); a handler kept as a
 residue on a rendered node (the IR's per-node residue, stage 7's decision). These are stage 2's / stage 6's (the
 renderer: `rowRenderer`, `render`, `fill`), which the stage 6 session works in now; not built here.
+
+### Group 4: the small groups, what each needs (suite counts under `SN_FROM_WALK_AUDIT=1` at 30c3ef9)
+
+- **A choice decided** (16; sinter-mail's file emails decide theirs inside rendered rows, which route): an
+  `<sn-component use>` at the page's level whose candidate the evaluation decided. The route records only `<template>`s
+  (`fwStart`); a choice would need the same record (its candidates' walks, as a decided branch's) and the second pass's
+  three outcomes: dropped (its walks taken out), rendered (the case's rows spliced, as a loop's), inlined (the case's
+  markup walked as the page's, `inlineInstance`'s scope and slot marks: what `fromWalk` does for a kept branch, plus the
+  instance key prefix the rows below it are keyed by).
+- **Code a decided branch compiled first, called by the page after its walk** (16): the page's call comes from the walk's
+  tail (`defRootBindings`, `finishChoices`, `resolveSources` go over every definition, the dropped ones' too), so whether
+  the second pass would call it at all is not known from the counts; needs the tail's calls attributed to what they are
+  for (a definition, a choice) and those of dropped ones subtracted like a dropped walk's.
+- **Values folded into code that ships** (9) and **folds only** (13, of which the template entries' tests 6 and the embed
+  tests, built to fold, the rest): the walk would compile a fold site as a hole (`foldOf` given the fold's path, the
+  literal pasted per page), with the fold's dependencies and the resource's use kept apart so that both forms can be
+  given; a change to `expr.ts`'s analysis, the embedding workstream's. Where no fold ships the route already takes the
+  page (section 12); a first pass that is its own output but for folds could be finished and checked the same way (built
+  and measured: no page of the suite gains, every fold-only page there ships its folds; not kept).
+- **A definition compiled first in a decided branch, used by the page** (9): its templates, functions and scope are the
+  branch's walk's (numbered there, its prop lets in the branch's scope); the second pass compiles it at its first use
+  outside. Needs a definition's compile to be independent of where it is first met (A1/A2's units for the second pass
+  are that: placing a second-pass unit in the route, as the old route's second pass does, would give the page the same
+  definitions).
+- **A unit's definition the page keeps** (6) and **a definition the page compiles, a unit placed** (sinter-mail 2):
+  the second pass places a unit of its own (finished: anchored and shared once), the route has the first pass's (not
+  finished). Needs the route to place the second pass's unit (`placeUnits(…, second = true, livePoints)`) over the routed
+  page before `finishPage`, taking the first pass's out: its definitions are compiled the same way, so what differs is
+  which objects `finishPage` sees as the unit's (`finished`), and the numbers.
+- **Diagnostics in a decided branch** (4): a dropped branch's diagnostics are the first pass's, which the second pass
+  reports where it compiles that markup (a kept branch's, as the page's, at the page's position): needs the kept
+  branch's diagnostics taken out with its walk and the new walk's put where they were (document order).
+- **ids in rendered rows** (2), an else-if decided, a decided if in a template that stays, over the expansion limit (1
+  each): shapes the second pass's expansion handles (`expandConstants` at every depth); each a case of the route's own.
