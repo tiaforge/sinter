@@ -1066,3 +1066,6 @@ decision of their own (stage 7). A step that can stay byte-identical does.
   page files 3.52 s; Astro 1.90 s (one cold run of 8.5 s among its seven). So static is at about 1.26 times Astro
   (1.36 before). 400 posts, three builds each way: 5.72 s against 6.00 s, peak memory 662 MB against 553 MB.
   Next there: Vite's HTML step skipped where the app has no other HTML plugin.
+- 2026-11-24, 04:31 UTC: **with the cross check beside the build (`33a3a57`): the full suite passes, 3,030 tests, 314 files**; the
+  four end-to-end suites in headless Chrome pass (navigation 6, links 16, permanent 40, swap-csp 10); `npm run
+  size -- --check` passes; `npm run typecheck` passes.
