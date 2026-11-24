@@ -237,67 +237,57 @@ Found by the research, not changed:
   for inlined uses: the holes keep the output, and the runtime, as they are. Stage 7 is about the uses whose props
   are a frame already (definitions), and is a decision of its own.
 
-## Where it stands, and what waits for the owner (2026-11-24, 03:30 UTC)
+## Where it stands (2026-11-24, 05:07 UTC): ready for review
 
-The integration branch `ccr-9ebf49d5-gpdej8` holds everything below; the full suite passes (3,025 tests at
-`cb89b74`; the status log has each run), and every merge was checked against the apps and sinter-mail.
+The integration branch `ccr-9ebf49d5-gpdej8` holds everything below: 327 commits on top of `main`, which it is not
+behind and merges with cleanly; 135 files, of them `src/` 25 files (+7,034, -469), `test/` 37 (+3,969, -103),
+`docs/` 33 (+9,399). On its head: the full suite passes (3,059 tests, 315 files), `npm run typecheck`, `npm run
+size -- --check`, sinter-markdown's own job (its check, type check and 48 tests) and the four end-to-end suites in
+headless Chrome pass; `pass-audit` and `render-audit` show every app's output the same with each switch on and
+off; sinter-mail's 48 audit files were compared before and after every merge. Not run here, CI's to run: the
+suite's and the end-to-end suites' Firefox and WebKit runs, the dashboard example's job, the Rust and .NET jobs.
 
-**The benchmark** (`bench/astro`, 100 posts, whole process, interleaved rounds on one machine): 13.6 to 16.8 s when
-this started; now static 2.4 to 2.7 s, live 2.7 to 3.2 s, a page file per post 2.8 to 3.3 s static and 3.3 to 3.8 s
-live, against Astro's 1.7 to 2.0 s in the same rounds: about 1.36 times Astro on the static template build. The
-compiler went from about 110 ms a post to about 6.7 ms (the library's markdown parse 1.8, the first pass's own work
-2.3, the second pass 2.4); outside the compiler a static page costs about 3.9 ms, which is Astro's whole page.
+**The benchmark** (`bench/astro`, 100 posts, whole process, seven interleaved rounds on one machine, median): 13.6
+to 16.8 s when this started; now static 2.17 s, with the type check 2.37 s, live 2.74 s, a page file per post
+2.64 s static and 3.29 s live, against Astro's 1.82 s in the same rounds: **about 1.19 times Astro** on the static
+template build (about 8 times at the start). 400 static posts: 5.35 s (Astro about 3.0 to 3.3 s). The compiler went
+from about 110 ms a post to about 6.7 ms (the library's markdown parse 1.8, the first pass's own work 2.3, the
+second pass 2.4).
 
-**What was built** (each behind a switch, with an audit): rows rendered at build time (stages 1 and 2); one compile
-per page file and the description read off the page's head (stage 3); units kept per build, checked once (stage 4);
-second-pass units and the second pass taken from the first pass's walk (stage 5: 413 second passes in the suite;
-in the apps every page that is not a template's entry, except realworld's one prefold page and 13 of sinter-mail's
-16); the evaluation by one function per template, a render plan, the helpers' memo per entry (stage 6); the build
-outside the compiler (early scripts per shape, the Speculation Rules folded, the fold check's cache on disk, three
-scans made linear); embedded data folded into code; the bugs found on the way fixed, each with a test (`redesign-notes/bugs.md`
+**What was built** (each behind a switch, with an audit; the status log has each step and its checks): rows
+rendered at build time (stages 1 and 2); one compile per page file and the description read off the page's head
+(stage 3); units kept per build, checked once (stage 4); second-pass units and the second pass taken from the
+first pass's walk (stage 5: 413 second passes in the suite; in the apps every page that is not a template's entry,
+except realworld's one prefold page and 13 of sinter-mail's 16); the evaluation by one function per template, a
+render plan, the helpers' memo per entry (stage 6); allocation cuts; the build outside the compiler (early scripts
+built once per shape, the Speculation Rules folded into patterns, the fold check's cache on disk, three scans made
+linear, the SN534 cross check in a worker beside the build, Vite's HTML step skipped for pages it does not
+change); embedded data folded into code; the bugs found on the way fixed, each with a test (`redesign-notes/bugs.md`
 and the status log).
 
-**What is left in the compiler is small or not contained.** No single step is worth more than about 1 ms a post:
-- *Rows as markup text* (assessed, `stage6-eval.md`): about 1 ms of 6.7 on the blog, up to 31% of a 2,012-element
-  email's compile; a large build whose byte identity hangs on the minifier's white-space rule. It is also what the
-  second pass's deletion waits for: a template's entries can only leave the second pass once the kept walk is small
-  (`stage5-b1.md` §13, and the 2026-11-24 02:20 entry).
-- *The second pass deleted* (stage 3's leftover): not possible without three things that are not contained steps:
-  a template's entries (rows as text first), rows that keep a residue (a per-node residue in the IR: stage 7's
-  ground), and SN501's warning from the route (unsound as found). The list by reason is at the top of
-  `stage5-b1.md`.
-- *Garbage*: 8.9 MB allocated a page; no leak; what is left of the compiler's share is the rendered rows as nodes
-  (rows as text again). `alloc.md`.
+**What a user can notice** (CHANGELOG, Unreleased): a build that fails the SN534 cross check fails after `dist/` has
+been emptied, and a type error is reported before it; a build with only type-check warnings passes; a helper
+called with the same arguments by every entry of a template runs once per entry; a build's peak memory is about
+100 MB higher (the cross check's worker; it exits when it has answered); generated numbers and names in a page may
+differ from before (ids, function and state numbers), nothing else in the output.
 
-**Decided by the owner on 2026-11-24, 03:41 UTC** (the coordinator's recommendation, taken as a whole): 1 and 2 go ahead (2 only
-where the app has no other HTML plugin; a failing cross check may leave `dist/` emptied), 5 goes ahead (the old
-early-script scheme deleted), 7 is confirmed (a build with only type-check warnings passes); 3, 4, 6 and 8 stay as
-they are (no rows as text now, the linker stays, the parse memo stays, no units at run time). After that the
-branch is to be reviewed and merged rather than optimised further.
+**The switches** (all default on; each turns one step off and has an audit or a comparison script): `SN_RENDER`,
+`SN_UNITS`, `SN_UNITS2`, `SN_ONE_PASS`, `SN_FROM_WALK`, `SN_ROW_FN`, `SN_LATE_DESCRIBE`, `SN_EARLY_SHAPES`,
+`SN_RULES_FOLD`, `SN_CHECK_SHARE`, `SN_CHECK_PARTS`, `SN_FOLD_CACHE`, `SN_CROSS_LATE`, `SN_HTML_SKIP`, and the smaller
+ones the notes name. They are the review's handle: a difference can be bisected by switch.
 
-**Decisions for the owner**, in the order of what they buy:
-1. *The SN534 cross check run later* (after Vite's HTML step): about 0.23 s at 100 posts, 0.5 s at 400. A build that
-   fails that check would leave `dist/` emptied where it is untouched today. (`pipeline-2.md`)
-2. *Vite's HTML step skipped for pages it does not change*: about 0.1 s at 100 posts, 0.4 s at 400, and what makes
-   live builds at 1,000 posts peak at 1.4 to 1.6 GB. An app's own HTML plugins would not see those pages: the
-   coordinator's recommendation is to do it only where the app has no other HTML plugin. With 1 and 2 the static
-   build at 100 posts is about level with Astro by `pipeline-2.md`'s arithmetic; at 400 and above sinter still
-   trails (its page costs more).
-3. *Rows as markup text*: see above. Recommended only if the second pass's deletion or large emails' build time is
-   wanted; not for the blog alone.
-4. *The linker's deletion* (`stage4-units.md`): the coordinator's recommendation is not yet (units do not cover a
-   finished first pass under the type check, nor definitions first reached from a fill).
-5. *The old early-script scheme* (`SN_EARLY_SHAPES=kinds`): can go; the new one is proven (`early-script-shapes.md`).
-6. *sinter-markdown's parse memo* (`alloc.md`): leave as it is (recommended); a smaller one could make a build
-   parse a shared document twice.
-7. *A build with only type-check warnings passes* since warnings and errors are counted apart; it failed before.
-   Confirm or revert.
-8. *Units at run time* (stage 7): not started; a decision of its own.
+**Decided by the owner on 2026-11-24**: the two pipeline changes and the old early-script scheme's deletion went
+ahead (built, above); a build with only type-check warnings passing is confirmed. **Not taken**, each written up
+with its numbers: rows as markup text (`stage6-eval.md`: about 1 ms of 6.7 a post, up to 31% of a 2,012-element
+email; what the second pass's deletion waits for); the second pass's deletion (`stage5-b1.md`, top: a template's
+entries, row residues in the IR, SN501 from the route); the linker's deletion (`stage4-units.md`); sinter-markdown's
+parse memo (`alloc.md`); units at run time (stage 7). **What this does not do**: beat Astro at scale. At 400 posts
+and above a page costs sinter more than it costs Astro, and nothing above closes that; it would take a different
+way of rendering rows, not more of this.
 
-**Sessions** (all cloud; their branches are merged): `redesign/stage5-b1c` (session_01AjKzdx2BaC98XK45SbVGbn)
-stands by with context for decisions 3 and the row residues; `redesign/pipeline-2`
-(session_01AjKzdyy3dA5FDC6jCiY3dH) for decisions 1 and 2; `redesign/alloc` (session_01AjKzdxK4qaHMSKWGtkmHi2) for
-decision 6. The others are finished and archived or idle.
+**Sessions** (all cloud; every branch is merged): `redesign/stage5-b1c` (session_01AjKzdx2BaC98XK45SbVGbn),
+`redesign/pipeline-2` (session_01AjKzdyy3dA5FDC6jCiY3dH) and `redesign/alloc` (session_01AjKzdxK4qaHMSKWGtkmHi2)
+are idle with their context, for review questions; the others are finished and archived or idle.
 
 ## What is next (the owner's instructions, 2026-11-23)
 
@@ -1091,3 +1081,11 @@ decision of their own (stage 7). A step that can stay byte-identical does.
   is at about 1.19 times Astro (1.36 before the two); the arithmetic that put it level was optimistic by about
   0.3 s. 400 posts static, three builds each way: 5.35 s against 6.25 s with both off; peak memory 672 MB against
   549 MB (the cross check's worker). With this every decision the owner took is built.
+- 2026-11-24, 05:07 UTC: **both pipeline changes merged and the branch checked as CI would** (`44b485e`): the full suite 3,059
+  tests, 315 files; the end-to-end suites in headless Chrome (navigation 6, links 16, permanent 40, swap-csp 10);
+  `npm run size -- --check`; sinter-markdown's job (check, type check, 48 tests); `npm run typecheck`. The cross
+  check's worker: its own heap is the 100 MB at the peak (81 MB at 100 posts, 106 MB at 400: Vite, the compiler's
+  modules, the fresh helpers and the replay's results; the main thread holds nothing twice); it terminates when it
+  has answered, is unref'd so it never keeps the process alive, and `buildEnd` stops it when the build fails
+  before it gets the calls. The branch is 327 commits ahead of `main`, not behind, and merges cleanly. "Where it
+  stands" above is rewritten for the review.
