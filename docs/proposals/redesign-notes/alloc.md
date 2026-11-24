@@ -178,6 +178,11 @@ second pass 39 MB, the cross check 32 MB, the minifier 20 MB.
 6. **The minifier's comment pass** (`minify.ts`, `comments`): a new list of children was made for every element it
    visits; now only for one that loses a comment or whose texts meet, the others' list kept as it is. `visit` 50 → 26 MB.
 
+7. **The fold log's arguments** (`foldLog`, and the cross check's replay, `fold-cross.ts`): each argument was
+   `structuredClone`d, so the post's body a call reads was kept twice until `buildEnd` (and cloned again there); a string
+   or another primitive is now kept as it is, an object copied as before (`cloneArg`). Heap after a forced collection
+   once the 400 pages are compiled: 79.4 → 76.1 MB (≈8 kB a page); the same after `buildEnd`, where the log goes.
+
 Sampling heap profile, 400 posts static: 3,831 MB → 3,615 MB (cuts 1 to 5) → 3,572 MB (6).
 
 ### Before and after (whole process, interleaved rounds: base `f395fa2` and this branch alternating within each round)

@@ -8,7 +8,7 @@
 // next; only this sees what another page's calls left behind.
 
 import { createHash } from 'node:crypto';
-import { resultKey, type FoldArg } from './compiler/compile.js';
+import { cloneArg, resultKey, type FoldArg } from './compiler/compile.js';
 
 /** a page's call as the build keeps it: its arguments (another call's result by id) and a hash of its result */
 export interface FoldCall { key: string; args: FoldArg[]; hash: string; id: number }
@@ -36,7 +36,7 @@ export function crossCheck(module: Record<string, unknown>, pages: ReadonlyArray
     const results = new Map<number, unknown>();
     for (const c of calls) {
       const f = valueOf(module, c.key);
-      const args = c.args.map((x) => ('r' in x ? results.get(x.r) : structuredClone(x.v)));
+      const args = c.args.map((x) => ('r' in x ? results.get(x.r) : cloneArg(x.v)));
       let got: string;
       try {
         if (typeof f !== 'function') throw new Error('no such helper');
