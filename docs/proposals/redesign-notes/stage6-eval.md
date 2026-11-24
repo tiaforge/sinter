@@ -3,7 +3,15 @@
 Running log (2026-11-23). Branch `redesign/stage6-eval`, merged into `ccr-9ebf49d5-gpdej8` by the coordinating
 session. Starting point: `evaluation.md`, "What is left (for stage 6)". Base: `c6557d4`.
 
-## Where it stands (done; merged with the integration branch at `19ee211`)
+## Where it stands (finished, 2026-11-24; `f395fa2` merged into the integration branch)
+
+Closed by the coordinator. Three rounds: (1) the evaluation, below; (2) the blog's deciding ("Round 2": changes 11 to
+13, and the assessment of rows as markup text, not built, recorded as the next large step for large file emails);
+(3) retention ("Round 3": the helpers' memo per template entry). Open, taken by another session
+(`redesign/alloc`): garbage by function, retention outside the compiler, the 1,000-post build. The tools are in
+`bench/tools/` (README there).
+
+### Round 1 (merged with the integration branch at `19ee211`)
 
 - Built, default on, each behind its switch: the style written once per element (`StyleWrites`, `SN_STYLE_BATCH=0`),
   row programs (one function per template returning a row's values; `SN_ROW_FN=0`, `SN_ROW_FN_AUDIT=1` comparing every
