@@ -17,7 +17,7 @@ beforeAll(() => { env.SN_FROM_WALK = '0'; });
 afterAll(() => { if (walk === undefined) delete env.SN_FROM_WALK; else env.SN_FROM_WALK = walk; });
 afterEach(() => { delete env.SN_CANON; delete env.SN_UNITS2; });
 /** a page's output in its canonical numbering (`SN_CANON=1`) */
-const canon = (f: () => ReturnType<typeof build>) => { env.SN_CANON = '1'; try { return f(); } finally { delete env.SN_CANON; } };
+const canon = <T>(f: () => T): T => { env.SN_CANON = '1'; try { return f(); } finally { delete env.SN_CANON; } };
 const stats = () => ({ made2: UNIT_STATS.made2, placed2: UNIT_STATS.placed2, fallback: new Map(UNIT_STATS.fallback) });
 const fellBack = (before: ReturnType<typeof stats>, why: string) => (UNIT_STATS.fallback.get(`pass 2: ${why}`) ?? 0) - (before.fallback.get(`pass 2: ${why}`) ?? 0);
 // (under an audit, which compiles each page again: a fallback counted at least as often as the pages compiled)

@@ -7,9 +7,12 @@
 // (`"/api/" + "post-1"` folded), the shared output keeps the expression.
 import { parse, tokenizer, tokTypes, type Node } from 'acorn';
 import { ancestor, fullAncestor } from 'acorn-walk';
-import type { Built } from './early-shapes.js';
 
 const env = (k: string) => (globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env[k];
+/** sharing off, one nested build per distinct source (the reference the audit compares with): `SN_EARLY_SHAPES=0` */
+export const shapesOn = () => env('SN_EARLY_SHAPES') !== '0';
+/** what one nested build gives: the script, its modules (by id: rendered length and code) and the content keys its modules call */
+export type Built = { code: string; map: null | unknown; modules: Record<string, { renderedLength: number; code?: string | null }>; keys: Set<string> };
 
 /** a string or number literal of the source: where, as written, its value, and whether a free identifier may stand in its place */
 type Site = { start: number; end: number; raw: string; value: string | number; lift: boolean };

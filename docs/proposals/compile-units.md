@@ -1030,3 +1030,18 @@ decision of their own (stage 7). A step that can stay byte-identical does.
   passing is confirmed. Not taken: rows as markup text, the linker's deletion, the parse memo, units at run time.
   The second pass's deletion therefore stays where it is (`stage5-b1.md`, top). The check-ins run again while the
   two sessions work.
+- 2026-11-24, 03:56 UTC: **the old early-script scheme is deleted, merged** (`redesign-notes/early-script-shapes.md`; `0cd4e06`):
+  `src/early-shapes.ts` (260 lines), the `SN_EARLY_SHAPES=kinds` branch in `src/vite.ts` and its two tests are gone
+  (5 files, 505 lines out, 100 in, most of those the log); `SN_EARLY_SHAPES=0` (the reference, one build per
+  distinct source) and the audit stay. Its checks: the five benchmark apps identical to a build of its base, its
+  suite 3,023, sinter-mail 48 files. Checked on the coordinating machine: 1,582 tests of test/compiler, test/vite,
+  test/check pass; `pass-audit` nine apps the same; sinter-mail's 48 files identical to the build before the merge.
+  **What CI runs, run here on the integration branch**: `npm run typecheck` failed on 8 errors in
+  `test/compiler/units2.test.ts` (its `canon` helper typed for one compile's result and used with another's;
+  there since A2), fixed (`181909b`), and passes; `npm run size -- --check` passes (realworld's article at 58,484
+  of 58,496 bytes gzip: 12 bytes under its budget); sinter-markdown's own job (`npx sinter check`,
+  `npm run typecheck`, `npm test`: 48 tests) passes; the four end-to-end suites in headless Chrome are running.
+- 2026-11-24, 03:57 UTC: **the end-to-end suites pass in headless Chrome on the integration branch (`11140c3`)**: `e2e/navigation`
+  (6 checks: next-page data, the Speculation Rules, transitions, the CSP hash of the folded rules), `e2e/links` (16),
+  `e2e/permanent` (40), `e2e/swap-csp` (10). Firefox and WebKit are not installed on this machine: those runs, the
+  suite's browser tests in them, the dashboard example's job and the Rust and .NET packages' jobs are CI's to run.
