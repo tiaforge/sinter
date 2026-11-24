@@ -21,7 +21,7 @@ import { callerAttribute, COMPONENT_NAME, componentPaths, DOM_EVENTS, inlineScri
 import type { Node } from 'acorn';
 import type * as acorn from 'acorn';
 import { COMPLEXITY_DEFAULTS, COMPLEXITY_LIMITS, measure, type ComplexityOptions } from './complexity.js';
-import { ATTRIBUTES, CHAR_KEYS, ELEMENTS, KEY_ALIASES, LOOSE_SHIFT, MODIFIERS, NAMED_KEYS } from './vocabulary.js';
+import { ATTRIBUTES, CHAR_KEYS, ELEMENTS, KEY_ALIASES, LOOSE_SHIFT, MODIFIERS, NAMED_KEYS, PAGE_KEY } from './vocabulary.js';
 import { checkExprAt, checkRaw, checkUnitWithParts, type CheckExpr, type CheckFrame, type CheckLoc, type CheckPartRef, type CheckResource, type CheckUnit, type TypeRef } from './check-unit.js';
 import { apiOf, RESPONSE_PATH, shapeTemplate, signInWire, type ApiDef, type ApisDef, type OperationShape } from './apis.js';
 import { foldReason, type FoldVerdict } from '../fold-check.js';
@@ -6897,6 +6897,10 @@ class Compiler {
       const filter = kf ? this.keyFilter(el, a.name, kf[2]!) : undefined;
       if (filter === null) continue;
       if (filter) this.features.add('keys');
+      if (filter && (filter.m ?? 0) & PAGE_KEY && scope.loops.length) {
+        this.report(el, a.name, 'SN102', `a page-wide key filter (\`${a.name}\`) is not for a \`data-sn-for\` row: every row would take the key. Put it on an element around the loop, with the row in state`, 0);
+        continue;
+      }
       // sinter's events before the `sn-` prefix: a component that emits one of these names keeps it
       if (UNPREFIXED[event] && !use?.emits?.some((m) => m.name === event)) {
         this.report(el, a.name, 'SN101', `\`${a.name}\` is renamed to \`data-sn-on-${UNPREFIXED[event]}\`, as sinter's events are all \`sn-…\``, 0);
@@ -7016,7 +7020,10 @@ class Compiler {
    */
   keyFilter(el: P5Element, attrName: string, spec: string): { q: string; m?: number } | null {
     const fail = (message: string) => { this.report(el, attrName, 'SN101', message, 0); return null; };
-    const tokens = spec.split('-'), key = tokens.pop()!;
+    // `page-` first: page-wide (a key no handler nearer the focus took)
+    const page = spec.startsWith('page-') && spec !== 'page-';
+    const tokens = (page ? spec.slice(5) : spec).split('-'), key = tokens.pop()!;
+    if (tokens.includes('page')) return fail(`\`page\` comes first in a key filter, before the modifiers: \`data-sn-on-${attrName.slice(11, attrName.indexOf('-', 11))}-page-${[...tokens.filter((t) => t !== 'page'), key].join('-')}\``);
     const keyNames = [...Object.keys(NAMED_KEYS), ...Object.keys(CHAR_KEYS)];
     const hint = (t: string, names: string[]) => (KEY_ALIASES[t] ? ` Did you mean \`${KEY_ALIASES[t]}\`?` : didYouMean(t, names));
     const isKey = (t: string) => /^[a-z0-9]$/.test(t) || t in NAMED_KEYS || t in CHAR_KEYS;
@@ -7046,6 +7053,7 @@ class Compiler {
     // letters: Shift is part of the filter (`n` vs `shift-n`); other characters: the character says it (`?`, `1`)
     const q = NAMED_KEYS[key] ?? CHAR_KEYS[key] ?? key;
     if (!(key in NAMED_KEYS) && !/^[a-z]$/.test(key)) m |= LOOSE_SHIFT;
+    if (page) m |= PAGE_KEY;
     return m ? { q, m } : { q };
   }
 

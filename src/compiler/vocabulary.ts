@@ -68,13 +68,15 @@ export const ELEMENTS: Array<{ name: string; attrs: string[]; doc: string }> = [
 
 export const KEY_ON_DOC: AttrDoc = {
   name: 'on-keydown-<key>', value: 'handler expression',
-  doc: 'runs only for that key (also on-keyup-<key>): modifiers first, the key last, e.g. data-sn-on-keydown-j, -shift-n (N), -mod-enter (Ctrl, Cmd on Apple), -escape, -question (?); matches KeyboardEvent.key; other Ctrl/Alt/Meta held do not match; an ancestor\'s filter skips keys typed into fields; a match calls preventDefault()',
+  doc: 'runs only for that key (also on-keyup-<key>): modifiers first, the key last, e.g. data-sn-on-keydown-j, -shift-n (N), -mod-enter (Ctrl, Cmd on Apple), -escape, -question (?); matches KeyboardEvent.key; other Ctrl/Alt/Meta held do not match; an ancestor\'s filter skips keys typed into fields; a match calls preventDefault(); ⟪FULL⟫page- first (data-sn-on-keydown-page-j): page-wide, in the element\'s scope, for a key nothing nearer the focus took⟪SHORT⟫-page-j: page-wide⟪END⟫',
 };
 
 /** modifier names, as written, to their IR bit; `mod` is Ctrl, or Meta (Cmd) on Apple platforms */
 export const MODIFIERS: Record<string, number> = { ctrl: 1, alt: 2, shift: 4, meta: 8, mod: 16 };
 /** IR bit: Shift does not matter (a character that already says it, `?`, `1`), unless the filter names `shift` */
 export const LOOSE_SHIFT = 32;
+/** IR bit: `page-` (`data-sn-on-keydown-page-j`): a page-wide filter, for a key no handler nearer the focus took */
+export const PAGE_KEY = 64;
 
 /** named keys: the name to `KeyboardEvent.key`; Shift must match exactly */
 export const NAMED_KEYS: Record<string, string> = {

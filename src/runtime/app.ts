@@ -536,6 +536,8 @@ export function mount(root: Document | Element, o: MountOptions): App {
    * (`draft = null` on a Cancel button) is not painted while the dialog is still showing.
    */
   const closing = new Set<Element>();
+  /** the bound page-wide key filters (`data-sn-on-keydown-page-j`) */
+  const pageKeys = new Set<RB>();
   const listeners = new Map<string, Set<(p: unknown) => void>>(), cleanups: Array<() => void> = [];
   const shared = new Map<string, { n: number; c: AbortController; p: Promise<Got> }>();
   /** `openDialog(id)`, `closeDialog(id)`: the dialog of this mount root with that id; `run(id)`: any element */
@@ -1029,6 +1031,8 @@ export function mount(root: Document | Element, o: MountOptions): App {
           // (a number has no `map`)
           const h = el[HANDLERS] as RB[] | undefined;
           h?.map ? h.push(rb) : (el[HANDLERS] = [rb]);
+          // a page-wide key filter (`data-sn-on-keydown-page-j`): also for a key nothing nearer the focus took
+          if ((b.m ?? 0) & 64) pageKeys.add(rb);
           continue;
         }
         if (F.MODEL && b.k == 'model') {
@@ -1701,11 +1705,29 @@ export function mount(root: Document | Element, o: MountOptions): App {
           // debounced handler ran, or a plain handler prevented the default. A key it did not prevent goes on up.
           if (e instanceof CustomEvent && e.bubbles ? e.defaultPrevented : !/^key/.test(e.type) || e.defaultPrevented || hs.some((h) => h.b.x != null || h.b.ms)) return;
         }
-        if (el == root) return;
+        if (el == root) break;
         if (el == up) up = rowNode(el.parentElement);
       }
+      if (pageKeys.size && /^key/.test(e.type)) pageKey(e as KeyboardEvent);
     } finally {
       ev = was;
+    }
+  }
+
+  /**
+   * A key no element from the target up took: the page-wide filters that match it, in the order they were bound.
+   * Not one outside an open modal dialog (the page behind it is inert) or in an `inert` subtree; one in a field's
+   * ancestor skips the keys the field takes, as any ancestor's filter does.
+   */
+  function pageKey(e: KeyboardEvent) {
+    let modal: Element | undefined;
+    for (const d of ((root as Node).ownerDocument ?? (root as Document)).querySelectorAll('dialog[open]')) { try { if (d.matches(':modal')) modal = d; } catch { /* no :modal */ } }
+    const u = ev;
+    for (const rb of [...pageKeys]) {
+      const el = rb.el;
+      if (!el.isConnected) { pageKeys.delete(rb); continue; }
+      if (rb.b.n != e.type || (modal && !modal.contains(el)) || el.closest('[inert]') || !app.ext.keys!(rb, e)) continue;
+      F.ACTION && rb.b.x != null ? trigger(rb, e) : rb.b.ms ? app.ext.debounce!(rb, rb.b.ms, () => rb.el.isConnected && as(u, () => handle(rb, rb.b.f!, e, rb.b.w))) : handle(rb, rb.b.f!, e, rb.b.w);
     }
   }
 

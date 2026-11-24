@@ -331,23 +331,23 @@
     },
     {
       "name": "data-sn-on-keydown-escape",
-      "description": "runs only for that key (also on-keyup-<key>): modifiers first, the key last, e.g. data-sn-on-keydown-j, -shift-n (N), -mod-enter (Ctrl, Cmd on Apple), -escape, -question (?); matches KeyboardEvent.key; other Ctrl/Alt/Meta held do not match; an ancestor's filter skips keys typed into fields; a match calls preventDefault()"
+      "description": "runs only for that key (also on-keyup-<key>): modifiers first, the key last, e.g. data-sn-on-keydown-j, -shift-n (N), -mod-enter (Ctrl, Cmd on Apple), -escape, -question (?); matches KeyboardEvent.key; other Ctrl/Alt/Meta held do not match; an ancestor's filter skips keys typed into fields; a match calls preventDefault(); ⟪FULL⟫page- first (data-sn-on-keydown-page-j): page-wide, in the element's scope, for a key nothing nearer the focus took⟪SHORT⟫-page-j: page-wide⟪END⟫"
     },
     {
       "name": "data-sn-on-keydown-enter",
-      "description": "runs only for that key (also on-keyup-<key>): modifiers first, the key last, e.g. data-sn-on-keydown-j, -shift-n (N), -mod-enter (Ctrl, Cmd on Apple), -escape, -question (?); matches KeyboardEvent.key; other Ctrl/Alt/Meta held do not match; an ancestor's filter skips keys typed into fields; a match calls preventDefault()"
+      "description": "runs only for that key (also on-keyup-<key>): modifiers first, the key last, e.g. data-sn-on-keydown-j, -shift-n (N), -mod-enter (Ctrl, Cmd on Apple), -escape, -question (?); matches KeyboardEvent.key; other Ctrl/Alt/Meta held do not match; an ancestor's filter skips keys typed into fields; a match calls preventDefault(); ⟪FULL⟫page- first (data-sn-on-keydown-page-j): page-wide, in the element's scope, for a key nothing nearer the focus took⟪SHORT⟫-page-j: page-wide⟪END⟫"
     },
     {
       "name": "data-sn-on-keydown-arrowdown",
-      "description": "runs only for that key (also on-keyup-<key>): modifiers first, the key last, e.g. data-sn-on-keydown-j, -shift-n (N), -mod-enter (Ctrl, Cmd on Apple), -escape, -question (?); matches KeyboardEvent.key; other Ctrl/Alt/Meta held do not match; an ancestor's filter skips keys typed into fields; a match calls preventDefault()"
+      "description": "runs only for that key (also on-keyup-<key>): modifiers first, the key last, e.g. data-sn-on-keydown-j, -shift-n (N), -mod-enter (Ctrl, Cmd on Apple), -escape, -question (?); matches KeyboardEvent.key; other Ctrl/Alt/Meta held do not match; an ancestor's filter skips keys typed into fields; a match calls preventDefault(); ⟪FULL⟫page- first (data-sn-on-keydown-page-j): page-wide, in the element's scope, for a key nothing nearer the focus took⟪SHORT⟫-page-j: page-wide⟪END⟫"
     },
     {
       "name": "data-sn-on-keydown-arrowup",
-      "description": "runs only for that key (also on-keyup-<key>): modifiers first, the key last, e.g. data-sn-on-keydown-j, -shift-n (N), -mod-enter (Ctrl, Cmd on Apple), -escape, -question (?); matches KeyboardEvent.key; other Ctrl/Alt/Meta held do not match; an ancestor's filter skips keys typed into fields; a match calls preventDefault()"
+      "description": "runs only for that key (also on-keyup-<key>): modifiers first, the key last, e.g. data-sn-on-keydown-j, -shift-n (N), -mod-enter (Ctrl, Cmd on Apple), -escape, -question (?); matches KeyboardEvent.key; other Ctrl/Alt/Meta held do not match; an ancestor's filter skips keys typed into fields; a match calls preventDefault(); ⟪FULL⟫page- first (data-sn-on-keydown-page-j): page-wide, in the element's scope, for a key nothing nearer the focus took⟪SHORT⟫-page-j: page-wide⟪END⟫"
     },
     {
       "name": "data-sn-on-keydown-mod-enter",
-      "description": "runs only for that key (also on-keyup-<key>): modifiers first, the key last, e.g. data-sn-on-keydown-j, -shift-n (N), -mod-enter (Ctrl, Cmd on Apple), -escape, -question (?); matches KeyboardEvent.key; other Ctrl/Alt/Meta held do not match; an ancestor's filter skips keys typed into fields; a match calls preventDefault()"
+      "description": "runs only for that key (also on-keyup-<key>): modifiers first, the key last, e.g. data-sn-on-keydown-j, -shift-n (N), -mod-enter (Ctrl, Cmd on Apple), -escape, -question (?); matches KeyboardEvent.key; other Ctrl/Alt/Meta held do not match; an ancestor's filter skips keys typed into fields; a match calls preventDefault(); ⟪FULL⟫page- first (data-sn-on-keydown-page-j): page-wide, in the element's scope, for a key nothing nearer the focus took⟪SHORT⟫-page-j: page-wide⟪END⟫"
     },
     {
       "name": "data-sn-debounce-input",

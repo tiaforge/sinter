@@ -15,6 +15,14 @@ How to write an entry (from 0.21.0 on; older sections keep their own form):
 
 ## Unreleased
 
+### Added
+
+- Page-wide key filters in an element's scope: `data-sn-on-keydown-page-j` runs wherever the focus is (on `<body>`
+  after load, in a nav rail beside the element) for a key nothing nearer the focus took, with the element's state.
+  Fields keep their keys, and an `inert` element or the page behind a modal dialog hears nothing. A shortcut over a
+  part's state no longer needs that state on `<body>`.
+  [Keyboard shortcuts](docs/actions.md#page-wide-in-an-elements-scope-page).
+
 ### Fixed
 
 - The `sinter` command is executable in the package again: 0.22.0 shipped `dist/cli.js` without its executable bit,

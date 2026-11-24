@@ -175,7 +175,7 @@ export interface Binding {
   ms?: number;
   /** key filter (`on` for keydown/keyup): the `KeyboardEvent.key` to match, letters in lowercase */
   q?: string;
-  /** key filter modifiers: 1 ctrl, 2 alt, 4 shift, 8 meta, 16 mod (Ctrl, or Meta on Apple), 32 Shift does not matter unless named */
+  /** key filter modifiers: 1 ctrl, 2 alt, 4 shift, 8 meta, 16 mod (Ctrl, or Meta on Apple), 32 Shift does not matter unless named, 64 page-wide (`page-`) */
   m?: number;
   /**
    * selection (a value binding in a row): the value is `row side === outer side` (`x`: `!==`). `r` and `o` are
@@ -572,7 +572,7 @@ export function compactIR(full: IR): IR {
   ]))];
   // a template's kind, decided here: the runtime reads a flag where it walked the template's bindings
   const SIMPLE = new Set(['text', 'attr', 'class', 'style', 'show', 'prop', 'on']);
-  const simple = (t: TemplateDef) => t.find != null && t.nodes.every((nd) => !nd.dl && nd.state == null && nd.b.every((b) => SIMPLE.has(b.k)));
+  const simple = (t: TemplateDef) => t.find != null && t.nodes.every((nd) => !nd.dl && nd.state == null && nd.b.every((b) => SIMPLE.has(b.k) && !((b.m ?? 0) & 64)));
   // the templates that read the row's index (`b.i`), or reach one that does: found backwards from those that do, in one walk
   // (a component used inside itself makes a template its own descendant, and every template of a library's dispatch reaches
   // the others: a walk forwards from each template was the square of their number)

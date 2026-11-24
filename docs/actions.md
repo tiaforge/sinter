@@ -486,8 +486,31 @@ becomes `question`). Uppercase is an error too: N is `shift-n`.
   whose filter matched, or whose plain handler ran and prevented the key. A
   `<dialog data-sn-on-keydown-escape>` does not swallow the `j` meant for `<body>`.
 - **Where.** Keys go to the focused element, or `<body>` when nothing is focused. Page-wide
-  shortcuts belong on `<body>`.
+  shortcuts belong on `<body>`, or on the element whose state they need, with `page-` (below).
 - `data-sn-debounce-keydown-j` delays only that filter's handler.
+
+### Page-wide, in an element's scope: `page-`
+
+A shortcut that needs a part of the page's state, such as a list's cursor, goes on that part with `page`
+before the modifiers. It then runs wherever the focus is: on `<body>` after the page loads, or in a nav
+rail beside the part:
+
+```html
+<div class="mail-page" data-sn-state="{ cursor: 0 }"
+     data-sn-on-keydown-page-j="cursor = nextRow(list, cursor)"
+     data-sn-on-keydown-page-shift-n="compose = true">
+```
+
+- It runs for a key that nothing nearer the focus took: a filter for the same key on the focused element or
+  an element around it wins (`<body>`'s too, for a key sent to `<body>`), as does a plain handler that
+  prevented it. With focus inside the part, it runs as any filter there does.
+- Fields keep their keys, as from any ancestor's filter: not while typing in an input, textarea, select or
+  contenteditable, and not Enter or Space on a focused button or link.
+- Not while the part is `inert` or the page behind an open modal dialog, and not once it has left the page. A
+  part inside the dialog runs.
+- Several parts with a filter for the key all run, in the page's order.
+- Not in a `data-sn-for` row (`SN102`: every row would take the key). Put it around the loop, with the row in
+  state.
 
 Recipe: [keyboard-shortcuts](recipes/keyboard-shortcuts.html).
 
