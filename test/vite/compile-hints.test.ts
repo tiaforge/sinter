@@ -1,16 +1,19 @@
 // @vitest-environment node
 // `sinter({ compileHints: true })`: each page module starts with V8's `//# allFunctionsCalledOnLoad`, its source map a
 // line further down; without the option, nothing changes.
-import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { cpSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { build } from 'vite';
 import { afterAll, expect, test } from 'vitest';
 import sinter from '../../src/vite.js';
 
-const root = resolve(__dirname, '../fixtures/vite-app');
 const src = resolve(__dirname, '../../src');
 const out = mkdtempSync(join(tmpdir(), 'sinter-hints-'));
+// a copy of the fixture of its own: build.test.ts rewrites the fixture's page and early script in place while it runs
+// (and restores them), and the two builds compared here must read the same app
+const root = join(out, 'app');
+cpSync(resolve(__dirname, '../fixtures/vite-app'), root, { recursive: true, filter: (p) => !p.includes('node_modules') });
 afterAll(() => rmSync(out, { recursive: true, force: true }));
 const alias = [{ find: /^@tiaforge-ui\/sinter\/runtime$/, replacement: `${src}/runtime-entry.ts` }, { find: /^@tiaforge-ui\/sinter\/(?:runtime\/)?([\w-]+)$/, replacement: `${src}/$1.ts` }, { find: /^@tiaforge-ui\/sinter$/, replacement: `${src}/index.ts` }];
 

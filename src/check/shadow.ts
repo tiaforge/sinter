@@ -3,7 +3,7 @@
 // TypeScript checks the file (`checkJs`); `mapLine` turns its positions back into
 // positions in the HTML.
 import { dirname, relative } from 'node:path';
-import type { CheckLoc, CheckUnit, TypeRef } from '../compiler/check-unit.js';
+import type { CheckExpr, CheckFrame, CheckLoc, CheckUnit, TypeRef } from '../compiler/check-unit.js';
 import type { HelperManifest } from '../compiler/compile.js';
 import { STORE_FNS, BUILTIN_HELPERS } from '../compiler/expr.js';
 import { schemaToTs, typeName } from './openapi-types.js';
@@ -27,6 +27,42 @@ export interface ShadowOptions {
   schemas?: string[][];
   /** the component libraries' types modules: a type written in a file of `folder` names theirs */
   libraries?: LibraryTypes[];
+  /** the name of expression `i`'s function (default `$e<i>`); a build's shared shadows name them themselves (`checkShared`) */
+  name?: (i: number) => string;
+  /** the type names declared `any` (an app with neither a types module nor a spec), instead of those the unit's types name */
+  unknown?: string[];
+  /** what the declarations need of the expressions and frames (`headInfo`), instead of reading the unit's */
+  info?: HeadInfo;
+  /** frame `i`, instead of the unit's list (a page that holds parts: `checkShared`) */
+  frameAt?: (i: number) => CheckFrame;
+  /** the expressions to write, in order, instead of every one of the unit's (the broken ones last) */
+  only?: Array<readonly [CheckExpr, number]>;
+  /**
+   * `false`: the broken expressions (the compiler reported them) are left out. An editor keeps them for completion;
+   * `tsc` prints no type error at all, in any file, when one file of its program has a syntax error
+   */
+  broken?: boolean;
+}
+
+/**
+ * What a shadow's declarations read of its expressions and frames: the OpenAPI specs their types name, whether one
+ * names an action (`$A`), and (`names`, for an app without a types module) the capitalised names of the types they
+ * write, frames' first, in order.
+ */
+export interface HeadInfo { specs: number[]; call: boolean; names: string[] | null }
+
+const typeNames = (t: string) => t.replace(/'[^']*'|"[^"]*"/g, '').match(/(?<![\w$.])[A-Z][\w$]*/g) ?? [];
+/** the type names a frame writes (a component's props) */
+export const frameTypeNames = (f: CheckFrame) => (f.kind === 'props' && f.type.kind === 'ts' ? typeNames(f.type.text) : []);
+/** the type names an expression writes (what it returns, an event's detail) */
+export const exprTypeNames = (e: CheckExpr) => [e.returns, e.detail].flatMap((t) => (t?.kind === 'ts' ? typeNames(t.text) : []));
+/** the specs an expression's types name, and whether one names an action */
+export const exprSpecs = (e: CheckExpr) => [e.resultType, e.returns, e.payload?.type].flatMap((t) => (t?.kind === 'openapi' ? [t.spec] : []));
+export const exprCalls = (e: CheckExpr) => e.returns?.kind === 'call' || e.resultType?.kind === 'call';
+
+/** `HeadInfo` of a unit's lists (`names` only when asked) */
+export function headInfo(frames: readonly CheckFrame[], exprs: readonly CheckExpr[], names: boolean): HeadInfo {
+  return { specs: exprs.flatMap(exprSpecs), call: exprs.some(exprCalls), names: names ? [...frames.flatMap(frameTypeNames), ...exprs.flatMap(exprTypeNames)] : null };
 }
 
 /** A component library's types module, the names it exports, and the folder of the files it types. */
@@ -51,6 +87,17 @@ export interface Shadow {
   regions: Region[];
   /** first line of the broken expressions (written last); nothing from there on is reported */
   brokenFrom: number | null;
+  /** the text's lines */
+  lines: string[];
+  /**
+   * After the declarations (`lines[0 .. prelude)`), one block per expression in the order written: the expression
+   * (`i`), its first line (1-based) and its number of lines. A block is its function, and refers to nothing of the
+   * file's but the declarations and the functions of the frames it opens.
+   */
+  blocks: Array<{ i: number; start: number; lines: number }>;
+  prelude: number;
+  /** the type names the declarations make `any` */
+  unknown: string[];
 }
 
 /** TypeScript's own types a type the app writes may name (not taken as the app's, unknown without a types module) */
@@ -65,6 +112,9 @@ function jsLiteral(v: unknown): string {
   return JSON.stringify(v).replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
 }
 
+/** `libTyped`'s work, by library (the objects of one check's `Support`): its names, and each text it typed */
+const LIB_TYPED = new WeakMap<LibraryTypes, { of: string[]; names: Set<string>; texts: Map<string, string> }>();
+
 export function shadow(o: ShadowOptions): Shadow {
   const { unit } = o;
   const out: string[] = [];
@@ -76,9 +126,13 @@ export function shadow(o: ShadowOptions): Shadow {
     regions.push({ start: out.length + 1, lines: lines.length, loc });
     out.push(...lines);
   };
+  const relSpecs = new Map<string, string>();
   const spec = (target: string) => {
-    let s = relative(dirname(o.file), target).split('\\').join('/');
+    let s = relSpecs.get(target);
+    if (s !== undefined) return s;
+    s = relative(dirname(o.file), target).split('\\').join('/');
     if (!s.startsWith('.')) s = './' + s;
+    relSpecs.set(target, s);
     return s;
   };
   const moduleSpec = (m: string) => (m.startsWith('/') ? spec(o.root + m) : m);
@@ -88,10 +142,11 @@ export function shadow(o: ShadowOptions): Shadow {
   line('// @ts-check');
   line(`// Generated by \`sinter check\` from ${relative(o.root, unit.file).split('\\').join('/')}. Do not edit.`);
   if (o.types?.names.length) line(`/** @import { ${o.types.names.join(', ')} } from '${spec(o.types.file).replace(/\.(d\.)?ts$/, '')}' */`);
-  const refs = unit.exprs.flatMap((e) => [e.resultType, e.returns, e.payload?.type]);
+  const anyTypes = !o.types && !o.schemas?.some((x) => x.length);
+  const info = o.info ?? headInfo(unit.frames, unit.exprs, anyTypes && !o.unknown);
   const specs = new Set([
     ...unit.resources.flatMap((r) => (r.openapi && !r.type ? [r.openapi.spec] : [])),
-    ...refs.flatMap((t) => (t?.kind === 'openapi' ? [t.spec] : [])),
+    ...info.specs,
   ]);
   for (const i of [...specs].sort()) line(`/** @import * as $O${i} from '${spec(o.openapi![i]!).replace(/\.d\.ts$/, '')}' */`);
   // a type the app writes (props, \`type\`) may name sinter's own types and a spec's schemas, unless the types module has the name
@@ -105,12 +160,12 @@ export function shadow(o: ShadowOptions): Shadow {
     if (own.length) line(`/** @import { ${own.join(', ')} } from '${spec(o.openapi![i]!).replace(/\.d\.ts$/, '')}' */`);
   });
   // an app with neither a types module nor a spec: the types its components name are unknown, as its resources are
-  if (!o.types && !o.schemas?.some((x) => x.length)) {
-    const texts = [...unit.frames.flatMap((f) => (f.kind === 'props' && f.type.kind === 'ts' ? [f.type.text] : [])),
-      ...unit.exprs.flatMap((e) => [e.returns, e.detail]).flatMap((t) => (t?.kind === 'ts' ? [t.text] : []))];
-    const unknown = new Set(texts.flatMap((t) => t.replace(/'[^']*'|"[^"]*"/g, '').match(/(?<![\w$.])[A-Z][\w$]*/g) ?? []).filter((n) => !named.has(n) && !LIB_TYPES.has(n)));
-    for (const n of unknown) line(`/** @typedef {any} ${n} */`);
+  let unknownTypes: string[] = [];
+  if (anyTypes) {
+    unknownTypes = o.unknown ?? [...new Set(info.names!.filter((n) => !named.has(n) && !LIB_TYPES.has(n)))];
+    for (const n of unknownTypes) line(`/** @typedef {any} ${n} */`);
   }
+  const fn = o.name ?? ((i: number) => `$e${i}`);
 
   // names a page can see besides its own frames; resources first, as sinter resolves them
   const taken = new Set<string>(unit.resources.map((r) => r.name));
@@ -126,7 +181,7 @@ export function shadow(o: ShadowOptions): Shadow {
     if (module.startsWith('sinter:content/')) line(`const ${ns} = /** @type {${o.helpers.namespaces[ns]!.type ?? 'any'}} */ (/** @type {any} */ (null));`);
     else line(`import * as ${ns} from '${moduleSpec(module)}';`);
   }
-  if (o.actions?.module && (unit.resources.some((r) => r.call) || unit.exprs.some((e) => e.returns?.kind === 'call' || e.resultType?.kind === 'call'))) {
+  if (o.actions?.module && (unit.resources.some((r) => r.call) || info.call)) {
     line(`import * as $A from '${moduleSpec(o.actions.module)}';`);
   }
   line('const $any = /** @type {any} */ (null);');
@@ -252,9 +307,18 @@ export function shadow(o: ShadowOptions): Shadow {
     const lib = o.libraries?.find((l) => loc.file.startsWith(l.folder.replace(/[\\/]$/, '') + '/'));
     if (!lib?.names.length) return text;
     const at = spec(lib.file).replace(/\.(d\.)?ts$/, '');
-    const names = new Set(lib.names);
-    // not inside a string, not a property (`.Item`, `Item:`)
-    return text.replace(/'[^']*'|"[^"]*"|(?<![\w$.])[A-Za-z_$][\w$]*(?![\w$]|\s*\??:)/g, (m) => (names.has(m) ? `import('${at}').${m}` : m));
+    // (a component's props type is written in every function that opens its frame, on every page: once per text)
+    let done = LIB_TYPED.get(lib);
+    if (!done || done.of !== lib.names) LIB_TYPED.set(lib, done = { of: lib.names, names: new Set(lib.names), texts: new Map() });
+    const key = `${at}\0${text}`;
+    let typed = done.texts.get(key);
+    if (typed === undefined) {
+      const names = done.names;
+      // not inside a string, not a property (`.Item`, `Item:`)
+      typed = text.replace(/'[^']*'|"[^"]*"|(?<![\w$.])[A-Za-z_$][\w$]*(?![\w$]|\s*\??:)/g, (m) => (names.has(m) ? `import('${at}').${m}` : m));
+      done.texts.set(key, typed);
+    }
+    return typed;
   };
   /** a JSDoc tag with a type; a type the app wrote maps its errors to where it was written */
   const tagged = (tag: string, t: TypeRef, after = '') => {
@@ -275,9 +339,10 @@ export function shadow(o: ShadowOptions): Shadow {
   };
 
   /** declarations for the frames of an expression; returns the number of blocks opened */
+  const frameAt = o.frameAt ?? ((i: number) => unit.frames[i]!);
   const open = (frames: number[]): number => {
     for (const i of frames) {
-      const f = unit.frames[i]!;
+      const f = frameAt(i);
       line('{');
       // declarations map to where the HTML writes the names, for go to definition
       const at = (loc: CheckLoc | undefined) => { if (loc) regions.push({ start: out.length + 1, lines: 1, loc, fixed: true }); };
@@ -286,7 +351,7 @@ export function shadow(o: ShadowOptions): Shadow {
         f.names.forEach((n, k) => { at(f.locs?.[k]); line(`${n},`); });
         // a field that starts as \`null\`, \`undefined\` or \`[]\` takes what is assigned later (\`State\`), at any depth of
         // the object literals in the initial value (\`nested\`)
-        line(`} = ${f.init === null ? '$any' : `/** @type {${decl('State')}<ReturnType<typeof $e${f.init}>${f.nested ? `, ${f.nested}` : ''}>} */ ($e${f.init}())`};`);
+        line(`} = ${f.init === null ? '$any' : `/** @type {${decl('State')}<ReturnType<typeof ${fn(f.init)}>${f.nested ? `, ${f.nested}` : ''}>} */ (${fn(f.init)}())`};`);
       } else if (f.kind === 'props') {
         tagged('type', f.type, ' const $props = $any;');
         line(`const { ${f.names.join(', ')} } = $props;`);
@@ -312,10 +377,10 @@ export function shadow(o: ShadowOptions): Shadow {
         line(`/** @type {${decl('Err')} | null} */ let $error = $any;`);
       } else if (f.kind === 'let') {
         at(f.loc);
-        line(`const ${f.name} = ${f.init === null ? '$any' : f.waits ? `$waits($e${f.init}())` : `$e${f.init}()`};`);
+        line(`const ${f.name} = ${f.init === null ? '$any' : f.waits ? `$waits(${fn(f.init)}())` : `${fn(f.init)}()`};`);
       } else {
         at(f.loc);
-        line(`const ${f.item} = ${f.init === null ? '$any' : `$item($e${f.init}())`};`);
+        line(`const ${f.item} = ${f.init === null ? '$any' : `$item(${fn(f.init)}())`};`);
         if (f.index) { at(f.indexLoc); line(`const ${f.index} = 0;`); }
       }
     }
@@ -323,13 +388,17 @@ export function shadow(o: ShadowOptions): Shadow {
   };
 
   // broken expressions last, so their syntax errors cannot spill into checked code
-  const order = unit.exprs.map((e, i) => [e, i] as const).sort(([a], [b]) => Number(!!a.broken) - Number(!!b.broken));
+  const order = o.only ?? unit.exprs.map((e, i) => [e, i] as const).sort(([a], [b]) => Number(!!a.broken) - Number(!!b.broken));
   let brokenFrom: number | null = null;
+  const prelude = out.length;
+  const blocks: Shadow['blocks'] = [];
   order.forEach(([e, i]) => {
+    if (e.broken && o.broken === false) return;
     if (e.broken && brokenFrom === null) brokenFrom = out.length + 1;
+    const start = out.length + 1;
     line('');
     if (e.returns) tagged('returns', e.returns);
-    line(`function $e${i}() {`);
+    line(`function ${fn(i)}() {`);
     // the payload's block is outside the frames
     if (e.payload) {
       line('{');
@@ -338,7 +407,7 @@ export function shadow(o: ShadowOptions): Shadow {
       // the payload by its name: `$event` in an `<sn-event>`, `$item` in a cursor
       line(`const ${e.payload.as} = $p;`);
     }
-    const blocks = open(e.frames) + (e.payload ? 1 : 0);
+    const opened = open(e.frames) + (e.payload ? 1 : 0);
     line(`/** @type {${decl(`El<${JSON.stringify(e.tag)}>`)}} */ const $el = $any;`);
     if (e.mode === 'value') {
       // action arguments and bodies are taken when the trigger fires
@@ -368,10 +437,11 @@ export function shadow(o: ShadowOptions): Shadow {
       verbatim(e.src, e.loc);
       line(';');
     }
-    for (let b = 0; b < blocks; b++) line('}');
+    for (let b = 0; b < opened; b++) line('}');
     line('}');
+    blocks.push({ i, start, lines: out.length + 1 - start });
   });
-  return { text: out.join('\n') + '\n', regions, brokenFrom };
+  return { text: out.join('\n') + '\n', regions, brokenFrom, lines: out, blocks, prelude, unknown: unknownTypes };
 }
 
 /** A shadow line generated from markup checked elsewhere (a branch's condition): its errors are not reported. */

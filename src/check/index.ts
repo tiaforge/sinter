@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { inlineScriptLang, inlineScriptModule, inlineScriptPath, inlineScripts } from '../compiler/components.js';
 import { fileURLToPath } from 'node:url';
-import type { CheckUnit } from '../compiler/check-unit.js';
+import { checkFrameAt, checkRaw, partExpr, partFrame, type CheckExpr, type CheckPart, type CheckPartRef, type CheckUnit } from '../compiler/check-unit.js';
 import type { HelperManifest } from '../compiler/compile.js';
 import type { Diagnostic } from '../compiler/diagnostics.js';
 import { compile } from '../compiler/index.js';
@@ -15,7 +15,7 @@ import { checkOptionsOf, compileOptionsOf, project, type ProjectOptions } from '
 import type { OpenApiSpec } from '../compiler/openapi.js';
 import { specDeclarations, typeName } from './openapi-types.js';
 import type { LibraryTypes } from './shadow.js';
-import { DECLARATIONS, mapPosition, quietLine, shadow, type Region, type Shadow } from './shadow.js';
+import { DECLARATIONS, exprCalls, exprSpecs, exprTypeNames, frameTypeNames, mapPosition, quietLine, shadow, type HeadInfo, type Region, type Shadow, type ShadowOptions } from './shadow.js';
 import { appTsconfig, SCRIPT_OVERRIDES, type AppTsconfig } from './tsconfig.js';
 
 export interface CheckOptions {
@@ -39,6 +39,11 @@ export interface CheckOptions {
   scripts?: string[];
   /** the generated `src/sinter.components.d.ts`, which types the base class a component's script imports from its HTML */
   componentTypes?: string | null;
+  /**
+   * check each expression's function once where pages repeat it (a component's markup, used on many pages or many
+   * times on one), and report its errors at every place it repeats (`checkShared`); the diagnostics are the same
+   */
+  share?: boolean;
 }
 
 export interface CheckResult {
@@ -120,8 +125,8 @@ export function shadowPath(support: Support, root: string, page: string): string
   return join(support.outDir, relative(root, page) + '.js');
 }
 
-export function shadowOf(unit: CheckUnit, support: Support, root: string, helpers: HelperManifest, actions?: HelperManifest): Shadow {
-  return shadow({ unit, file: shadowPath(support, root, unit.file), root, declarations: support.declarations, types: support.types, helpers, actions, openapi: support.openapi, ...(support.schemas ? { schemas: support.schemas } : {}), ...(support.libraries ? { libraries: support.libraries } : {}) });
+export function shadowOf(unit: CheckUnit, support: Support, root: string, helpers: HelperManifest, actions?: HelperManifest, more: Partial<Pick<ShadowOptions, 'name' | 'unknown' | 'file' | 'info' | 'frameAt' | 'only' | 'broken'>> = {}): Shadow {
+  return shadow({ unit, file: shadowPath(support, root, unit.file), root, declarations: support.declarations, types: support.types, helpers, actions, openapi: support.openapi, ...(support.schemas ? { schemas: support.schemas } : {}), ...(support.libraries ? { libraries: support.libraries } : {}), ...more });
 }
 
 /** A hint for a type error agents meet in markup, or null; \`tag\` is the element the expression sits on. */
@@ -193,44 +198,417 @@ export function check(o: CheckOptions): CheckResult {
   const outDir = o.outDir ?? join(o.root, '.sinter', 'check');
   const support = writeSupport({ root: o.root, outDir, types: o.types, openapi: o.openapi, ...(o.libraries ? { libraries: o.libraries } : {}) });
 
-  const shadows = new Map<string, { unit: CheckUnit; regions: Region[]; brokenFrom: number | null }>();
-  for (const unit of o.units) {
-    const file = shadowPath(support, o.root, unit.file);
-    const s = shadowOf(unit, support, o.root, o.helpers, o.actions);
-    mkdirSync(dirname(file), { recursive: true });
-    writeFileSync(file, s.text);
-    shadows.set(resolve(file), { unit, regions: s.regions, brokenFrom: s.brokenFrom });
-  }
   const tsc = o.tsc ?? findTsc(o.root);
   const app = appTsconfig(o.root, tsc);
   const scriptsDir = join(outDir, SCRIPTS_DIR);
   const scripts = writeScriptShadows(o.root, scriptsDir, o.scripts ?? []);
   // with the app's tsconfig, the scripts are a program of their own under its options (a second tsc, when there are any)
   const own = !!app && scripts.size > 0;
-  const tsconfig = join(outDir, 'tsconfig.json');
-  const rel = (f: string) => relative(outDir, f).split('\\').join('/');
-  writeFileSync(tsconfig, JSON.stringify({
-    compilerOptions: { ...markupOptions(app), ...(own ? {} : scriptOptions(o.root, scriptsDir, scripts.size > 0, outDir)) },
-    // the types module always, so augmentations in it (declare global, a library's import type {}) apply
-    files: ['sinter.d.ts', ...(support.types ? [rel(support.types.file)] : []), ...support.openapi.map((f) => relative(outDir, f)), ...[...shadows.keys()].map(rel),
-      ...(!own && scripts.size && o.componentTypes ? [rel(o.componentTypes)] : []), ...(own ? [] : [...scripts.keys()].map(rel))],
-  }, null, 2) + '\n');
-  const runs = [tsconfig];
-  if (own) {
-    const t = join(scriptsDir, 'tsconfig.json');
-    writeFileSync(t, scriptTsconfig(app, o.root, scriptsDir, [...scripts.keys()], o.componentTypes));
-    runs.push(t);
-  }
-  const diagnostics = runs.flatMap((t) => {
-    const run = spawnSync(process.execPath, [tsc, '-p', t, '--pretty', 'false'], { encoding: 'utf8', cwd: outDir });
-    if (run.error) throw run.error;
-    return parseTsc(run.stdout, outDir, o.root, shadows, scripts);
-  });
+  /** writes the tsconfig(s) over these shadow files and runs `tsc` on each: the records of each run */
+  const run = (files: string[]): TscRecord[][] => {
+    const tsconfig = join(outDir, 'tsconfig.json');
+    const rel = (f: string) => relative(outDir, f).split('\\').join('/');
+    writeFileSync(tsconfig, JSON.stringify({
+      compilerOptions: { ...markupOptions(app), ...(own ? {} : scriptOptions(o.root, scriptsDir, scripts.size > 0, outDir)) },
+      // the types module always, so augmentations in it (declare global, a library's import type {}) apply
+      files: ['sinter.d.ts', ...(support.types ? [rel(support.types.file)] : []), ...support.openapi.map((f) => relative(outDir, f)), ...files.map(rel),
+        ...(!own && scripts.size && o.componentTypes ? [rel(o.componentTypes)] : []), ...(own ? [] : [...scripts.keys()].map(rel))],
+    }, null, 2) + '\n');
+    const runs = [tsconfig];
+    if (own) {
+      const t = join(scriptsDir, 'tsconfig.json');
+      writeFileSync(t, scriptTsconfig(app, o.root, scriptsDir, [...scripts.keys()], o.componentTypes));
+      runs.push(t);
+    }
+    return runs.map((t) => {
+      const r = spawnSync(process.execPath, [tsc, '-p', t, '--pretty', 'false'], { encoding: 'utf8', cwd: outDir });
+      if (r.error) throw r.error;
+      return tscRecords(r.stdout, outDir);
+    });
+  };
+
+  // (`SN_CHECK_SHARE=0`: every page checked whole, to compare)
+  const diagnostics = (o.share && process.env.SN_CHECK_SHARE !== '0' ? checkShared(o, support, scripts, run) : null) ?? (() => {
+    const shadows = new Map<string, ShadowInfo>();
+    for (const unit of o.units) {
+      const file = shadowPath(support, o.root, unit.file);
+      const s = shadowOf(unit, support, o.root, o.helpers, o.actions, { broken: false });
+      mkdirSync(dirname(file), { recursive: true });
+      writeFileSync(file, s.text);
+      shadows.set(resolve(file), { unit, regions: s.regions, brokenFrom: s.brokenFrom, blocks: s.blocks });
+    }
+    return run([...shadows.keys()]).flatMap((records) => parseTsc(records, o.root, shadows, scripts));
+  })();
 
   const resources = o.units.reduce((n, u) => n + u.resources.length, 0);
   const typed = o.units.reduce((n, u) => n + u.resources.filter((r) => r.type || r.openapi || r.call || r.file?.adds || r.item || r.content).length, 0);
   const viaOpenapi = o.units.reduce((n, u) => n + u.resources.filter((r) => !r.type && r.openapi).length, 0);
   return { diagnostics, resources, typed, openapi: viaOpenapi };
+}
+
+/** Expression `i`'s name in a shadow of the shared check, replaced when the shadow is written. */
+const MARK = '\u0001';
+const marked = (i: number) => `${MARK}${i}${MARK}`;
+const MARKS = /\u0001(\d+)\u0001/g;
+/** names a page's declarations give a type of its own (with its resources'): a function that reads one stays on the page */
+const PAGE_NAMES = new Set(['$meta', 'refresh', 'upsert', 'page', '$A']);
+const pageName = (t: string) => PAGE_NAMES.has(t) || /^\$(?:F\d|fv|O\d)/.test(t);
+/** a name, anywhere in a function's text (its comments and strings too: a name read where it is not one only keeps the function on the page) */
+const NAMES = /[A-Za-z_$][\w$]*/g;
+
+/** Whether file names differ by case, as TypeScript tells (its order of files is by path, lower-cased where they do not). */
+const caseSensitive = (() => {
+  if (process.platform === 'win32') return false;
+  const f = fileURLToPath(import.meta.url);
+  const swapped = f.replace(/[a-z]/gi, (c) => (c === c.toLowerCase() ? c.toUpperCase() : c.toLowerCase()));
+  return swapped === f || !existsSync(swapped);
+})();
+/** TypeScript's order of the files of its diagnostics */
+const pathOrder = (a: string, b: string) => {
+  const p = (f: string) => { const x = f.split('\\').join('/'); return caseSensitive ? x : x.toLowerCase(); };
+  const x = p(a), y = p(b);
+  return x < y ? -1 : x > y ? 1 : 0;
+};
+
+/**
+ * The type check of many pages, each expression's function checked once. A page's shadow is a block of declarations
+ * and a function per expression, which refers to nothing of the file but the declarations and the functions of the
+ * frames it opens; a component's markup gives the same functions on every page and at every use, but for their names.
+ * So the functions that repeat, with the functions they call, go once into a module of their own beside the pages
+ * (one per folder, whose relative imports are theirs), and each page's shadow keeps the rest. TypeScript's errors in
+ * a shared function are then laid out where each page would have had them, in the order TypeScript would have
+ * printed them (by file, then position), and turned into diagnostics as before: the same, at every place it repeats.
+ *
+ * A function stays on its page when it reads a name the page's declarations type for that page (a resource, `$meta`,
+ * `refresh`…), or calls one that does; the shared module's declarations are a page's without those. Null (check each
+ * page whole) when nothing repeats, or when anything does not add up: an error outside a function of a shared module,
+ * a message that names a shared function, files in an order other than expected.
+ */
+function checkShared(o: CheckOptions, support: Support, scripts: Map<string, string>, run: (files: string[]) => TscRecord[][]): Diagnostic[] | null {
+  // (`SN_CHECK_DEBUG=1`: what was shared, or why not)
+  const debug = (s: string) => { if (process.env.SN_CHECK_DEBUG) process.stderr.write(`sinter check (shared): ${s}\n`); };
+  const gaveUp = (why: string): null => { debug(`every page whole: ${why}`); return null; };
+  // (`SN_CHECK_PARTS=0`: every page's shadow written whole, its functions found by text, as before parts)
+  const usesParts = process.env.SN_CHECK_PARTS !== '0';
+  let plan: Plan | string;
+  if (process.env.SN_CHECK_PARTS_AUDIT === '1' && usesParts) {
+    // (`SN_CHECK_PARTS_AUDIT=1`: the files TypeScript is given, and where each page's functions are, the same both ways)
+    const whole = planShared(o, support, false), parted = planShared(o, support, true);
+    const why = typeof whole === 'string' || typeof parted === 'string' ? (whole === parted ? null : `${whole} / ${parted}`) : samePlan(whole, parted);
+    if (why) throw new Error(`sinter check parts audit: the shadows differ with parts: ${why}`);
+    plan = parted;
+  } else plan = planShared(o, support, usesParts);
+  if (typeof plan === 'string') return gaveUp(plan);
+  const { pages, real, shared } = plan;
+  for (const [file, text] of plan.files) { mkdirSync(dirname(file), { recursive: true }); writeFileSync(file, text); }
+  const [first = [], ...rest] = run([...real.keys(), ...shared.keys()]);
+
+  // TypeScript prints its errors by file, then position: so must the files have come
+  const order = [...new Set(first.map((r) => r.file))];
+  if (order.some((f, k) => k > 0 && pathOrder(order[k - 1]!, f) >= 0)) return gaveUp("files in another order");
+  const byId = new Map<Ctx, Map<number, TscRecord[]>>();
+  const onPage = new Map<string, TscRecord[]>();
+  const other = new Map<string, TscRecord[]>();
+  for (const r of first) {
+    const c = shared.get(r.file);
+    if (c) {
+      const id = c.at![r.line] ?? -1;
+      if (id < 0 || /\$s\d/.test(r.message + r.more.join('\n'))) return gaveUp("an error outside a shared function, or naming one");
+      let m = byId.get(c);
+      if (!m) byId.set(c, m = new Map());
+      let list = m.get(id);
+      if (!list) m.set(id, list = []);
+      list.push({ ...r, line: r.line - c.starts![id]! });
+      continue;
+    }
+    const p = real.get(r.file);
+    // (a line past the page's end: where would its whole shadow have had it)
+    if (p && !(p.virt[r.line]! > 0)) return gaveUp("an error past a page's end");
+    const list = (p ? onPage : other).get(r.file) ?? [];
+    list.push(p ? { ...r, line: p.virt[r.line]! } : r);
+    (p ? onPage : other).set(r.file, list);
+  }
+  // each page's errors as its whole shadow would have had them: its declarations', then each function's in turn
+  const files = new Map<string, TscRecord[]>(other);
+  const shadows = new Map<string, ShadowInfo>();
+  for (const p of pages) {
+    const mine = onPage.get(p.file) ?? [];
+    const out = mine.filter((r) => r.line <= p.prelude);
+    p.block.forEach((b, k) => {
+      if (!p.shared[k]) { for (const r of mine) if (r.line >= b.start && r.line < b.start + b.lines) out.push(r); return; }
+      for (const r of byId.get(p.ctx)?.get(b.id!) ?? []) out.push({ ...r, file: p.file, line: b.start + r.line });
+    });
+    if (!out.length) continue;
+    files.set(p.file, out);
+    // (a page that holds parts: its whole shadow, for where its errors are in the HTML, laid out as it was taken to be)
+    const sh = p.whole ?? shadowOf(p.unit, support, o.root, o.helpers, o.actions, { name: marked, broken: false });
+    if (!p.whole && (sh.prelude !== p.prelude || sh.blocks.length !== p.block.length || sh.blocks.some((b, k) => b.i !== p.block[k]!.i || b.start !== p.block[k]!.start || b.lines !== p.block[k]!.lines))) return gaveUp('a page whose parts are laid out otherwise than its whole shadow (please report)');
+    shadows.set(p.file, { unit: p.unit, regions: sh.regions, brokenFrom: sh.brokenFrom, blocks: sh.blocks });
+  }
+  const records = [...files.keys()].sort(pathOrder).flatMap((f) => files.get(f)!);
+  if (process.env.SN_CHECK_DEBUG) {
+    const all = pages.reduce((n, p) => n + p.block.length, 0), kept = pages.reduce((n, p) => n + p.shared.filter((s) => !s).length, 0);
+    debug(`${pages.length} pages (${pages.filter((p) => !p.whole).length} through parts), ${all} functions: ${kept} on their pages, ${all - kept} from ${shared.size} shared module(s) of ${[...shared.values()].reduce((n, c) => n + c.starts!.filter((x) => x !== undefined).length, 0)} functions`);
+  }
+  return [records, ...rest].flatMap((rs) => parseTsc(rs, o.root, shadows, scripts));
+}
+
+/** a folder's shared module: the functions' texts by id, what each calls, how many pages and places take each */
+interface Ctx { dir: string; unknown: string[]; ids: Map<string, number>; texts: string[]; deps: number[][]; count: number[]; file?: string; at?: Int32Array; starts?: number[] }
+/**
+ * A function of a page's whole shadow: the expression (`i`), where it starts and how many lines it has there, its text
+ * (expressions named by `MARK`s) and the functions it calls (by place), and its id in the folder's module (null: on
+ * the page). A part's (`ref`, its `j`th) has its text in the part's template.
+ */
+interface Blk { i: number; start: number; lines: number; text: string | null; deps: number[]; id: number | null | undefined; ref?: CheckPartRef; j?: number; tpl?: Tpl }
+interface Page { unit: CheckUnit; file: string; ctx: Ctx; head: string[]; prelude: number; block: Blk[]; shared: boolean[]; whole: Shadow | null }
+interface Plan { pages: Page[]; real: Map<string, { page: Page; virt: Int32Array }>; shared: Map<string, Ctx>; files: Map<string, string> }
+/**
+ * A part's functions as a folder's pages write them (its template), once per build: each one's text with the part's
+ * expressions named `\u0003<j>\u0003`, its lines, what it calls, and the names it reads (for the page's resources);
+ * the ids its functions have in the folder's module, found the first time a page takes each.
+ */
+interface Tpl { text: string[]; lines: number[]; deps: number[][]; fixed: boolean[]; byName: Map<string, number[]>; ids: Array<number | undefined> }
+/** what a part gives its pages' declarations, and whether its text can be shared at all (no mark of ours in it, nothing broken) */
+interface PartInfo { ok: boolean; specs: number[]; call: boolean; names?: { frames: string[]; exprs: string[] } }
+const PART_INFO = new WeakMap<CheckPart, PartInfo>();
+const PART_MARK = '\u0003';
+const PART_MARKS = /\u0003(\d+)\u0003/g;
+
+function partInfo(part: CheckPart): PartInfo {
+  let pi = PART_INFO.get(part);
+  if (!pi) {
+    const json = JSON.stringify(part);
+    PART_INFO.set(part, pi = {
+      ok: !json.includes(MARK) && !json.includes(PART_MARK) && !part.exprs.some((e) => e.broken),
+      specs: part.exprs.flatMap(exprSpecs), call: part.exprs.some(exprCalls),
+    });
+  }
+  return pi;
+}
+
+/** the type names a part's frames and expressions write (an app without a types module declares them `any`) */
+function partNames(part: CheckPart): { frames: string[]; exprs: string[] } {
+  const pi = partInfo(part);
+  return pi.names ??= { frames: part.frames.flatMap(frameTypeNames), exprs: part.exprs.flatMap(exprTypeNames) };
+}
+
+/** The files of the shared check: the folders' modules and the pages, each page's functions laid out as its whole shadow has them. */
+function planShared(o: CheckOptions, support: Support, parts: boolean): Plan | string {
+  const ctxs = new Map<string, Ctx>();
+  const pages: Page[] = [];
+  const tplCache = new Map<string, Tpl>();
+  const anyTypes = !support.types && !support.schemas?.some((x) => x.length);
+  const libOf = (f: string) => (support.libraries ?? []).findIndex((l) => f.startsWith(l.folder.replace(/[\\/]$/, '') + '/'));
+  for (const unit of o.units) {
+    const file = resolve(shadowPath(support, o.root, unit.file));
+    if (/[^\x20-\x7e]/.test(file)) return "a path TypeScript may order otherwise";
+    const raw = parts ? checkRaw(unit) : undefined;
+    const viaParts = !!raw && raw.parts.every((r) => partInfo(r.part).ok);
+    let sh: Shadow, block: Blk[];
+    /** the function of expression `i`, by its place in `block` */
+    let byExprOf: (i: number) => number;
+    if (!viaParts) {
+      sh = shadowOf(unit, support, o.root, o.helpers, o.actions, { name: marked, broken: false });
+      const byExpr = new Map(sh.blocks.map((b, k) => [b.i, k]));
+      byExprOf = (i) => byExpr.get(i)!;
+      block = sh.blocks.map((b) => {
+        const text = sh.lines.slice(b.start - 1, b.start - 1 + b.lines).join('\n');
+        const deps = [...text.matchAll(MARKS)].map((m) => Number(m[1])).filter((j) => j !== b.i).map((j) => byExpr.get(j)!);
+        return { i: b.i, start: b.start, lines: b.lines, text, deps, id: undefined };
+      });
+    } else {
+      // the page's own expressions written, its parts' taken from their templates, laid out as its whole shadow would be
+      const nE = raw.exprs.length, nF = raw.frames.length;
+      const refOf = new Int32Array(nE).fill(-1);
+      raw.parts.forEach((r, k) => { for (let j = 0; j < r.part.exprs.length; j++) refOf[r.exprBase + j] = k; });
+      const own: Array<readonly [CheckExpr, number]> = [], broken: Array<readonly [CheckExpr, number]> = [];
+      for (let i = 0; i < nE; i++) if (refOf[i] < 0) (raw.exprs[i]!.broken ? broken : own).push([raw.exprs[i]!, i]);
+      let names: string[] | null = null;
+      if (anyTypes) {
+        names = [];
+        let i = 0;
+        for (const r of raw.parts) { for (; i < r.frameBase; i++) names.push(...frameTypeNames(raw.frames[i]!)); names.push(...partNames(r.part).frames); i = r.frameBase + r.part.frames.length; }
+        for (; i < nF; i++) names.push(...frameTypeNames(raw.frames[i]!));
+        i = 0;
+        for (const r of raw.parts) { for (; i < r.exprBase; i++) names.push(...exprTypeNames(raw.exprs[i]!)); names.push(...partNames(r.part).exprs); i = r.exprBase + r.part.exprs.length; }
+        for (; i < nE; i++) names.push(...exprTypeNames(raw.exprs[i]!));
+      }
+      const info: HeadInfo = {
+        specs: [...own, ...broken].flatMap(([e]) => exprSpecs(e)).concat(raw.parts.flatMap((r) => partInfo(r.part).specs)),
+        call: [...own, ...broken].some(([e]) => exprCalls(e)) || raw.parts.some((r) => partInfo(r.part).call), names,
+      };
+      sh = shadowOf(unit, support, o.root, o.helpers, o.actions, { name: marked, broken: false, info, frameAt: (i) => checkFrameAt(raw, i)!, only: [...own, ...broken] });
+      block = [];
+      const ownBlocks = sh.blocks.map((b) => ({ i: b.i, lines: b.lines, text: sh.lines.slice(b.start - 1, b.start - 1 + b.lines).join('\n') }));
+      let at = sh.prelude + 1, next = 0;
+      const tpls = raw.parts.map((r) => tplOf(r, file, libOf(unit.file)));
+      const add = (b: Blk) => { b.start = at; at += b.lines; block.push(b); };
+      for (let i = 0; i < nE; i++) {
+        const k = refOf[i]!;
+        if (k < 0) { if (!raw.exprs[i]!.broken) { const b = ownBlocks[next++]!; add({ ...b, start: 0, deps: [], id: undefined }); } continue; }
+        const r = raw.parts[k]!, j = i - r.exprBase, t = tpls[k]!;
+        add({ i, start: 0, lines: t.lines[j]!, text: null, deps: [], id: undefined, ref: r, j, tpl: t });
+      }
+      for (; next < ownBlocks.length; next++) add({ ...ownBlocks[next]!, start: 0, deps: [], id: undefined });
+      const byExpr = new Int32Array(nE);
+      block.forEach((b, k) => { byExpr[b.i] = k; });
+      byExprOf = (i) => byExpr[i]!;
+      for (const b of block) b.deps = b.text !== null
+        ? [...b.text.matchAll(MARKS)].map((m) => Number(m[1])).filter((j) => j !== b.i).map((j) => byExpr[j]!)
+        : b.tpl!.deps[b.j!]!.map((l) => byExpr[b.ref!.exprBase + l]!);
+    }
+    const key = `${dirname(file)}\0${sh.unknown.join('\0')}`;
+    let ctx = ctxs.get(key);
+    if (!ctx) ctxs.set(key, ctx = { dir: dirname(file), unknown: sh.unknown, ids: new Map(), texts: [], deps: [], count: [] });
+    /** a part's template in this folder (its texts are the folder's: relative module paths, a library's types) */
+    function tplOf(r: CheckPartRef, shadowFile: string, lib: number): Tpl {
+      // (its ids are those of one folder's module: of the pages whose declarations are alike, `key`)
+      const k = `${r.part.id}\0${lib}\0${dirname(file)}\0${sh.unknown.join('\0')}`;
+      let t = tplCache.get(k);
+      if (t) return t;
+      const written = shadow({
+        unit: { file: unit.file, resources: [], frames: [], exprs: [] }, file: shadowFile, root: o.root, declarations: support.declarations, types: support.types,
+        helpers: o.helpers, actions: o.actions, openapi: support.openapi, ...(support.schemas ? { schemas: support.schemas } : {}), ...(support.libraries ? { libraries: support.libraries } : {}),
+        name: (g) => `${PART_MARK}${g - r.exprBase}${PART_MARK}`, frameAt: (g) => partFrame(r, g - r.frameBase), unknown: [],
+        info: { specs: [], call: false, names: null }, only: r.part.exprs.map((_, j) => [partExpr(r, j), r.exprBase + j] as const),
+      });
+      t = { text: [], lines: [], deps: [], fixed: [], byName: new Map(), ids: [] };
+      for (const b of written.blocks) {
+        const j = b.i - r.exprBase, text = written.lines.slice(b.start - 1, b.start - 1 + b.lines).join('\n');
+        t.text[j] = text;
+        t.lines[j] = b.lines;
+        t.deps[j] = [...text.matchAll(PART_MARKS)].map((m) => Number(m[1])).filter((l) => l !== j);
+        const names = new Set(text.replace(PART_MARKS, ' ').match(NAMES) ?? []);
+        t.fixed[j] = [...names].some(pageName);
+        for (const n of names) { let l = t.byName.get(n); if (!l) t.byName.set(n, l = []); l.push(j); }
+      }
+      tplCache.set(k, t);
+      return t;
+    }
+    const own = new Set(unit.resources.map((r) => r.name));
+    // (a quick test first: where none of those names is in the text, no name of it is one)
+    const maybe = new RegExp(`(?:${[...own, ...PAGE_NAMES].map((n) => n.replace(/\$/g, '\\$')).join('|')})(?![\\w$])|\\$(?:F\\d|fv|O\\d)`);
+    const pageNamed = (text: string) => maybe.test(text) && (text.replace(MARKS, ' ').match(NAMES) ?? []).some((t) => own.has(t) || pageName(t));
+    // (a part's functions that read a resource of this page)
+    const partNamed = new Map<Tpl, Set<number>>();
+    for (const b of block) if (b.tpl && !partNamed.has(b.tpl)) partNamed.set(b.tpl, new Set([...own].flatMap((n) => b.tpl!.byName.get(n) ?? [])));
+    // (a page whose markup holds the mark itself shares nothing)
+    const clean = viaParts ? !JSON.stringify([unit.file, unit.resources, raw!.frames, raw!.exprs]).includes(MARK) : !JSON.stringify(unit).includes(MARK);
+    const c = ctx;
+    /** the function's id in its folder's shared module, or null when it stays on the page */
+    const idOf = (k: number): number | null => {
+      const b = block[k]!;
+      if (b.id !== undefined) return b.id;
+      b.id = null;
+      if (b.tpl) {
+        const j = b.j!, t = b.tpl;
+        if (!clean || t.fixed[j] || partNamed.get(t)!.has(j)) return null;
+        const deps = b.deps.map(idOf);
+        if (deps.some((d) => d === null)) return null;
+        let id = t.ids[j];
+        if (id === undefined) {
+          const text = t.text[j]!.replace(PART_MARKS, (_, l: string) => (Number(l) === j ? '\u0002' : `$s${block[byExprOf(b.ref!.exprBase + Number(l))]!.id}`));
+          id = register(c, text, deps as number[]);
+          t.ids[j] = id;
+        }
+        c.count[id]!++;
+        return b.id = id;
+      }
+      const e = (raw ? raw.exprs : unit.exprs)[b.i]!;
+      if (!clean || e.broken || pageNamed(b.text!)) return null;
+      const deps = b.deps.map(idOf);
+      if (deps.some((d) => d === null)) return null;
+      const text = b.text!.replace(MARKS, (_, j: string) => (Number(j) === b.i ? '\u0002' : `$s${block[byExprOf(Number(j))]!.id}`));
+      const id = register(c, text, deps as number[]);
+      c.count[id]!++;
+      return b.id = id;
+    };
+    block.forEach((_, k) => idOf(k));
+    pages.push({ unit, file, ctx, head: sh.lines.slice(0, sh.prelude), prelude: sh.prelude, block, shared: [], whole: viaParts ? null : sh });
+  }
+  // what repeats is taken from the shared module; what stays, with the functions it calls, is written on the page
+  let any = false;
+  for (const p of pages) {
+    const local = p.block.map((b) => b.id === null || p.ctx.count[b.id!]! < 2);
+    const stack = local.flatMap((l, k) => (l ? [k] : []));
+    while (stack.length) for (const d of p.block[stack.pop()!]!.deps) if (!local[d]) { local[d] = true; stack.push(d); }
+    p.shared = local.map((l) => !l);
+    any ||= p.shared.some(Boolean);
+  }
+  if (!any) return "nothing repeats";
+
+  // the shared modules: the functions pages take from them, and those they call
+  const files = new Map<string, string>();
+  let n = 0;
+  for (const ctx of ctxs.values()) {
+    const need = new Set<number>();
+    const add = (id: number) => { if (need.has(id)) return; need.add(id); for (const d of ctx.deps[id]!) add(d); };
+    for (const p of pages) if (p.ctx === ctx) p.block.forEach((b, k) => { if (p.shared[k]) add(b.id!); });
+    if (!need.size) continue;
+    ctx.file = join(ctx.dir, `$shared-${n++}.js`);
+    const head = shadowOf({ file: ctx.file, resources: [], frames: [], exprs: [] }, support, o.root, o.helpers, o.actions, { file: ctx.file, unknown: ctx.unknown });
+    const lines = head.lines.slice(0, head.prelude);
+    ctx.starts = [];
+    const at: number[] = [];
+    for (const id of [...need].sort((a, b) => a - b)) {
+      const own = ctx.texts[id]!.split('\u0002').join(`$s${id}`).split('\n');
+      ctx.starts[id] = lines.length + 1;
+      for (let k = 0; k < own.length; k++) at[lines.length + k + 1] = id;
+      lines.push(...own);
+    }
+    ctx.at = Int32Array.from({ length: lines.length + 2 }, (_, l) => at[l] ?? -1);
+    files.set(ctx.file, lines.join('\n') + '\n');
+  }
+  // the pages: their declarations and the functions they keep, each mapped back to its line in the page's whole shadow
+  const real = new Map<string, { page: Page; virt: Int32Array }>();
+  for (const p of pages) {
+    const lines = p.head.slice();
+    const virt: number[] = Array.from({ length: p.prelude + 1 }, (_, l) => l);
+    p.block.forEach((b, k) => {
+      if (p.shared[k]) return;
+      const text = b.text ?? b.tpl!.text[b.j!]!.replace(PART_MARKS, (_, l: string) => `${MARK}${b.ref!.exprBase + Number(l)}${MARK}`);
+      text.split('\n').forEach((t, l) => {
+        virt[lines.length + 1] = b.start + l;
+        lines.push(t.replace(MARKS, (_, j: string) => `$e${j}`));
+      });
+    });
+    files.set(p.file, lines.join('\n') + '\n');
+    real.set(p.file, { page: p, virt: Int32Array.from(virt) });
+  }
+  const shared = new Map([...ctxs.values()].filter((c) => c.file).map((c) => [c.file!, c]));
+  return { pages, real, shared, files };
+}
+
+/** a function's text in its folder's module: its id, the one it has or a new one */
+function register(c: Ctx, text: string, deps: number[]): number {
+  let id = c.ids.get(text);
+  if (id === undefined) {
+    c.ids.set(text, id = c.texts.length);
+    c.texts.push(text);
+    c.deps.push(deps);
+    c.count.push(0);
+  }
+  return id;
+}
+
+/** where two plans differ (`SN_CHECK_PARTS_AUDIT`), or null */
+function samePlan(a: Plan, b: Plan): string | null {
+  const fa = [...a.files.keys()].sort(), fb = [...b.files.keys()].sort();
+  if (fa.join('\n') !== fb.join('\n')) return `the files: ${fa.join(', ')} / ${fb.join(', ')}`;
+  for (const f of fa) if (a.files.get(f) !== b.files.get(f)) {
+    const x = a.files.get(f)!.split('\n'), y = b.files.get(f)!.split('\n');
+    let l = 0;
+    while (x[l] === y[l]) l++;
+    return `${f}:${l + 1}: ${JSON.stringify(x[l])} / ${JSON.stringify(y[l])}`;
+  }
+  for (const [f, { virt }] of a.real) if (virt.join(',') !== b.real.get(f)!.virt.join(',')) return `${f}: its lines map otherwise`;
+  for (let k = 0; k < a.pages.length; k++) {
+    const p = a.pages[k]!, q = b.pages[k]!;
+    if (p.prelude !== q.prelude || p.block.map((x) => `${x.i}:${x.start}:${x.lines}:${x.id}`).join() !== q.block.map((x) => `${x.i}:${x.start}:${x.lines}:${x.id}`).join()) return `${p.file}: its functions are laid out otherwise`;
+    if (p.shared.join() !== q.shared.join()) return `${p.file}: other functions shared`;
+  }
+  return null;
 }
 
 /**
@@ -290,34 +668,62 @@ export function typeExports(source: string): string[] {
   return [...names].sort();
 }
 
-/** `file(line,col): error TS1234: message`, with indented continuation lines. */
-function parseTsc(stdout: string, outDir: string, root: string, shadows: Map<string, { unit: CheckUnit; regions: Region[]; brokenFrom: number | null }>, scripts: Map<string, string> = new Map()): Diagnostic[] {
-  const out: Diagnostic[] = [];
-  let last: Diagnostic | null = null;
+/** A line of `tsc --pretty false`: `file(line,col): error TS1234: message`, with its indented continuation lines. */
+interface TscRecord { file: string; line: number; col: number; code: string; message: string; more: string[] }
+
+/** `tsc`'s output as records, in its order; `file` is absolute. */
+function tscRecords(stdout: string, outDir: string): TscRecord[] {
+  const out: TscRecord[] = [];
+  let last: TscRecord | null = null;
   for (const raw of stdout.split(/\r?\n/)) {
     const m = /^(.+?)\((\d+),(\d+)\): error (TS\d+): (.*)$/.exec(raw);
     if (!m) {
-      if (last && /^\s+\S/.test(raw)) last.message += '\n  ' + raw.trim();
+      if (last && /^\s+\S/.test(raw)) last.more.push(raw.trim());
       continue;
     }
-    last = null;
-    // a component's top-level `<script>`: its shadow has the file's lines and columns
-    const html = scripts.get(resolve(outDir, m[1]!));
-    if (html) {
-      last = { severity: 'error', code: 'SN208', message: `${clean(m[5]!, root)} (${m[4]})`, file: html, line: Number(m[2]), col: Number(m[3]) };
-      out.push(last);
-      continue;
-    }
-    const s = shadows.get(resolve(outDir, m[1]!));
-    // errors in the app's own modules are its own tsc's business; broken expressions are the compiler's
-    if (!s || (s.brokenFrom !== null && Number(m[2]) >= s.brokenFrom) || quietLine(s.regions, Number(m[2]))) continue;
-    const d = typeDiagnostic(s.unit, s.regions, Number(m[2]), Number(m[3]), m[4]!, m[5]!, root);
-    if (!d) continue;
-    out.push(d);
-    last = d;
+    out.push(last = { file: resolve(outDir, m[1]!), line: Number(m[2]), col: Number(m[3]), code: m[4]!, message: m[5]!, more: [] });
   }
   return out;
 }
+
+type ShadowInfo = { unit: CheckUnit; regions: Region[]; brokenFrom: number | null; blocks: Shadow['blocks'] };
+
+/** The diagnostics of `tsc`'s records, in their order. */
+function parseTsc(records: TscRecord[], root: string, shadows: Map<string, ShadowInfo>, scripts: Map<string, string> = new Map()): Diagnostic[] {
+  const out: Diagnostic[] = [];
+  /** the errors of the pages' other copies, and those of shared definitions' copies, by page and error */
+  const seen = new Set<string>(), defs = new Map<string, Diagnostic[]>();
+  const more = (d: Diagnostic, r: TscRecord) => { for (const x of r.more) d.message += '\n  ' + x; };
+  for (const r of records) {
+    // a component's top-level `<script>`: its shadow has the file's lines and columns
+    const html = scripts.get(r.file);
+    if (html) {
+      const d: Diagnostic = { severity: 'error', code: 'SN208', message: `${clean(r.message, root)} (${r.code})`, file: html, line: r.line, col: r.col };
+      more(d, r);
+      out.push(d);
+      continue;
+    }
+    const s = shadows.get(r.file);
+    // errors in the app's own modules are its own tsc's business; broken expressions are the compiler's
+    if (!s || (s.brokenFrom !== null && r.line >= s.brokenFrom) || quietLine(s.regions, r.line)) continue;
+    const d = typeDiagnostic(s.unit, s.regions, r.line, r.col, r.code, r.message, root);
+    if (!d) continue;
+    more(d, r);
+    // (a shared definition's copy of a component's markup: reported below only where no other copy on the page is)
+    const b = s.blocks.find((x) => r.line >= x.start && r.line < x.start + x.lines);
+    if (b && s.unit.exprs[b.i]?.def) { const k = `${r.file}\0${sameError(d)}`; let l = defs.get(k); if (!l) defs.set(k, l = []); l.push(d); }
+    else seen.add(`${r.file}\0${sameError(d)}`);
+    out.push(d);
+  }
+  // a component used inside itself is inlined at its outermost use and shared below it, so its markup is on the
+  // page twice: its errors are reported once per use, by the inlined copy, as any component's (its use's chain)
+  if (!defs.size) return out;
+  const drop = new Set([...defs].flatMap(([k, l]) => (seen.has(k) ? l : [])));
+  return out.filter((d) => !drop.has(d));
+}
+
+/** An error without the chain of the use it is reported for: the same error at the same place of the same file. */
+const sameError = (d: Diagnostic) => `${d.severity} ${d.code} ${d.file}:${d.line}:${d.col} ${d.message.replace(/ \(included from [^)\n]*\)/, '')}`;
 
 /** Shortens absolute module paths in TypeScript's messages to project-relative ones. */
 export function clean(message: string, root: string): string {

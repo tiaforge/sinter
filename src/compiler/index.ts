@@ -1,6 +1,8 @@
 import * as acorn from 'acorn';
+import { canonical, canonicalText } from './canon.js';
+import { forceUnits2, UNIT_STATS } from './units.js';
 import { tsPlugin } from '@sveltejs/acorn-typescript';
-import { compileParts, localSignIn, requestUrl, type CompileOptions, type CompileResult, type CompiledParts, type EarlyParts, type FnSource, type FnSources, type HelperManifest, type HelperOrigin, type PrefetchParts, type EmbedSlot, type EmbedCond, type RuntimeReason } from './compile.js';
+import { compileParts, pageHead, localSignIn, withoutFromWalk, requestUrl, type CompileOptions, type CompileResult, type CompiledParts, type EarlyParts, type FnSource, type FnSources, type HelperManifest, type HelperOrigin, type PrefetchParts, type EmbedSlot, type EmbedCond, type RuntimeReason } from './compile.js';
 import { compactIR, type EarlyIR } from '../ir.js';
 import { coreParts } from '../core-parts.js';
 import { MappedLines, type SourceMap } from './sourcemap.js';
@@ -16,7 +18,8 @@ export { FLUID_WIDTHS, TINY_BYTES } from './images.js';
 export { Layout, evaluate, type FixedBox, type FluidPiece, type FluidSizes, type StyleSheet } from './layout.js';
 export { formatDiagnostic, formatWarning, applyStrict, strictPromotes, docsUrl, suggest, CODES, ENVIRONMENT_CODES, HEURISTIC_CODES } from './diagnostics.js';
 export { DIAGNOSTIC_DOCS, type DiagnosticDoc } from './diagnostic-docs.js';
-export { compileParts };
+export { compileParts, pageHead };
+export type { PageHead } from './compile.js';
 export { COMPLEXITY_DEFAULTS, type ComplexityLimits, type ComplexityOptions } from './complexity.js';
 
 export const PACKAGE = '@tiaforge-ui/sinter';
@@ -39,13 +42,79 @@ export const isContentModule = (module: string) => module.startsWith(CONTENT_NS)
 /** Compiles annotated HTML into a rewritten page and its page module. Pure and deterministic. */
 export function compile(html: string, options: CompileOptions): CompileResult {
   // (docs/proposals/compile-once.md, (5)): every compile checked against itself linked, to find what linking misses
-  if (env('SN_LINK_AUDIT') && !options.dev && !options.check) return options.definitions ? auditedLink(html, options) : audited(html, options);
+  // (with B1 off: each compares two routes of its own byte for byte, `withoutFromWalk`)
+  if (env('SN_LINK_AUDIT') && !options.dev) return withoutFromWalk(() => (options.definitions ? auditedLink(html, options) : audited(html, options)));
+  if (env('SN_UNITS_AUDIT') && !options.dev && !options.describeOnly) return withoutFromWalk(() => auditedUnits(html, options));
+  if (env('SN_UNITS2_AUDIT') && !options.dev && !options.describeOnly) return withoutFromWalk(() => auditedUnits2(html, options));
   return compileOne(html, options);
+}
+
+/**
+ * `SN_UNITS2_AUDIT=1` (docs/proposals/redesign-notes/stage5-a1.md): the page compiled without the second pass's units,
+ * and through a build's units (the build's own, or a fresh store: where a unit is made, then where it is placed). Where
+ * a second-pass unit was made or placed, the two must be the same up to numbering (`canonicalText`); where none was,
+ * byte for byte (every field). The first difference throws. With `SN_UNITS_VERIFY=1` beside it, every unit object is
+ * checked after every page (`restoreUnit`).
+ */
+function auditedUnits2(html: string, options: CompileOptions): CompileResult {
+  const units = options.units ?? new Map<string, unknown>();
+  // (not the caller's kept templates: a kept walk's type check goes with its first entry's compile, which would be the
+  // audit's first; the kept route has an audit of its own, `SN_ONE_PASS_AUDIT`)
+  const o = { ...options, units, templates: undefined };
+  const was = forceUnits2(false);
+  let plain: CompiledParts;
+  try { plain = compileParts(html, o); } finally { forceUnits2(was); }
+  for (const round of options.units ? ['in its build'] : ['where made', 'where placed']) {
+    const n = UNIT_STATS.made2 + UNIT_STATS.placed2;
+    const through = compileParts(html, o);
+    const took = UNIT_STATS.made2 + UNIT_STATS.placed2 > n;
+    const a = took ? canonicalText(plain) : partsText(plain), b = took ? canonicalText(through) : partsText(through);
+    if (a !== b) {
+      let i = 0;
+      while (a[i] === b[i]) i++;
+      throw new Error(`sinter units audit: ${options.file}: the second pass through its unit${took ? '' : ' (none placed)'}, ${round}, differs${took ? ' up to numbering' : ''} at ${i}:\n  without ${a.slice(Math.max(0, i - 160), i + 160)}\n  through ${b.slice(Math.max(0, i - 160), i + 160)}`);
+    }
+  }
+  return compileOne(html, options);
+}
+const partsText = (p: CompiledParts) => JSON.stringify(p, (_, v) => (typeof v === 'function' ? '[fn]' : v instanceof Map ? [...v] : v instanceof Set ? [...v] : v));
+
+/**
+ * `SN_UNITS_AUDIT=1` (docs/proposals/redesign-notes/stage4-units.md): the page compiled without units, and through a
+ * build's units: where it makes them, where it places them, and placed into the same page under another name and in
+ * another folder; each must be the page compiled without them, every field. The first difference throws.
+ */
+function auditedUnits(html: string, options: CompileOptions): CompileResult {
+  // (the first pass's units, byte for byte: the second pass's, whose numbers come first, off; `SN_UNITS2_AUDIT` is theirs)
+  const was = forceUnits2(false);
+  try { return auditedUnits1(html, options); } finally { forceUnits2(was); }
+}
+function auditedUnits1(html: string, options: CompileOptions): CompileResult {
+  const plain = compileOne(html, { ...options, units: undefined });
+  const units = options.units ?? new Map<string, unknown>();
+  const made = compileOne(html, { ...options, units });
+  const placed = compileOne(html, { ...options, units });
+  differs('through units, where made', options.file, plain, made);
+  differs('through units, where placed', options.file, plain, placed);
+  // (not where helpers fold, whose calls are kept per file; not a kept template's, which the caller counts)
+  if (!options.helperValues) for (const file of [options.file.replace(/([^/]*)$/, 'sn-audit-$1'), options.file.replace(/([^/]*)$/, 'sn-audit/$1')]) {
+    differs(`through units, placed into ${file}`, file, compileOne(html, { ...options, file, templates: undefined, units: undefined }), compileOne(html, { ...options, file, templates: undefined, units }));
+  }
+  return plain;
 }
 
 /** a compile that links (a build's, `definitions`): the same page compiled on its own beside it, which it must be */
 function auditedLink(html: string, options: CompileOptions): CompileResult {
   const alone = compileOne(html, { ...options, definitions: undefined }), linked = compileOne(html, options);
+  // (a kept template's type check goes with its first entry's compile only, here the one before: the same unit,
+  // the kept template's, which the build is handed as without the audit)
+  if (options.templates && options.check) {
+    differs('linked in its build', options.file, { ...alone, check: undefined }, { ...linked, check: undefined });
+    if (!(alone.check && !linked.check)) return linked;
+    const out = { ...linked, check: alone.check }, later = LATER.get(linked);
+    if (later) LATER.set(out, later);
+    return out;
+  }
   differs('linked in its build', options.file, alone, linked);
   return linked;
 }
@@ -106,8 +175,32 @@ function audited(html: string, options: CompileOptions): CompileResult {
   return plain;
 }
 
+/** (`prefetchLater`) each result's page module written with another `prefetch`, and its description's `prefetch` */
+const LATER = new WeakMap<CompileResult, { module: (prefetch: string | null) => { module: string; map?: SourceMap }; described: NonNullable<CompiledParts['firstPrefetch']> }>();
+
+/**
+ * A build's page compiled with `prefetchLater`: its page module (and source map) as `compile` writes it with this
+ * `prefetch` instead of the one it was given (everything else of the page is the same), or null for a result that
+ * was not (`moduleWith(out, options.prefetch)` is `out`'s own module).
+ */
+export function moduleWith(out: CompileResult, prefetch: string | null): { module: string; map?: SourceMap } | null {
+  return LATER.get(out)?.module(prefetch) ?? null;
+}
+
+/**
+ * A build's page compiled with `prefetchLater`: what another page can request ahead for it as its description
+ * (`describeOnly`) gives it, read off its first pass; `{ why }` where that is not known there; null for a result that
+ * was not compiled with `prefetchLater`.
+ */
+export function describedPrefetch(out: CompileResult): NonNullable<CompiledParts['firstPrefetch']> | null {
+  return LATER.get(out)?.described ?? null;
+}
+
 function compileOne(html: string, options0: CompileOptions): CompileResult {
-  const parts = compileParts(html, options0);
+  const raw = compileParts(html, options0);
+  // `SN_CANON=1` (redesign-notes/stage5-assembly.md, step 0): the output in its canonical numbering, to count what a
+  // step that renumbers would change, and to compare two builds up to numbering (the app audits' `--canon`)
+  const parts = env('SN_CANON') === '1' && !options0.dev ? { ...canonical(raw), ...(raw.check ? { check: raw.check } : {}) } : raw;
   // a content namespace loaded per axis: its entries at the page's point, as the compile resolved them
   const options = parts.contentNs ? { ...options0, contentNs: parts.contentNs } : options0;
   // the images' rules: imported, so the bundler puts them in the page's stylesheet (no request, no inline style)
@@ -131,6 +224,14 @@ function compileOne(html: string, options0: CompileOptions): CompileResult {
   if (lazy.length) out.lazyScripts = lazy.map((x) => ({ module: x.module, lazy: x.lazy! }));
   const map = options.sourcemap ? page.map(parts.sources, css.split('\n').length - 1) : null;
   if (map) out.map = map;
+  if (options.prefetchLater) LATER.set(out, {
+    module: (prefetch) => {
+      const again = pageLines(parts, { ...options, prefetch });
+      const m = options.sourcemap ? again.map(parts.sources, css.split('\n').length - 1) : null;
+      return { module: css + again.text(), ...(m ? { map: m } : {}) };
+    },
+    described: parts.firstPrefetch ?? { why: 'no first pass' },
+  });
   if (parts.images) out.images = parts.images;
   if (parts.paint !== undefined) out.paint = parts.paint;
   if (parts.unheld) out.unheld = parts.unheld;

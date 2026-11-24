@@ -10,13 +10,13 @@
 
 type Ref = { path: Step[] } | { at: 'el' | 'site' } | { self: 'opts' | 'page' | 'compiler' } | { prior: { u: number; i: number } };
 type Change = { kind: 'set'; key: unknown; value: unknown; ifAbsent?: true } | { kind: 'add'; value: unknown } | { kind: 'prop'; key: string | number; value: unknown } | { kind: 'push'; value: unknown } | { kind: 'delete'; key: unknown };
-type Op =
+export type Op =
   | { op: 'weak'; field: string; key: unknown; value: unknown }
   | { op: 'weakAdd'; field: string; key: unknown }
   | { op: 'weakDel'; field: string; key: unknown }
   | { op: 'old'; target: { path: Step[] } | { prior: { u: number; i: number } }; change: Change };
 /** a unit as it was recorded: its writes, its reads, its hand-outs of functions (and where each was written), its templates */
-type Unit = {
+export type Unit = {
   name: string;
   file: string;
   root: string;
@@ -60,9 +60,15 @@ export const LINK_FIELDS: Record<string, { kinds: string[]; how: 'table' | 'weak
   caseInst: { kinds: ['WeakMap'], how: 'weak' },
   caseScopes: { kinds: ['WeakMap'], how: 'weak' },
   chainCopyOf: { kinds: ['WeakMap'], how: 'weak' },
+  // (the unit the type check reads, the page's whatever the definitions: its lists are `checkFrames`, `checkExprs` and `checkResources`)
   check: { kinds: ['empty', 'object'], how: 'fixed' },
+  checking: { kinds: ['boolean'], how: 'fixed' },
+  checkFrames: { kinds: ['Array'], how: 'table' },
+  checkExprs: { kinds: ['Array'], how: 'table' },
+  checkResources: { kinds: ['Array'], how: 'table' },
   childrenOf: { kinds: ['WeakMap'], how: 'weak' },
   choiceGroups: { kinds: ['Array'], how: 'table' },
+  choiceDiags: { kinds: ['WeakMap'], how: 'weak' },
   choices: { kinds: ['WeakMap'], how: 'weak' },
   codeAt: { kinds: ['Map'], how: 'table' },
   componentFiles: { kinds: ['Map'], how: 'table' },
@@ -85,6 +91,8 @@ export const LINK_FIELDS: Record<string, { kinds: string[]; how: 'table' | 'weak
   emptyDefaults: { kinds: ['WeakMap'], how: 'weak' },
   emptyOf: { kinds: ['WeakMap'], how: 'weak' },
   enclosing: { kinds: ['WeakMap'], how: 'weak' },
+  // (what a kept template's evaluation read of its program, `decideFor`: set by no definition's compile)
+  evalProgram: { kinds: ['empty', 'object'], how: 'cache' },
   exprsOf: { kinds: ['Map'], how: 'table' },
   features: { kinds: ['Set'], how: 'table' },
   fileData: { kinds: ['Map'], how: 'table' },
@@ -98,6 +106,8 @@ export const LINK_FIELDS: Record<string, { kinds: string[]; how: 'table' | 'weak
   fnIndex: { kinds: ['Map'], how: 'replayed' },
   fns: { kinds: ['Array'], how: 'replayed' },
   fnUses: { kinds: ['Array'], how: 'replayed' },
+  // (B1: recorded at the page's level only, never inside a definition: stage5-b1.md)
+  fw: { kinds: ['empty', 'object'], how: 'fixed' },
   foldedFields: { kinds: ['Array'], how: 'table' },
   foldedUrl: { kinds: ['WeakSet'], how: 'weak' },
   folding: { kinds: ['object', 'empty'], how: 'fixed' },
@@ -116,12 +126,14 @@ export const LINK_FIELDS: Record<string, { kinds: string[]; how: 'table' | 'weak
   hrefs: { kinds: ['Array'], how: 'table' },
   idEls: { kinds: ['Map'], how: 'table' },
   inDef: { kinds: ['number'], how: 'restored' },
+  defWalk: { kinds: ['number'], how: 'restored' },
   instAt: { kinds: ['WeakMap'], how: 'weak' },
   itemSchema: { kinds: ['Map'], how: 'table' },
   jsonOut: { kinds: ['Map'], how: 'table' },
   keptBound: { kinds: ['Set'], how: 'table' },
   keptDepth: { kinds: ['number'], how: 'fixed' },
   keptNext: { kinds: ['Map'], how: 'table' },
+  kindCycle: { kinds: ['Set'], how: 'cache' },
   kinding: { kinds: ['Set'], how: 'cache' },
   kinds: { kinds: ['WeakMap'], how: 'weak' },
   pageSpecs: { kinds: ['WeakMap'], how: 'weak' },
@@ -139,6 +151,7 @@ export const LINK_FIELDS: Record<string, { kinds: string[]; how: 'table' | 'weak
   lazyLoads: { kinds: ['Map'], how: 'table' },
   lazyMods: { kinds: ['Array'], how: 'table' },
   listTyped: { kinds: ['Map'], how: 'table' },
+  librariesKeyText: { kinds: ['empty', 'string'], how: 'cache' },
   lineStarts: { kinds: ['Map'], how: 'cache' },
   listCompiled: { kinds: ['WeakSet'], how: 'weak' },
   markups: { kinds: ['WeakMap'], how: 'weak' },
@@ -172,6 +185,18 @@ export const LINK_FIELDS: Record<string, { kinds: string[]; how: 'table' | 'weak
   persisted: { kinds: ['Set'], how: 'table' },
   pointCtx: { kinds: ['WeakMap'], how: 'weak' },
   pointOf: { kinds: ['Map'], how: 'table' },
+  placedUnit: { kinds: ['empty', 'object'], how: 'linker' },
+  earlyDefs: { kinds: ['boolean'], how: 'linker' },
+  checkDone: { kinds: ['Set'], how: 'linker' },
+  checkLast: { kinds: ['number'], how: 'linker' },
+  checkOrder: { kinds: ['boolean'], how: 'linker' },
+  checkParts: { kinds: ['empty', 'Array'], how: 'linker' },
+  touched: { kinds: ['Map'], how: 'linker' },
+  unitStale: { kinds: ['empty', 'string'], how: 'linker' },
+  defsAsked: { kinds: ['Set'], how: 'linker' },
+  unitHeld: { kinds: ['boolean'], how: 'linker' },
+  finishedFirst: { kinds: ['boolean'], how: 'linker' },
+  pointNames: { kinds: ['Array'], how: 'table' },
   points: { kinds: ['WeakMap'], how: 'weak' },
   prefetchOff: { kinds: ['boolean'], how: 'fixed' },
   guard: { kinds: ['empty', 'object'], how: 'fixed' },
@@ -191,6 +216,17 @@ export const LINK_FIELDS: Record<string, { kinds: string[]; how: 'table' | 'weak
   rootStyled: { kinds: ['Set'], how: 'table' },
   rowOf: { kinds: ['WeakMap'], how: 'weak' },
   rowPaint: { kinds: ['Map'], how: 'table' },
+  rendered: { kinds: ['Map'], how: 'table' },
+  unrendered: { kinds: ['Map'], how: 'table' },
+  renderedAt: { kinds: ['WeakMap'], how: 'weak' },
+  renderedReads: { kinds: ['Set'], how: 'table' },
+  renderedEmpty: { kinds: ['Array'], how: 'table' },
+  renderedShown: { kinds: ['Array'], how: 'table' },
+  renderedLate: { kinds: ['Array'], how: 'table' },
+  snAttrs: { kinds: ['WeakMap'], how: 'weak' },
+  keepsAttrs: { kinds: ['boolean'], how: 'fixed' },
+  snSource: { kinds: ['WeakMap'], how: 'weak' },
+  tplDiags: { kinds: ['Map'], how: 'table' },
   runtimePlacements: { kinds: ['Array'], how: 'table' },
   runtimeSlots: { kinds: ['WeakSet'], how: 'weak' },
   scopeStart: { kinds: ['WeakMap'], how: 'weak' },
@@ -485,9 +521,9 @@ class LoggedWeak {
  * host (`images`) is not data: its answers change as the build analyses images, so a definition with an image is compiled
  * on each page.
  */
-const BUILD_OPTIONS = new Set(['root', 'dev', 'sourcemap', 'helpers', 'actions', 'config', 'readFile', 'listFiles', 'globCache', 'templates', 'definitions', 'collections',
+const BUILD_OPTIONS = new Set(['root', 'dev', 'sourcemap', 'helpers', 'actions', 'config', 'readFile', 'listFiles', 'globCache', 'templates', 'definitions', 'componentCache', 'collections',
   'collectionsError', 'prefetch', 'openapi', 'apis', 'complexity', 'expansionLimit', 'componentNames', 'libraries', 'lazy', 'lazyScript', 'lazyModule',
-  'helperValues', 'helperFold', 'foldLog', 'prerender', 'changesRequests', 'observe', 'embed', 'componentCss', 'base', 'file', 'decided', 'unrolled', 'constants', 'frozen', 'overLimit']);
+  'helperValues', 'helperFold', 'foldLog', 'prerender', 'changesRequests', 'observe', 'embed', 'componentCss', 'base', 'file', 'decided', 'unrolled', 'constants', 'frozen', 'overLimit', 'rendered']);
 
 /**
  * A top-level definition compiled as a unit (`unitChild`) and recorded as it compiles. Its writes are applied to the page,
@@ -509,10 +545,11 @@ export function recordChild<T>(c: any, name: string, compile: (child: any) => T,
   return { result: run.result as T, unit: plan.plan };
 }
 
-type Run = { result: unknown; unit: Unit; copied: number } | { result: unknown; refused: string };
+export type Run = { result: unknown; unit: Unit; copied: number } | { result: unknown; refused: string };
 
 /** the unit compiled, its view of its page logging what it reads and writes; its writes applied to the page */
-function runUnit(c: any, name: string, compile: (child: any) => unknown, prior: Map<object, { u: number; i: number }>): Run {
+/** (`own`: fields the unit gets as they are, neither logged nor applied to the page: a unit's check data, `units.ts`) */
+export function runUnit(c: any, name: string, compile: (child: any) => unknown, prior: Map<object, { u: number; i: number }>, own: Record<string, unknown> = {}): Run {
   const rec = new Rec();
   const u = c.unitChild(), child = u.child;
   const T0 = c.templates.length, f0 = c.fns.length, u0 = c.useIds, s0 = c.nextSid, n0 = c.nextId, a0 = c.actions.length, atBefore = c.at;
@@ -532,6 +569,9 @@ function runUnit(c: any, name: string, compile: (child: any) => unknown, prior: 
   // (an object of the page info, as the locale: read property by property, so what the unit does not use does not count)
   const views = new WeakMap<object, unknown>();
   const viewOf = (o: any, path: Step[]): unknown => {
+    // (a map in an object of the page info, as the second pass's build-time constants, `page.folds.values`: read by key,
+    // as the page info's own tables are, not as one value: a unit asks it whether a name is one, stage5-a1.md)
+    if (o instanceof Map) { let w = views.get(o); if (!w) { views.set(o, (w = wrap(o, path, rec))); rec.page.set(w as object, o); } return w; }
     if (!o || typeof o !== 'object' || container(o) || 'nodeName' in o || Object.getPrototypeOf(o) !== Object.prototype) { readValue(rec, path, o); return o; }
     let w = views.get(o);
     if (!w) {
@@ -554,8 +594,9 @@ function runUnit(c: any, name: string, compile: (child: any) => unknown, prior: 
   // up is a precondition), its own logged; without, its own (a page that had the code keeps its own, `ifAbsent`)
   const sites = !!c.opts.sourcemap;
   child.codeAt = sites ? wrap(c.codeAt, [{ p: 'codeAt' }], rec) : new Map();
+  for (const [k, v] of Object.entries(own)) child[k] = v;
   for (const [k, f] of Object.entries(LINK_FIELDS)) {
-    if (!(k in child) || (f.how !== 'fixed' && f.how !== 'restored') || k === 'page' || k === 'opts' || k === 'componentFiles') continue;
+    if (!(k in child) || (f.how !== 'fixed' && f.how !== 'restored') || k === 'page' || k === 'opts' || k === 'componentFiles' || k in own) continue;
     let v = child[k], mine = false;
     Object.defineProperty(child, k, {
       configurable: true, enumerable: true,
@@ -766,7 +807,7 @@ function keep(u: Unit): { plan: Plan | Refused; index: Map<object, number> } {
 type PageMaps = { outs: Map<number, unknown[]> };
 
 /** whether the page `c` reads as the recording page did, everywhere the unit looked */
-function readsHold(c: any, reads: Read[]): boolean {
+export function readsHold(c: any, reads: Read[]): boolean {
   for (const r of reads) {
     if ('value' in r) { if (shape(follow(c, r.at)) !== r.value) return false; continue; }
     if ('flat' in r) { const o = follow(c, r.at); if (!o || typeof o !== 'object' || flat(o) !== r.flat) return false; continue; }

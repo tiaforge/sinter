@@ -28,6 +28,11 @@ The pages are the `.html` files under the project root, outside `public/`, the b
 `src/components/` and `src/layouts/`: `vite build` builds each one, as `vite dev` serves them, and the app is a
 multi-page app (`appType: 'mpa'`). A config that names `build.rollupOptions.input` builds those pages instead.
 
+A built page with nothing for Vite's HTML handling to do (no module script, stylesheet, `<style>`, image or other
+asset URL, `%ENV%` value; a page that ships no JavaScript usually) is not parsed by it again: sinter writes it as Vite
+would. That holds only while no other plugin of the app has a `transformIndexHtml` hook, which would then not see
+those pages: with one, every page goes through Vite's HTML handling as usual. Nothing to configure.
+
 ### Project files
 
 The app's modules have fixed names in `src/`, each optional, `.js` or `.ts`. A component library's are beside its

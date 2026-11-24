@@ -4,8 +4,15 @@
 // renumbered) are gone with renumbering: a plan links only into a page numbered as its recording page was. The pages of
 // those scenarios are numbered otherwise, so they compile in place, or link plans of their own. The last group checks
 // that linking happens where it should.
-import { describe, expect, test } from 'vitest';
+import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import { compile } from '../../src/compiler/index.js';
+
+// (stage 5, B1, takes a page's second pass from its first pass's walk where it can: these tests count what the linker
+// links in each pass, so they run with B1 off, as units.test.ts does; test/compiler/from-walk.test.ts compares B1 with
+// the old route)
+const walk = process.env.SN_FROM_WALK;
+beforeAll(() => { process.env.SN_FROM_WALK = '0'; });
+afterAll(() => { if (walk === undefined) delete process.env.SN_FROM_WALK; else process.env.SN_FROM_WALK = walk; });
 
 const INL = "{ text: 'x-text', link: 'x-link' }";
 const BASE: Record<string, string> = {

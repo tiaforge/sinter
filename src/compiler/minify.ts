@@ -41,10 +41,15 @@ export interface MinifyHooks {
   opaque(el: P5Element): boolean;
   /** an element the compiler takes out of the page (`<sn-resource>`, `<sn-sync>`): no box, and the text around it meets */
   removed(el: P5Element): boolean;
+  /**
+   * rows rendered at build time (compile.ts `rowRenderer`), minified as the markup they stand for would be, which
+   * the walk compiles after the minifier: a text node a binding wrote, which was a `<template data-sn-text>` here (an
+   * element, its text left as it is), and an element whose content a binding wrote
+   */
+  written?(n: P5Node): 'text' | 'content' | undefined;
 }
 
 const isEl = (n: P5Node): n is P5Element => 'tagName' in n;
-const isText = (n: P5Node): n is P5Text => n.nodeName === '#text';
 /** sinter's templates: what they render takes their place in the page; their content is the page's markup */
 const isSinterTemplate = (el: P5Element) => el.tagName === 'template' && el.attrs.some((a) => a.name === 'data-sn-for' || a.name === 'data-sn-if' || a.name === 'data-sn-else');
 /** a run of white space as one character: a newline if it had one, else a space */
@@ -53,10 +58,20 @@ const one = (run: string) => (/[\n\r]/.test(run) ? '\n' : ' ');
 export function minifyMarkup(doc: P5Parent, hooks: MinifyHooks): { comments: number; bytes: number } {
   const stats = { comments: 0, bytes: 0 };
   const layout = hooks.layout;
-  const owns = (el: P5Element) => el.attrs.some((a) => OWNS_CONTENT.has(a.name) || (a.name === 'data-sn-with' && /\b(innerHTML|textContent|innerText|outerHTML)\b/.test(a.value)));
+  const owns = (el: P5Element) => el.attrs.some((a) => OWNS_CONTENT.has(a.name) || (a.name === 'data-sn-with' && /\b(innerHTML|textContent|innerText|outerHTML)\b/.test(a.value))) || hooks.written?.(el) === 'content';
+  // (a text a binding wrote is the element it was: `written`)
+  const isText = (n: P5Node): n is P5Text => n.nodeName === '#text' && hooks.written?.(n) !== 'text';
 
   /** the author's comments out of `p`, and text nodes that meet merged */
   const comments = (p: P5Parent) => {
+    // (most elements have neither: their children stay as they are, in the same list, and no list is made)
+    const kids = p.childNodes as P5Node[];
+    let change = false;
+    for (let i = 0; i < kids.length && !change; i++) {
+      const c = kids[i]!;
+      change = c.nodeName === '#comment' ? !RESERVED.test((c as DefaultTreeAdapterMap['commentNode']).data) : i > 0 && isText(c) && isText(kids[i - 1]!);
+    }
+    if (!change) return;
     const out: P5Node[] = [];
     for (const c of p.childNodes as P5Node[]) {
       if (c.nodeName === '#comment' && !RESERVED.test((c as DefaultTreeAdapterMap['commentNode']).data)) {
@@ -112,9 +127,13 @@ export function minifyMarkup(doc: P5Parent, hooks: MinifyHooks): { comments: num
   /** the white space of `p`'s text children, in `box` */
   const spaces = (p: P5Parent, box: P5Element, l: Layout) => {
     const kids = p.childNodes as P5Node[];
+    // (no text in it: nothing to do, and nothing to ask the layout)
+    if (!kids.some(isText)) return;
     const kind = l.childLayout(box);
     // the edges of a template's content are not the box's: what is around the template is not known here
-    const edges = kind === 'block' && isEl(p as P5Node) && l.edgesStartLines(box);
+    // (asked when a text reaches one)
+    let edgesKnown: boolean | undefined;
+    const edges = () => (edgesKnown ??= kind === 'block' && isEl(p as P5Node) && l.edgesStartLines(box));
     /**
      * What is past the text at `i` in direction `d`, through white space, comments, the elements the compiler
      * removes and templates that render blocks or nothing: a block-level box, the box's edge, or other content.
@@ -128,7 +147,7 @@ export function minifyMarkup(doc: P5Parent, hooks: MinifyHooks): { comments: num
         if (n.tagName === 'template') { if (isSinterTemplate(n) && rendersBlocks(n, l)) continue; return 'other'; }
         return l.blockLevel(n) ? 'block' : 'other';
       }
-      return edges ? 'edge' : 'other';
+      return edges() ? 'edge' : 'other';
     };
     /**
      * In a flex, grid or table container: whether the text at `i` meets the end of its item in direction `d` (an

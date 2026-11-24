@@ -2,8 +2,15 @@
 // Pages compile in order through one cache of shared definitions, three rounds (seen, recorded, linked), and each must be
 // what it is compiled on its own, the whole result. As reviewed (6fba1af), 1 and 2 were pages that differed; 3 and 4 pages
 // that never linked (no page differed); 5 the cost of recording, quadratic in a page's definitions.
-import { describe, expect, test } from 'vitest';
+import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import { compile } from '../../src/compiler/index.js';
+
+// (stage 5, B1, takes a page's second pass from its first pass's walk where it can: these tests count what the linker
+// links in each pass, so they run with B1 off, as units.test.ts does; test/compiler/from-walk.test.ts compares B1 with
+// the old route)
+const walk = process.env.SN_FROM_WALK;
+beforeAll(() => { process.env.SN_FROM_WALK = '0'; });
+afterAll(() => { if (walk === undefined) delete process.env.SN_FROM_WALK; else process.env.SN_FROM_WALK = walk; });
 
 const INL = "{ text: 'x-text', link: 'x-link' }";
 const BASE: Record<string, string> = {

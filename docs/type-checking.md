@@ -28,8 +28,9 @@ npx sinter check --root app      # another project root
 ```
 
 It needs TypeScript in the project, uses your version of it, and never runs in the dev server. With
-TypeScript installed, `vite build` runs it at the end and fails on type errors; `sinter({ typecheck: false })`
-turns that off. Without types, the compiler still checks every name, state variable and helper: [docs/diagnostics.md](diagnostics.md).
+TypeScript installed, `vite build` runs it at the end and fails on type errors (`sinter check: 2 type error(s), 1
+warning(s)`); its warnings alone, such as [SN538](diagnostics.md#sn538-unreachable-candidate), are printed and do not
+fail it, unless [strict mode](strict.md) is on. `sinter({ typecheck: false })` turns it off. Without types, the compiler still checks every name, state variable and helper: [docs/diagnostics.md](diagnostics.md).
 
 ## Types on resources
 
@@ -132,7 +133,7 @@ SN505 undeclared-query-in-spec: `GET /articles` declares no query parameter `tag
 
 ## What the check does
 
-`sinter check` compiles each page, writes one JavaScript file per page under `.sinter/check/` with every expression verbatim inside blocks that declare its scope, and runs `tsc` on them with `checkJs`. Errors map back to the HTML line and column. Add `.sinter/` to `.gitignore`. It prints a summary:
+`sinter check` compiles each page, writes one JavaScript file per page under `.sinter/check/` with every expression verbatim inside blocks that declare its scope, and runs `tsc` on them with `checkJs`; what several pages repeat (a component's markup) is written once, in a file of its own beside them, and its errors are reported at every place it repeats. Errors map back to the HTML line and column. Add `.sinter/` to `.gitignore`. It prints a summary:
 
 ```text
 sinter check: 4 page(s), 0 error(s), 1 warning(s); 7 of 8 resources typed (3 via OpenAPI)

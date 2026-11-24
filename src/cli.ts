@@ -72,8 +72,10 @@ async function main(argv: string[]): Promise<number> {
   const nh = await loadHelpers({ root, helpersFile: p.helpersFile, manifest: p.helpers });
   const unloaded = unloadedDiagnostic(root, p.helpersFile, nh);
   if (unloaded) diagnostics.push(unloaded);
+  // the pages' shared definitions, recorded on one page and linked into the next, as the build's are
+  const definitions = new Map<string, unknown>();
   for (const file of files) {
-    const out = compile(readFileSync(file, 'utf8'), { ...checkPageOptionsOf(p, file, pageOptions, { helpers, content: contentOpts, locale }), helperValues: nh.module, helperFold: nh.fold, dev: false, check: true });
+    const out = compile(readFileSync(file, 'utf8'), { definitions, ...checkPageOptionsOf(p, file, pageOptions, { helpers, content: contentOpts, locale }), helperValues: nh.module, helperFold: nh.fold, dev: false, check: true });
     diagnostics.push(...out.diagnostics);
     if (out.check) units.push(out.check);
   }
@@ -90,7 +92,7 @@ async function main(argv: string[]): Promise<number> {
       ...p.libraries.flatMap((l) => [...l.public.map(at(join(l.folder, 'components'))), ...l.internal.map(at(join(l.folder, 'components', 'internal')))])].map((f) => (f ? componentScript(f) : null)).filter((f): f is string => !!f);
     diagnostics.push(...lazyDiagnostics(root, p.lazy, [p.helpersFile, p.actionsFile, mod(p.config), mod(p.early)], lazyReachOf(p).whole(p.helpers), scripts, p.libraries, p.helpersFile));
   }
-  const r = check({ ...checkOptionsOf(p), helpers, units });
+  const r = check({ ...checkOptionsOf(p), helpers, units, share: true });
   diagnostics.push(...r.diagnostics);
 
   const warned = diagnostics.filter((d) => d.severity === 'warning').length;

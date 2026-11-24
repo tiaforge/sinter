@@ -22,7 +22,8 @@ browser ([build-time constants](first-paint.md#build-time-constants)):
 
 - literals, and a component's props given as literals: `<site-header data-sn-with="{ title: 'About' }">`
 - `data-sn-state` fields that nothing on the page writes: `{ nav: 'about' }` read by a nav link's class
-- `data-sn-if` over those, decided at build time
+- `data-sn-if` over those, decided at build time (the branch that never renders is still compiled for its
+  diagnostics: an error in it fails the build like any other)
 - `data-sn-for` over a constant list, unrolled into its rows, when the rows read only the item, its
   index and constants:
 
@@ -43,7 +44,8 @@ browser ([build-time constants](first-paint.md#build-time-constants)):
   renders. A list has no length limit of its own: its rows count against the page's (below).
 - trees over constants: a component used inside itself, and the component an `<sn-component use>`
   renders, given constant props (a `file:./doc.json` content tree, each node dispatched to its
-  component) are expanded at build time, per node, and a link fill is written into every node that
+  component; a prop that reads state a handler writes is not constant, and that choice renders in the
+  browser, as the component used by its tag would) are expanded at build time, per node, and a link fill is written into every node that
   places it: an element, an if/else chain, a component tag, and a fill whose `<slot>` places the
   node's own children. The page is plain HTML, and a component nothing renders leaves it. Two fills
   render in the browser: one that holds a component with slots of its own (a tree inside the fill),
@@ -77,13 +79,21 @@ and `structuredClone`, not `Date`, `Intl`, `Math.random`, `fetch`, `window` or `
   `.constructor` and `__proto__`, `Math` or `Reflect` used as a value (`const M = Math`,
   `const { random } = Math`, `Reflect.get(Math, 'random')`; `Math.max(…)` and `Math.PI` are fine), an
   error's `.stack`, and a function that assigns a module-level variable (`count++`).
+- What the check reads of each module is kept in `node_modules/.cache/sinter/fold` (where the image and
+  font caches are), by the module's text, so a build reads it there instead of parsing unchanged
+  modules again. The cache is read again whatever a module's date says, holds no verdict (what a module
+  imports is resolved by every build), and a file in it that does not read is ignored and written again.
+  To clear it, delete the folder (or `node_modules/.cache/sinter`, the other caches with it); the dev
+  server's `vite --force` reads none of it.
 - **This is a guard against mistakes, not a sandbox.** It reads your code to tell whether a call
   gives the same result in the build as in the browser, and it catches the usual ways that fails.
   Code written to get around it can, and it runs in the build with the build machine's access, as
   any build plugin or dependency does. Keep untrusted code out of your helpers' imports.
 - `src="file:./intro.txt"` resources ([resources.md](resources.md#files)) are constants too: bindings
   over them, and helpers called over them, are written into the page, and a file nothing in the
-  browser reads leaves the page. A page whose files and helpers all fold ships no JavaScript.
+  browser reads leaves the page. A page whose files and helpers all fold ships no JavaScript. Code that
+  still runs gets the small values it reads as literals, and the rest embedded with only the fields it reads
+  ([resources.md](resources.md#files)).
 
 ## What needs JavaScript
 
