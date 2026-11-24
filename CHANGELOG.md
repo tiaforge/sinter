@@ -13,6 +13,14 @@ How to write an entry (from 0.21.0 on; older sections keep their own form):
 - Implementation details and benchmark figures go in the commit or the pull request. A speed-up or a size
   change is a Performance bullet with its headline number.
 
+## Unreleased
+
+### Fixed
+
+- The `sinter` command is executable in the package again: 0.22.0 shipped `dist/cli.js` without its executable bit,
+  and `npx sinter` could fail with "Permission denied" where npm kept an earlier link to it (an upgrade from a
+  `file:` install). With 0.22.0, `node node_modules/@tiaforge-ui/sinter/dist/cli.js` runs it.
+
 ## 0.22.0 (2026-11-24)
 
 ### Breaking
