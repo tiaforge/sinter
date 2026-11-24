@@ -239,8 +239,8 @@ Found by the research, not changed:
 
 ## Where it stands, and what waits for the owner (2026-11-24, 03:30 UTC)
 
-The integration branch `ccr-9ebf49d5-gpdej8` holds everything below; the full suite passes (3,015 tests at
-`f7aa3fa`; the status log has each run), and every merge was checked against the apps and sinter-mail.
+The integration branch `ccr-9ebf49d5-gpdej8` holds everything below; the full suite passes (3,025 tests at
+`cb89b74`; the status log has each run), and every merge was checked against the apps and sinter-mail.
 
 **The benchmark** (`bench/astro`, 100 posts, whole process, interleaved rounds on one machine): 13.6 to 16.8 s when
 this started; now static 2.4 to 2.7 s, live 2.7 to 3.2 s, a page file per post 2.8 to 3.3 s static and 3.3 to 3.8 s
@@ -1012,3 +1012,7 @@ decision of their own (stage 7). A step that can stay byte-identical does.
   code 16, the old row route 14, folds 13 + 9, single shapes about 10, and 65 reference compiles with rendering
   off. So the second pass is not deletable without three things that are not contained steps: a template's
   entries (rows as text first), the row residues (the IR), and SN501's warning from the route.
+- 2026-11-24, 03:30 UTC: **the full suite passes at `cb89b74` (choices from the first pass's walk; the compile-hints test's own
+  copy of the fixture): 3,025 tests, 314 files.** Nothing further is ordered; "Where it stands, and what waits for
+  the owner" above lists the decisions. (While the suite runs, `test/fixtures/vite-app/index.html` shows as
+  modified: `build.test.ts` rewrites it in place and restores it.)
