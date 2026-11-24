@@ -934,3 +934,25 @@ decision of their own (stage 7). A step that can stay byte-identical does.
   the same; `mail-audit --switch SN_FROM_WALK` with `SN_UNITS_VERIFY=1`, raw and under `SN_CANON=1`: 48 files
   byte for byte, and the 48 files identical to the build before the merge. sinter-mail's pages still compiled
   again: SN501 7, prefold 5, shared code 1 (its two unit cases now stop at SN501). Next there: choices.
+- 2026-11-24, 03:22 UTC: **stage 5's third B1 session: choices merged, and the list of what still needs the second pass**
+  (`redesign-notes/stage5-b1.md` §22, §23 and its top; `cb89b74`). A page-level `<sn-component use>` choice over
+  constants takes the route (the case rendered: rows spliced at the first candidate; not rendered: the candidate
+  restored and expanded in place; all dropped: nothing; some left to the browser: walked again as a fresh group),
+  and a dropped walk's diagnostics are replaced by the new walk's in document order (`SN_FROM_WALK_DIAGS=0` off).
+  **Two bugs fixed**: in the route as it was, dropped walks' map and set keys were taken out block by block, last
+  first, so a later block's rows could add a key again (a component's file) that an earlier block's takeout then
+  removed, and the page lost a file from its list (found by the audit once choices routed; a test pins it); and in
+  the choice work itself a group's function shipped state (caught by the audit, fixed before the report). In its
+  suite 413 second passes take the route (385), "a choice decided" 16 to 0; its suite 3,025 plain and under the
+  audit. Checked on the coordinating machine after the merge: 1,584 tests of test/compiler, test/vite, test/check
+  pass; `render-audit --switch SN_FROM_WALK --canon` eight apps the same; sinter-mail (`SN_UNITS_VERIFY=1`, raw
+  and canonical) 48 files byte for byte and identical to the build before the merge. **The old row route** (§23,
+  analysis, nothing built): its 14 real compiles in the suite are rows that keep a handler 3, a text 4, something
+  not written ahead 2, links 2, an id 2, per-copy diagnostics 1; each needs a residue bound to a rendered node (the
+  row lets, or a per-node residue in the IR, which is stage 7's ground), so none is contained and `inlineInstance`
+  and the row lets stay. **What still needs the second pass** (the log's top, by reason): in the apps a template's
+  entries (the blog's 300 pages; waits for the owner on rows as text), prefold (realworld 1, sinter-mail 5), SN501
+  (sinter-mail 7, a refusal for good) and shared code (sinter-mail 1); in the suite besides: prefold 47, shared
+  code 16, the old row route 14, folds 13 + 9, single shapes about 10, and 65 reference compiles with rendering
+  off. So the second pass is not deletable without three things that are not contained steps: a template's
+  entries (rows as text first), the row residues (the IR), and SN501's warning from the route.
