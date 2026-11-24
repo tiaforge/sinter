@@ -254,7 +254,7 @@ second-pass units and the second pass taken from the first pass's walk (stage 5:
 in the apps every page that is not a template's entry, except realworld's one prefold page and 13 of sinter-mail's
 16); the evaluation by one function per template, a render plan, the helpers' memo per entry (stage 6); the build
 outside the compiler (early scripts per shape, the Speculation Rules folded, the fold check's cache on disk, three
-scans made linear); embedded data folded into code; nine bugs found and fixed on the way (`redesign-notes/bugs.md`
+scans made linear); embedded data folded into code; the bugs found on the way fixed, each with a test (`redesign-notes/bugs.md`
 and the status log).
 
 **What is left in the compiler is small or not contained.** No single step is worth more than about 1 ms a post:
