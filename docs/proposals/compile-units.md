@@ -782,3 +782,25 @@ decision of their own (stage 7). A step that can stay byte-identical does.
   element, the rows' edge elements for `respaceRows` and `layoutAround`, the second pass's minifier and image
   pipeline) and that a summary per block of rows would serve all three. The assessment of rows as text is with
   the stage 6 session.
+- 2026-11-24, 00:20 UTC: **rendered rows as markup text: assessed, not built** (`redesign-notes/stage6-eval.md`,
+  "Assessment"). The ceiling, ms a page under the profiler: the blog 2.5 of 11.0 (rendering the rows 1.6, the
+  second pass's minifier 0.62, serializing 0.28), perhaps 1 ms of 8.6 wall since the text still has to be escaped
+  and joined; sinter-mail's 2,012-element email 66 of 216 (31%), its file email 5 of 96, its API page nothing. The
+  second pass does not walk rendered rows already. Answerable once per template: ids and numbering, uses, files,
+  reads, state, scoped styles' marks, dev's marks, links (with stand-ins), the units' journal. Real obstacles: the
+  minifier's white-space rule over pieces with holes (per row at the rows' edges and where a bound text meets
+  static space; byte identity hangs on it), the image pipeline (rewrites each row's `<img>` in the second pass),
+  the layout reading the rows' attributes on pages with stylesheets, the description reading headings and links
+  off the page. It would be general (a live page's rendered rows too) and auditable byte for byte, but it does not
+  reach 4 ms on the blog and costs more than it gains there; it is the next large step for large file emails.
+  Also measured: "`keepTemplate`, `copyState`, the rest" was mostly once per build (the kept template's walk 77 ms,
+  the index page 117 ms); per entry, steady: `decideFor` 4.1 to 4.9 ms, the second pass from the kept walk 1.6 (of
+  it `finishPage` 0.5), `copyState` 0.3, `settle` 0.19, wrapping 0.14. **What that means for the benchmark**: the
+  compiler is at about 6.7 ms a blog post and no single step left in it is worth more than about 1 ms (the second
+  pass for a template's entries at most 0.9 to 1.6, rows as text about 1). Outside the compiler a static page costs
+  about 3.9 ms, and `pipeline-2.md`'s arithmetic stands: level with Astro at 100 posts needs the floor at about
+  1.1 s (the two decisions not taken: the SN534 cross check, 0.23 s, and Vite's HTML step, 0.1 s) and the compiler
+  at about 6 ms a page. Garbage collection is the largest item nobody owns: 0.76 s of the 6.5 s build at 400 posts,
+  about 1.9 ms a page inside and outside the compiler, and the process's memory grows by about 0.75 MB a page (356
+  MB at 100 posts, 584 MB at 400). The stage 6 session's next item is that: what a build allocates and what it
+  keeps per page.
