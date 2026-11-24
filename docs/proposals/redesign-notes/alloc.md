@@ -232,6 +232,53 @@ high-water is 950 MB. Static pages have no module script to resolve and their tr
 Vite's code; the only lever sinter has is the one already in "Decisions for the owner" of pipeline-2.md (Vite's HTML
 step for pages it does not change), and live pages are pages it changes.
 
+## Where a page's 9.6 MB go, and what each item would need (the owner's table)
+
+400 posts static, sampling heap profile (collected objects included), each byte charged to the innermost of these
+frames on its stack (`bench/tools/mem/hpunder.mjs`); MB a page, base `f395fa2` → this branch:
+
+| owner | part | base | now | what it would need |
+| --- | --- | ---: | ---: | --- |
+| the compiler | the first pass's rendered rows (`render`, `fill`, `clone`, `instance`) | 1.67 | 1.64 | rows as text (stage 6's assessment): the DOM of rows that keep nothing live never made |
+| | the loops unrolled (`unroll`, `rowsOf`, `nodesOf`, `expandCase`) | 0.65 | 0.66 | the same |
+| | the second pass from the kept walk (without the minifier) | 0.77 | 0.55 | the second pass deleted for a template's entries (stage 5 / B2) |
+| | `copyState`: the kept expansion copied per entry | 0.26 | 0.25 | the same, or a cheaper copy (compile-units.md, "What is next", 2) |
+| | the frozen-data checks of helper results and rows (`frozenPlain`, `plainData`, `frozenData`) | 1.05 | 0.74 | `frozenPlain`'s property descriptors are its check (no getter); left: walking each helper result once, not three times (`plainData`, `frozenPlain`, `resultKey`), which reorders when a helper is called again: a change of its own |
+| | the minifier | 0.24 | 0.18 | nothing cheap left |
+| | the rest of the evaluation and the compile | 0.76 | 0.74 | spread thin: nothing above 0.1 |
+| markdown-it | the post's `tokenize` in the compile | 0.55 | 0.55 | nothing possible in sinter (a prebundled third-party parser) |
+| sinter's `memo` | `freeze` of md.parse's result (a property descriptor for every property), in the compile | 0.30 | 0.30 | see "the md.parse memo" below; the descriptor is how it tells data from a getter |
+| sinter-markdown | the tree built from the tokens (`blocks`, `inlines`) | 0.14 | 0.14 | nothing large |
+| the SN534 cross check | every call again in the fresh copy: markdown-it 0.55, `memo`'s freeze 0.31, the tree 0.15, the key and the hash 0.04 | 1.07 | 1.07 | the decision in pipeline-2.md ("the cross check off the critical path"); the fresh copy's memo freezes every result and is never hit there (each call once) |
+| Vite | the HTML step's parse5 (`traverseHtml`) | 1.31 | 1.28 | the decision in pipeline-2.md ("Vite's HTML step for pages it does not change") |
+| Vite and sinter | `generateBundle` (Vite's per-page `Object.values(bundle)`, sinter's assembly of the pages) | 0.36 | 0.35 | Vite's lookup is quadratic; sinter's share is small |
+| Rolldown, Node, the plugin's rest | | 0.47 | 0.47 | nothing large |
+| **all** | | **9.6** | **8.9** | |
+
+## The md.parse memo: what it still serves
+
+sinter-markdown's `parse` is `memo(parseTree, { maxSize: 8 MiB })` (packages/sinter-markdown/sinter/parse.ts). In a
+build the compiler keeps a page's calls itself (`FOLD_MEMO`, one record per page and per template entry), so on a page
+the library's memo is never what answers a repeated call. What it does serve:
+
+- **In the browser** (its reason to exist): `md-doc`'s components read their `doc` at every node and a let is
+  evaluated at every read; the memo makes that one parse per source.
+- **In dev**: every compile of a page (each edit, each request) folds its calls again; the memo answers the parse of a
+  post whose text did not change. Bounded by its 8 MiB.
+- **In a build, across pages**: two pages that parse the same text (an index that renders each post's excerpt or body
+  and the post's own page; one shared document on every page). Each is then parsed once per build, not once per page.
+  The blog benchmark has no such pair (every post is parsed by its own page only): 0 hits across the 400 pages.
+- **The compiler's sharing of a result** (`frozenPlain`): because the memo hands out the same frozen tree for the call
+  and its "called again" check, the compiler shares it as it is, without `JSON.stringify` of both results and a frozen
+  copy (`deepFreeze(structuredClone(v))`). A build that went around the memo would lose this and pay more per call.
+- **Not in the cross check**: the fresh copy's memo sees each call once; it only freezes (0.31 MB a page) and keeps up to
+  8 MiB until the check ends.
+
+What it costs in a build: ≈10 MB of trees live through the compiles (≈119 posts' worth at a time), most of the 8 MB
+`DEEP_FROZEN` table, all of it promoted; measured with its size set to 1 (local patch, reverted): GC −6 to −10 % at 400
+posts, peak unchanged. Not changed here: any smaller size can make a build parse twice what it parsed once (the shared
+document, the index and the post), and a per-build size would be a new rule of the package's. The owner's decision.
+
 ## Decisions for the owner
 
 1. **sinter-markdown's parse memo at build time** (step 1): ≈10 MB live through the build, ≈119 post trees, each
