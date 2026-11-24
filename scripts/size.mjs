@@ -160,9 +160,12 @@ const entries = {
 // returning-reader note and the 2 s cap: about 230 B gzip), which takes the profile page's Lighthouse score from 99 to 100
 // Raised on 2026-11-22 to 57.125 KB (58,467 B): a list whose focused row goes moves the focus to the row now in its place
 // instead of leaving it on <body> (accessibility; 229 B gzip in the page runtime)
+// Raised on 2026-11-24 to 57.25 KB (58,624 B): page-wide key filters in an element's scope (`data-sn-on-keydown-page-j`,
+// for Caley's j/k), 33 B gzip on the article, which has key filters (keys.ts finds the marked elements; the core only
+// calls it after the walk, so pages without key filters are unchanged)
 const BUDGET = {
   'multilingual de/status': 12.625 * 1024, 'multilingual de/status, html': 0.875 * 1024,
-  minimal: 11 * 1024, 'minimal, swaps': 12.875 * 1024, 'realworld article': 57.125 * 1024,
+  minimal: 11 * 1024, 'minimal, swaps': 12.875 * 1024, 'realworld article': 57.25 * 1024,
   'minimal, link': 11.125 * 1024, 'minimal, token': 12 * 1024, 'minimal, token, early': 1.875 * 1024, 'realworld early, shared': 3.375 * 1024,
 };
 let failed = false;
