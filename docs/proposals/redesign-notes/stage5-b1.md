@@ -5,28 +5,57 @@ Running log (2026-11-23), branch `redesign/stage5-b1`, started at `5f203af` (the
 ## Where the work stands (read this first)
 
 Continued on branch `redesign/stage5-b1b` (2026-11-23/24, second session; sections 11 to 20), then on
-`redesign/stage5-b1c` (2026-11-24, third session; sections 21 on).
+`redesign/stage5-b1c` (2026-11-24, third session; sections 21 to 23).
 
 - **Done**: the route (`compileTwice` → `Compiler#fromWalk`) for pages of their own, with a unit placed (11), where
   folds ship nothing (12), rendered rows under the minifier's and the page's layout (15, 16), functions a dropped walk
-  or the unit made first at the page's site, loops on pages that are not quiet (template entries compiled alone, 18).
-  rendered rows with images and their image constants (19). Third session: a definition a dropped walk compiled first,
-  compiled again where the route walks the branch; a unit whose definitions the page keeps, kept whole as the page's own
-  and held (21). Suite under `SN_FROM_WALK_AUDIT=1`: 385 second passes routed (368 at the third session's start); the
-  apps: the blog's page-file variants 200/200, static-site 6/6, multilingual-site 8/8, sinter-mail 3/16 (not run by
-  this session: its repository could not be attached; the coordinator runs the mail audit).
-- **Counted as done**: `no second pass (nothing decided)`: a page the route looked at that needs no second pass (52).
-- **Written up, not built**: template entries (13; the coordinator holds them for stage 6's finding); prefold
-  constants other than an image's own attributes in rows (realworld 1, sinter-mail 5, suite 48); the renderer's own
-  fallbacks (18, stage 2/6's).
-- **Next** (the coordinator's order, 2026-11-24, third session): (2) choices (16, §18), then (3) the old second-pass row
-  route's fallbacks (what each needs, what is contained built), then (4) the list of what still needs the second pass, by
-  reason, at this log's top. SN501 stays a refusal.
+  or the unit made first at the page's site, loops on pages that are not quiet (18), rendered rows with images and their
+  image constants (19); third session: a definition a dropped walk compiled first, and a unit whose definitions the page
+  keeps (21); page-level choices, and diagnostics in a decided branch (22). Suite under `SN_FROM_WALK_AUDIT=1`: 413
+  second passes routed (368 at the third session's start).
+- **Written up, not built**: template entries (13; held for the owner's decision on rendering rows as text); prefold
+  beyond an image's own attributes in rows; the old row route's fallbacks (23: each needs the renderer or the IR).
+- **Next**: nothing ordered beyond the list below. SN501 from the route stays a refusal (unsound, §18).
 - **For a fresh session**: the route is `Compiler#fromWalk`/`fromWalkIn` and `compileTwice` in src/compiler/compile.ts;
   tests in test/compiler/from-walk.test.ts; check with the suite plain and under `SN_FROM_WALK_AUDIT=1`
-  (`SN_FROM_WALK_STATS=<file>` for the counts), the test/compiler audits, `scripts/render-audit.mjs --switch SN_FROM_WALK
-  --canon`, `scripts/pass-audit.mjs --switch SN_FROM_WALK`, `scripts/mail-audit.mjs <sinter-mail> --switch SN_FROM_WALK`
-  with `SN_UNITS_VERIFY=1`; merge `ccr-9ebf49d5-gpdej8` before each report.
+  (`SN_FROM_WALK_STATS=<file>` for the counts), the test/compiler audits (`SN_RENDER_AUDIT`, `SN_ONE_PASS_AUDIT`,
+  `SN_UNITS_VERIFY`), `scripts/render-audit.mjs --switch SN_FROM_WALK --canon`, `scripts/pass-audit.mjs --switch
+  SN_FROM_WALK` (bench-live-files' one state digit is the known difference), `scripts/mail-audit.mjs <sinter-mail>
+  --switch SN_FROM_WALK` with `SN_UNITS_VERIFY=1` (this session could not attach sinter-mail; the coordinator ran it);
+  merge `ccr-9ebf49d5-gpdej8` before each report.
+
+### What still needs the second pass (at `d0e585e`), by reason
+
+**The suite** (3,025 tests, `SN_FROM_WALK_AUDIT=1`, one line per page that recorded and had a second pass; 413 taken):
+
+| reason | second passes | what it needs (section) |
+| --- | ---: | --- |
+| a loop unrolled, rendering off (`SN_RENDER=0`) | 65 | reference compiles of the old route, by design (23) |
+| constants the layout or the images read (prefold) | 47 | prefold beyond an image's `src`/`srcset`/`alt` in rows: a class or style the layout reads (refused for good), images outside rows (18, 19) |
+| code a decided branch compiled first is compiled elsewhere too | 16 | the walk's tail steps' calls attributed to what they are for (18) |
+| a loop unrolled, not rendered | 14 | the renderer's own fallbacks: residue 9, per-copy diagnostics 5 (23) |
+| values folded into the code | 13 | folds without a decision (template entries' tests 6, embedding tests; 18) |
+| values folded into the code that ships | 9 | fold sites compiled as holes (`expr.ts`, the embedding workstream's; 18) |
+| a resource read only in a decided branch (SN501) | 2 | stays a refusal (18) |
+| ids in rendered rows | 2 | the second pass's id declarations for spliced rows (18) |
+| rendered rows and a layout: an image beside them / a bound element around them / a `:has()` rule | 1 + 1 + 1 | the layout's answers over rows the route spliced (15, 16) |
+| over the expansion limit; an else-if decided; a decided if in a template that stays; a loop unrolled on a page not quiet (+ not clean) | 1 each (+1) | shapes of the second pass's expansion at every depth (18) |
+| diagnostics in a decided branch | 1 | the test of `SN_FROM_WALK_DIAGS=0` only |
+| no second pass (nothing decided / values folded) | 54 + 1 | none: no second pass is compiled |
+
+**The nine audit apps** (`pass-audit --switch SN_FROM_WALK`, one build each): bench-static, bench-live and
+bench-static-typecheck (template variants, 100 entries each): every entry takes the second pass from the kept
+expansion, not the route (13: waits for the owner); bench-static-files and bench-live-files: 100 of 100 routed each;
+static-site 6 of 6; multilingual-site 8 of 8; dashboard: no second pass; realworld: 1 page, prefold (a constant the
+layout reads, refused for good unless the layout's reads are contained).
+
+**sinter-mail's 16 pages** (the coordinator's mail audit after `a91e70a`): 3 routed; compiled again: SN501 7 (stays a
+refusal), prefold 5 (a class, or an image outside rows), shared code 1 (code a dropped branch compiled first, called by
+the page after its walk). Choices (22) do not change these: its file emails decide theirs inside rendered rows.
+
+So for the apps the second pass is left for: template entries (300 blog pages), prefold (realworld 1, sinter-mail 5),
+SN501 (sinter-mail 7) and shared code (sinter-mail 1). Before the second pass is deletable: those, plus the suite's
+shapes above, plus the old row route's own list (23), plus dev renders (which do not record for the route).
 
 ## How it is measured
 
