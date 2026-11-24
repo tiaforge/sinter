@@ -156,6 +156,8 @@ jobs:
       - run: npm ci
       # the build prepublishOnly would make; the tests it would run passed in the ci job
       - run: npm run build
+      # npm packs a file with the mode it has: the bin without its executable bit fails as `sinter` (0.22.0)
+      - run: test -x dist/cli.js
       - name: publish @tiaforge-ui/sinter
         env:
           VERSION: ${{ needs.check.outputs.version }}
