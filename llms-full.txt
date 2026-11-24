@@ -46,6 +46,7 @@ This is the full reference, `llms-full.txt`. `llms.txt` beside it is the short v
 - `data-sn-patch` (URL template): PATCH action
 - `data-sn-delete` (URL template): DELETE action
 - `data-sn-call` (action call): local action: a function of the actions module, e.g. pgp.decrypt(msg); a handler starts it with run('id'). The function gets a trailing context; its `ctx.request(url, { method, body })` encodes `body` as JSON: pass the object, not `JSON.stringify(…)` (a string)
+- `data-sn-when` (value expression): the action starts only where this holds; it narrows the URL and body: asked as its trigger fires or run('id') starts it (after a debounce), otherwise nothing happens. sinter check narrows the call's arguments, the URL, the body, data-sn-confirm and data-sn-optimistic by it (not then/catch, which run later): data-sn-when="pubKey" data-sn-body="pubKey"
 - `data-sn-body` (value expression): JSON request body; overrides form serialization
 - `data-sn-trigger` (DOM event name): overrides the default trigger
 - `data-sn-debounce` (duration): delays the action's trigger, resets on each event
@@ -310,14 +311,16 @@ export interface ContactEvent { contact: Contact }
 ### Local actions: hash a file, then upload it
 
 ```html
-<section data-sn-state="{ file: null, url: '', error: '' }">
+<section data-sn-state="{ file: /** @type {File|null} */ (null), url: '', error: '' }">
   <sn-resource name="digest" call="sha256(file)" when="file"></sn-resource>
 
-  <input type="file" data-sn-on-change="file = $el.files[0] ?? null; url = ''">
+  <input type="file" data-sn-on-change="file = $el.files?.[0] ?? null; url = ''">
   <p data-sn-show="$meta.digest.loading">Hashing…</p>
   <code data-sn-text="digest"></code>
 
-  <button data-sn-call="upload(file, digest)" data-sn-attr="{disabled: !digest}"
+  <!-- data-sn-when: the call starts only with a file and its digest (and its arguments are checked as such);
+       disabled says the same to the user -->
+  <button data-sn-call="upload(file, digest)" data-sn-when="file && digest" data-sn-attr="{disabled: !digest}"
           data-sn-then="url = $result.url; error = ''" data-sn-catch="error = $error.message">Upload</button>
   <a data-sn-show="url" data-sn-attr="{href: url}">Uploaded</a>
   <p role="alert" data-sn-text="error"></p>

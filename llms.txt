@@ -47,6 +47,7 @@ This is the short version, small enough for a shell to show whole: the core refe
 - `data-sn-patch` (URL template): PATCH action
 - `data-sn-delete` (URL template): DELETE action
 - `data-sn-call` (action call): local action: a function of the actions module, e.g. pgp.decrypt(msg); a handler starts it with run('id'). The function gets a trailing context; its `ctx.request(url, { method, body })` encodes `body` as JSON: pass the object, not `JSON.stringify(…)` (a string)
+- `data-sn-when` (value expression): the action starts only where this holds; it narrows the URL and body
 - `data-sn-body` (value expression): JSON request body; overrides form serialization
 - `data-sn-trigger` (DOM event name): overrides the default trigger
 - `data-sn-debounce` (duration): delays the action's trigger, resets on each event

@@ -1738,6 +1738,8 @@ export function mount(root: Document | Element, o: MountOptions): App {
     const s = child(rb.s, { $el: rb.el, $event: e });
     let url = '', body: unknown;
     try {
+      // `data-sn-when`: the action starts only where it holds, asked as it would start (after a debounce)
+      if (a.when != null && !fns[a.when]!(s)) return;
       // a call's arguments are taken when it is triggered, like a request's URL and body
       if (a.call) body = fns[a.call.args]!(s);
       else {

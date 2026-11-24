@@ -32,6 +32,7 @@ reloads when the values it reads change.
 | `data-sn-debounce="300"` | waits that many ms after the last trigger (a model waits with `data-sn-model-debounce`, [resources](resources.md)) |
 | `data-sn-body="expr"` | sends the value as JSON, instead of serializing a form |
 | `data-sn-encoding="form"` | sends `application/x-www-form-urlencoded` instead of JSON |
+| `data-sn-when="expr"` | starts only where it holds; nothing happens otherwise ([below](#a-guard-data-sn-when)) |
 | `data-sn-confirm="expr"` | asks first; a falsy value asks nothing |
 | `data-sn-optimistic="…"` | changes lists before the request ([below](#optimistic-updates)) |
 | `data-sn-then="…"`, `data-sn-catch="…"` | run after success or failure ([below](#then-and-catch)) |
@@ -82,6 +83,27 @@ change, no request. A falsy value asks nothing, so the question can depend on st
 
 It uses `window.confirm`. `configure({ confirm })` replaces it with your own dialog and may return
 a promise ([configuration.md](configuration.md)).
+
+### A guard: `data-sn-when`
+
+`data-sn-when` is asked as the action would start: when its trigger fires, when `run('id')` starts it, after a
+debounce. Where it is falsy nothing happens: no question, no optimistic change, no request, no `then` or
+`catch`, and a form is not submitted. Use it for an action that reads state something else sets first: a
+handler before `run('id')`, a `dragstart` before `data-sn-trigger="drop"`:
+
+```html
+<button data-sn-on-click="pubKey = makeKey(); run('pub-key-save')">Save key</button>
+<span hidden id="pub-key-save" data-sn-post="/api/keys" data-sn-when="pubKey" data-sn-body="pubKey"></span>
+
+<li data-sn-post="/api/move" data-sn-trigger="drop" data-sn-when="drag.msg"
+    data-sn-body="moveBody(drag.msg, mb.name)"></li>
+```
+
+Under `strictNullChecks`, `sinter check` narrows what the action evaluates as it starts by it, as an `if`
+narrows: the call's arguments, the URL, the body, `data-sn-confirm` and `data-sn-optimistic`. Not `then` and
+`catch`, which run once the response is there, over state that may have changed. The guard does not disable
+the element: give a button `data-sn-attr="{ disabled: !draft }"` too where a click that does nothing would
+puzzle.
 
 ## Forms and validation errors
 
@@ -335,7 +357,7 @@ Work that is not one request (hashing, crypto, WebAuthn, other browser APIs) goe
 export from `src/sinter.actions.js` (or `.ts`). A page calls them with `data-sn-call`:
 
 ```html
-<button data-sn-call="upload(file, digest)" data-sn-attr="{disabled: !digest}"
+<button data-sn-call="upload(file, digest)" data-sn-when="file && digest" data-sn-attr="{disabled: !digest}"
         data-sn-then="url = $result.url" data-sn-catch="error = $error.message">Upload</button>
 <sn-resource name="digest" call="sha256(file)" when="file"></sn-resource>
 ```
@@ -385,12 +407,12 @@ for chaining, or for "mark read after the body loads":
 
 ```html
 <body data-sn-on-keydown-e="run('archive')">
-  <span hidden id="mark-read" data-sn-call="mail.markRead(open)"
+  <span hidden id="mark-read" data-sn-call="mail.markRead(open)" data-sn-when="open"
         data-sn-optimistic="merge(open, {is_read: true})"></span>
   <sn-resource name="body" call="mail.body(open)" when="open"
                then="$result && !open.is_read && run('mark-read')"></sn-resource>
 
-  <button id="archive" data-sn-post="/api/archive?id={open.id}" data-sn-attr="{disabled: !open}"
+  <button id="archive" data-sn-post="/api/archive?id={open.id}" data-sn-when="open" data-sn-attr="{disabled: !open}"
           data-sn-optimistic="remove(open)">Archive</button>
 ```
 
@@ -412,15 +434,10 @@ for chaining, or for "mark read after the body loads":
   hidden target runs; that is the pattern above. A `block` action with a request pending ignores
   the run.
 - It returns nothing. Results go to the target's `then` and `catch`.
-- Under `strictNullChecks`, `sinter check` cannot see that the caller staged the state the target reads
-  (`open = m; run('mark-read')`, or a drag that sets `drag.msg` before `data-sn-trigger="drop"`), so `{open.id}`
-  is `'open' is possibly 'null'`. Say what holds:
-  - where the target only runs while a branch is shown, put it in that branch:
-    `<template data-sn-if="open"><span hidden id="mark-read" data-sn-patch="/api/messages/{open.id}" …></span></template>`.
-    `run()` finds the element in the page at once, so this suits a run that comes later (after a load, as
-    above), not one in the handler that opens the branch;
-  - otherwise cast at the read: `data-sn-body="flagBody(/** @type {Message} */ (open), true)"`,
-    `{/** @type {Message} */ (open).id}`. The cast is the handler's promise, unchecked.
+- Under `strictNullChecks`, `sinter check` cannot see that the caller set the state the target reads
+  (`open = m; run('mark-read')`), so `{open.id}` is `'open' is possibly 'null'`. Guard the target with
+  [`data-sn-when="open"`](#a-guard-data-sn-when): it narrows the URL and body, and the action does nothing
+  where `open` is null.
 - `run()` works in every handler (`data-sn-on-*`, `then`, `catch`, `<sn-resource then>`,
   `<sn-event then>`), not in value expressions or `data-sn-optimistic`.
 - A loop of actions that run each other (`data-sn-catch="run('save')"` on `#save`) is an endless

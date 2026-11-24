@@ -45,3 +45,20 @@ test('sinter check: arguments are checked against the actions', () => {
   const [d] = checkPage(page.replace('upload(file, digest)', 'upload(file)'), { files });
   expect([d!.code, d!.message]).toEqual(['SN208', expect.stringContaining("is not assignable to type '[file: File, digest: string]'")]);
 });
+
+test('sinter check under strictNullChecks: data-sn-when narrows the call\'s arguments; without it, `file` may be null', () => {
+  const files = { 'src/sinter.actions.js': source, 'tsconfig.json': JSON.stringify({ compilerOptions: { strict: true } }) };
+  expect(checkPage(page, { files })).toEqual([]);
+  const ds = checkPage(page.replace(' data-sn-when="file && digest"', ''), { files });
+  expect(ds.map((d) => d.code)).toContain('SN208');
+});
+
+test('a click with no file sends nothing', async () => {
+  const requests = mockRequests({ 'POST /api/uploads': { url: '/files/1' } });
+  const { root, settle } = await render(page, { actions, requests });
+  const button = root.querySelector('button')!;
+  button.disabled = false;
+  button.click();
+  await settle();
+  expect(requests.calls).toEqual([]);
+});

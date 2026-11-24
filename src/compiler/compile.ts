@@ -668,7 +668,7 @@ function itemCursor(text: string): string {
   for (const [a, b, t] of edits.sort((x, y) => y[0] - x[0])) out = out.slice(0, a) + t + out.slice(b);
   return out;
 }
-const ACTION_ONLY = ['body', 'trigger', 'debounce', 'concurrency', 'optimistic', 'then', 'catch', 'confirm', 'encoding', 'write-through', 'retry'];
+const ACTION_ONLY = ['when', 'body', 'trigger', 'debounce', 'concurrency', 'optimistic', 'then', 'catch', 'confirm', 'encoding', 'write-through', 'retry'];
 const UNSAFE_ELEMENTS = new Set(['script', 'style', 'iframe', 'object', 'embed', 'base', 'meta', 'link', 'animate', 'set', 'animatemotion', 'animatetransform']);
 const FORM_CONTROLS = new Set(['input', 'select', 'textarea']);
 // a build-time source's own attributes (`fields`, `drafts`: BUILD_TIME_ATTRS) are SN332 on a fetched resource
@@ -7827,6 +7827,13 @@ class Compiler {
   }
 
   action(el: P5Element, node: NodeDef, scope: Scope, method: typeof METHODS[number] | 'call', get: (n: string) => string | undefined, inForm = false) {
+    // `data-sn-when`: the action starts only where it holds, so what is evaluated as it starts (the call's arguments,
+    // the URL, the body, the question, the optimistic change) is checked where it holds (`then` and `catch` run
+    // later, over state that may have changed: not narrowed)
+    const whenText = get('when');
+    const when = whenText !== undefined ? this.expr(el, 'data-sn-when', scope, { mode: 'value', cond: true, magic: ['$event'] }) : null;
+    const outer = scope;
+    if (whenText?.trim()) scope = this.guarded(scope, `(${whenText})`);
     // arguments and body are taken when the trigger fires, so they see its event
     const call = method === 'call' ? this.callExpr(el, 'data-sn-call', scope, undefined, ['$event']) : null;
     if (method === 'call' && get('body') !== undefined) this.report(el, 'data-sn-body', 'SN102', '`data-sn-body` belongs to a method attribute; a call takes its arguments in `data-sn-call`', 0);
@@ -7844,9 +7851,9 @@ class Compiler {
       this.report(el, 'data-sn-concurrency', 'SN401', '`data-sn-concurrency` is `block`, `queue` or `latest`', 0);
       concurrency = 'queue';
     }
-    const fnOf = (n: string, o: Omit<ExprOptions, 'report'>, type?: Parameters<Compiler['typeLast']>[0]) => {
+    const fnOf = (n: string, o: Omit<ExprOptions, 'report'>, type?: Parameters<Compiler['typeLast']>[0], sc = scope) => {
       if (get(n) === undefined) return { f: null, w: [] as string[], r: null };
-      const r = this.expr(el, `data-sn-${n}`, scope, o);
+      const r = this.expr(el, `data-sn-${n}`, sc, o);
       if (type) this.typeLast(type);
       return { f: r.ok ? this.fn(r.code) : null, w: r.writes, r };
     };
@@ -7862,8 +7869,8 @@ class Compiler {
     if (optimistic.f !== null) this.features.add('optimistic');
     const then = fnOf('then', { mode: 'handler', magic: ['$event', '$result'] },
       typed?.body != null ? { resultType: { kind: 'openapi', spec: typed.spec, schema: typed.body } }
-        : call ? { resultType: { kind: 'call', name: call.name } } : undefined);
-    const catch_ = fnOf('catch', { mode: 'handler', magic: ['$event', '$error'] });
+        : call ? { resultType: { kind: 'call', name: call.name } } : undefined, outer);
+    const catch_ = fnOf('catch', { mode: 'handler', magic: ['$event', '$error'] }, undefined, outer);
     const confirm = fnOf('confirm', { mode: 'value', magic: ['$event'] });
     const encoding = get('encoding');
     if (encoding !== undefined && encoding !== 'form') this.report(el, 'data-sn-encoding', 'SN401', '`data-sn-encoding` takes `form`; a body is sent as JSON without the attribute', 0);
@@ -7900,6 +7907,7 @@ class Compiler {
       ...(encoding === 'form' ? { enc: 'form' as const } : {}),
       ...(ap ? { ap } : {}),
       ...(retryAttr ? { retry: retryAttr } : {}),
+      ...(when?.ok ? { when: this.fn(when.code) } : {}),
     };
     this.devAt(def, [def.then, def.catch]);
     // an element with an id, or bound attributes (an id among them): the core keeps the same-id hand-over (TWIN)

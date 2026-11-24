@@ -295,3 +295,58 @@ describe('run() in sinter check', () => {
     expect(checkPage(html).map((x) => [x.code, x.message])).toEqual([['SN509', '`run()` cycle: `#a` `data-sn-catch` (index.html:1) runs `#a`, which starts the first step again']]);
   });
 });
+
+describe('data-sn-when: an action starts only where it holds', () => {
+  test('run(), a click and a debounced trigger: nothing is sent, nothing is asked, no optimistic change while it is false', async () => {
+    const asked: string[] = [];
+    configure({ confirm: (q) => { asked.push(String(q)); return true; } });
+    const requests = mockRequests({ 'POST /api/keys': { ok: true }, 'POST /api/save': { ok: true } });
+    const { root, settle } = await render(`
+      <main data-sn-state="{ key: null, n: 0, draft: '' }">
+        <button id="none" data-sn-on-click="run('save-key')"></button>
+        <button id="set" data-sn-on-click="key = { id: 7 }; run('save-key')"></button>
+        <span hidden id="save-key" data-sn-post="/api/keys" data-sn-when="key" data-sn-body="{ id: key.id }"
+              data-sn-confirm="'Save ' + key.id + '?'" data-sn-optimistic="" data-sn-then="n = n + 1"></span>
+        <button id="click" data-sn-post="/api/save" data-sn-when="draft" data-sn-body="{ text: draft }"></button>
+        <input id="typed" data-sn-model="draft" data-sn-post="/api/save" data-sn-trigger="input" data-sn-debounce="10ms"
+               data-sn-when="draft.length > 2" data-sn-body="{ text: draft }">
+        <p data-sn-text="n"></p>
+      </main>`, { requests });
+    (root.querySelector('#none') as HTMLElement).click();
+    (root.querySelector('#click') as HTMLElement).click();
+    await settle();
+    expect(requests.calls).toEqual([]);
+    expect(asked).toEqual([]);
+
+    (root.querySelector('#set') as HTMLElement).click();
+    await settle();
+    expect(requests.calls.map((c) => [c.path, c.body])).toEqual([['/api/keys', { id: 7 }]]);
+    expect(asked).toEqual(['Save 7?']);
+    expect(root.querySelector('p')!.textContent).toBe('1');
+
+    // asked after the debounce, over what was typed by then
+    const input = root.querySelector('#typed') as HTMLInputElement;
+    input.value = 'ab'; input.dispatchEvent(new Event('input', { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 30)); await settle();
+    expect(requests.calls.length).toBe(1);
+    input.value = 'abc'; input.dispatchEvent(new Event('input', { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 30)); await settle();
+    expect(requests.calls.map((c) => [c.path, c.body])).toEqual([['/api/keys', { id: 7 }], ['/api/save', { text: 'abc' }]]);
+  });
+
+  test('a form whose `data-sn-when` is false is not submitted, nor sent', async () => {
+    const requests = mockRequests({ 'POST /api/f': { ok: true } });
+    const { root, settle } = await render(`<form data-sn-state="{ ok: false }" data-sn-post="/api/f" data-sn-when="ok"><input name="a" value="1"><button>go</button></form>`, { requests });
+    const e = new Event('submit', { bubbles: true, cancelable: true });
+    root.querySelector('form')!.dispatchEvent(e);
+    await settle();
+    expect(e.defaultPrevented).toBe(true);
+    expect(requests.calls).toEqual([]);
+  });
+
+  test('data-sn-when without an action is SN102', () => {
+    const out = compile('<!doctype html><html><head></head><body><div data-sn-state="{ a: 1 }"><button data-sn-when="a" data-sn-on-click="a = 2"></button></div></body></html>',
+      { file: '/p/index.html', root: '/p', dev: false, helpers: { module: null, names: [], namespaces: {} }, readFile: () => { throw new Error('none'); } });
+    expect(out.diagnostics.map((d) => `${d.code} ${d.message}`)).toEqual([expect.stringMatching(/^SN102 `data-sn-when` needs an action on the same element/)]);
+  });
+});

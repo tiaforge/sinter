@@ -465,6 +465,19 @@ export type Block = Para | Quote | Rule;
     expect(errors(sync(''))).toEqual([expect.stringMatching(/^SN208 Type 'Contact \| null' is not assignable/)]);
   });
 
+  test('under `strictNullChecks`, an action\'s `data-sn-when` narrows what it evaluates as it starts (call, URL, body, confirm), not `then`/`catch`', () => {
+    const actions = `import type { Contact } from './sinter.types';\nexport async function save(c: Contact): Promise<Contact> { return c; }\n`;
+    const errors = (body: string) => checkPage(page(`<div data-sn-state="{ sel: /** @type {Contact|null} */ (null), drag: { c: /** @type {Contact|null} */ (null) } }"><button data-sn-on-click="sel = contacts[0]; run('go')"></button>${body}<p data-sn-text="contacts.length"></p></div>`),
+      { files: { 'src/sinter.types.ts': TYPES, 'src/sinter.actions.ts': actions, 'tsconfig.json': JSON.stringify({ compilerOptions: { strict: true } }) } })
+      .map((d) => `${d.code} ${d.message.replace(/ \(TS\d+\)$/, '')}`);
+    expect(errors(`<span hidden id="go" data-sn-patch="/api/c/{sel.id}" data-sn-when="sel" data-sn-body="{ name: sel.name }" data-sn-confirm="'Rename ' + sel.name + '?'"></span>`)).toEqual([]);
+    expect(errors(`<span hidden id="go" data-sn-call="save(sel)" data-sn-when="sel"></span>`)).toEqual([]);
+    expect(errors(`<li id="go" data-sn-post="/api/move" data-sn-trigger="drop" data-sn-when="drag.c" data-sn-body="{ id: drag.c.id }"></li>`)).toEqual([]);
+    expect(errors(`<span hidden id="go" data-sn-patch="/api/c/{sel.id}"></span>`)).toEqual(["SN208 'sel' is possibly 'null'."]);
+    // `then` runs after the request, over state that may have changed by then
+    expect(errors(`<span hidden id="go" data-sn-call="save(sel)" data-sn-when="sel" data-sn-then="sel.name"></span>`)).toEqual(["SN208 'sel' is possibly 'null'."]);
+  });
+
   test('under `strictNullChecks`, an else-if chain narrows each branch by the ones before it', () => {
     const errors = (chain: string) => checkPage(page(`<div data-sn-state="{ sel: /** @type {Contact|null} */ (null) }"><button data-sn-on-click="sel = contacts[0]"></button>${chain}<p data-sn-text="contacts.length"></p></div>`),
       { files: { 'src/sinter.types.ts': TYPES, 'tsconfig.json': JSON.stringify({ compilerOptions: { strict: true } }) } })
