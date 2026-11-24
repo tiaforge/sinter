@@ -844,3 +844,46 @@ decision of their own (stage 7). A step that can stay byte-identical does.
   reach sinter-mail): 1,569 tests of test/compiler, test/vite, test/check pass; `pass-audit` nine apps the same;
   sinter-mail's 48 audit files and its 2,000-element page built with the tree before the session's changes
   (`b901424`) and with the merged tree: every file identical.
+- 2026-11-24, 01:37 UTC: **the allocation session's final commit is merged** (`redesign-notes/alloc.md`; `f8df9f8`): the fold log
+  kept a clone of every folded call's arguments until `buildEnd`, so a post's body was held twice and cloned again
+  by the cross check; a string or other primitive is kept as it is now, objects copied as before. Its numbers
+  against `f395fa2`, five interleaved rounds, medians, build ms / peak MB / collector ms: static 100 posts 2,469 /
+  353 / 199 to 2,392 / 347 / 186; static 400 posts 6,553 / 569 / 619 to 6,561 / 552 / 566; live 400 posts 8,309 /
+  825 / 841 to 8,184 / 812 / 804; a page file per post at 400 the same within noise. So: 7 percent less allocated,
+  4 to 9 percent less in the collector, time and peak memory within the machine's noise. Its full suite 3,010.
+  Checked on the coordinating machine after the merge: `pass-audit` nine apps the same; sinter-mail's 48 audit
+  files and its 2,000-element page identical before and after; 1,568 of 1,569 tests of test/compiler, test/vite,
+  test/check in the first run: `test/vite/compile-hints.test.ts` ("the page modules start with the hint…") failed
+  once and passed alone and in two further runs of test/vite and test/compiler (a flake to watch, not seen
+  before). **For the owner, from that session** ("Decisions for the owner" in its log): sinter-markdown's own parse
+  memo (8 MiB, about 119 post trees kept through a build that parses each post once; the collector 6 to 10 percent
+  less at 400 posts with a smaller one; changing it changes which helper code runs); live builds at 1,000 posts
+  peak at 1.4 to 1.6 GB through Vite's HTML step (the only lever is the decision on that step). What is left in
+  the compiler's share of the garbage is spread thin; its largest piece is the rendered rows as nodes (2 MB a
+  page), the rows-as-text question.
+- 2026-11-24, 01:41 UTC: **the full suite passes at `cbd6d2a` (the allocation session's work merged): 3010 tests, 314
+  files**; `test/vite/compile-hints.test.ts` passed in it (its one failure at 01:31 has not come back in four
+  runs). The allocation session's closing notes are merged (`redesign-notes/alloc.md`: "Where a page's 9.6 MB go",
+  by owner with what each item needs, now 8.9 MB a page; "The md.parse memo": it serves the browser, dev's
+  recompiles and two pages of one build parsing the same text, and any smaller size could make a build parse
+  twice; the coordinator's recommendation to the owner is to leave it). Not merged: the stage 5 session's
+  `a196ecc`, `30c3ef9` (357 second passes routed in its suite, a guard for a unit's name-keyed entries that
+  sinter-mail needed, the counts sorted, what each small refusal needs in `stage5-b1.md` §18): its branch conflicts
+  with the allocation cuts in `compile.ts` and was sent back to be merged and verified there.
+- 2026-11-24, 01:48 UTC: **stage 5's B1 continued, fourth milestone merged** (`redesign-notes/stage5-b1.md` §18; `1afb6e0`, the
+  session's `4a70cd5`, its conflict with the allocation cuts resolved on its side: their lazy `foldedNames` kept,
+  its own `unread` helper dropped). A function a dropped walk or the unit made first is made at the page's site, so
+  those pages take the route; **a guard sinter-mail needed**: where the page's walk reads the unit's name-keyed
+  entries the route is refused (sinter-mail's `mail` namespace would have been lost; its own mail audit caught
+  it, the suite did not, and a test pins it now); loops on pages that are not quiet take the route (35 refusals to
+  1); SN501 from the route is unsound (a later read of a resource a dropped walk read first leaves no trace) and
+  stays a refusal, two false ones fixed; the stats say "no second pass (nothing decided)" for 52 and count the 33
+  "not recorded" where they belong; "unrolled, not rendered" is 63 reference compiles with rendering off and 14
+  real ones. In its suite 359 second passes take the route (333 before); in the apps: the blog's page files 200 of
+  200, static-site 4 of 6, multilingual-site 8 of 8, sinter-mail 3 of 16. Not built, written up: prefold (the image
+  pipeline per image, the eager rule, the order of CSS rules, bindings off before settle), and what each small
+  group needs (choices; shared code called from the walk's tail; folds that ship; the second pass's unit placed
+  over the routed page, which serves definitions first compiled in a dropped branch and a unit's kept definition).
+  Checked on the coordinating machine after the merge: 1,573 tests of test/compiler, test/vite, test/check pass;
+  `render-audit --switch SN_FROM_WALK --canon` eight apps the same; `mail-audit --switch SN_FROM_WALK` under
+  `SN_CANON=1` 48 files byte for byte. Next there: prefold's image-attribute case, then the unit's placement.

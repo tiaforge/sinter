@@ -9441,7 +9441,7 @@ class Compiler {
           memo?.set(mk, { v: out });
           if (rec && this.opts.foldLog) {
             const id = rec.n++;
-            this.opts.foldLog(key, a.map((x): FoldArg => { const r = refOf(x); return r === undefined ? { v: structuredClone(x) } : { r }; }), resultKey(v), id);
+            this.opts.foldLog(key, a.map((x): FoldArg => { const r = refOf(x); return r === undefined ? { v: cloneArg(x) } : { r }; }), resultKey(v), id);
             // (a result shared by two calls, `frozenPlain`: named by the first)
             if (out && typeof out === 'object' && !rec.refs.has(out)) rec.refs.set(out, id);
           }
@@ -14272,6 +14272,12 @@ const above = (h: number, ch: number) => (h === UNMEASURED || ch === UNMEASURED 
  * keeps one, but the purity check's `JSON.stringify` throws on it). What it walks is marked frozen at every depth
  * (`DEEP_FROZEN`), as `deepFreeze` marks its copy, once the whole of it is known to be.
  */
+/**
+ * A folded call's argument as the build keeps it for its cross check (`foldLog`): an object copied, a string or another
+ * primitive as it is (a copy of one is the same value, and the post a call reads would be kept twice until the end)
+ */
+export const cloneArg = (x: unknown): unknown => (x !== null && typeof x === 'object' ? structuredClone(x) : x);
+
 export function frozenPlain(v: object): boolean {
   // (with each object's height, `DEEP_FROZEN`: -1 is not plain)
   const done = new Map<object, number>(), path = new Set<object>(), all: object[] = [];

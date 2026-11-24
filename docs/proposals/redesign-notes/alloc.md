@@ -5,19 +5,22 @@ largest cost nobody owned. Branch `redesign/alloc`, base `f395fa2` (the integrat
 
 ## Where it stands
 
+- **Done; merged into the integration branch at `f8df9f8`** (2026-11-24; the coordinator checked pass-audit and
+  sinter-mail's 48 audit files and 2,000-element page, identical). No further item: the md.parse memo waits for the
+  owner ("Decisions for the owner", 1, and "The md.parse memo: what it still serves").
 - **Step 1 (retention) done, as findings; no code change kept.** The "0.7 MB a page" of peak memory is not memory
   the build keeps: after a forced collection the JS heap is 58 / 79 / 115 MB at 100 / 400 / 1,000 posts (static), about
   0.06 MB a page. Peak RSS is about 250 MB of process, Rolldown and code plus V8's heap at its high-water mark, and V8
   lets the old generation grow to about 4.4 times what was live after each mark-compact before it runs the next (3 of
   them in the 400-post build). So every MB that is live when a mark-compact runs costs about 4 MB of peak, and a build
   that ends before reaching the next limit peaks lower: that, not retention, is the slope from 100 to 400 posts.
-- **Step 2 (allocation), first milestone**: attributed (below: 3.83 GB at 400 posts, 9.6 MB a page; 46 % of it is not the
-  compiler's: markdown-it and sinter-markdown's tree, Vite's parse5, the SN534 cross check), and five local cuts in the
-  compiler, byte-identical: 3,831 → 3,572 MB (−6.8 %); the GC's pauses −2 to −8 %, time and peak memory within noise.
-  The compiler's own allocation is spread: the largest left is the first pass's rendered rows as DOM (≈0.8 GB, 2 MB
-  a page), which is stage 6's ground (rows as text, assessed there).
-- **Next**: what else is cheap in the compiler's share (iterators of Maps and Sets in the walk, `copyState`'s copy);
-  the findings for the owner are in "Decisions for the owner" below.
+- **Step 2 (allocation) done for what is cheap**: attributed (below: 3.83 GB at 400 posts, 9.6 MB a page; 46 % of it is
+  not the compiler's: markdown-it and sinter-markdown's tree, Vite's parse5, the SN534 cross check), and seven local
+  cuts, byte-identical: 3,831 → 3,572 MB (−6.8 %); the scavenges −5 to −7 %, the GC's pauses −4 to −9 % (a page file
+  per post within noise), time and peak memory within noise. What is left in the compiler's share is spread thin; the
+  largest is the first pass's rendered rows as DOM (≈0.8 GB, 2 MB a page), stage 6's ground (rows as text).
+- **Step 3 done** (a finding: not worth it). The owner's decisions are at the end ("Decisions for the owner").
+- Full suite at the head: 3,010 tests, 314 files.
 - sinter-mail could not be attached in this session (the `add_repo` call was refused by the session's permission
   check); its audit is not run yet. Reported to the coordinator.
 
@@ -178,6 +181,11 @@ second pass 39 MB, the cross check 32 MB, the minifier 20 MB.
 6. **The minifier's comment pass** (`minify.ts`, `comments`): a new list of children was made for every element it
    visits; now only for one that loses a comment or whose texts meet, the others' list kept as it is. `visit` 50 → 26 MB.
 
+7. **The fold log's arguments** (`foldLog`, and the cross check's replay, `fold-cross.ts`): each argument was
+   `structuredClone`d, so the post's body a call reads was kept twice until `buildEnd` (and cloned again there); a string
+   or another primitive is now kept as it is, an object copied as before (`cloneArg`). Heap after a forced collection
+   once the 400 pages are compiled: 79.4 → 76.1 MB (≈8 kB a page); the same after `buildEnd`, where the log goes.
+
 Sampling heap profile, 400 posts static: 3,831 MB → 3,615 MB (cuts 1 to 5) → 3,572 MB (6).
 
 ### Before and after (whole process, interleaved rounds: base `f395fa2` and this branch alternating within each round)
@@ -201,6 +209,17 @@ Three rounds at 1,000 posts (cuts 1 to 5), medians:
 | live 1,000 | 19,645 / 1,585 / 2,516 (713) | 18,945 / 1,578 / 2,318 (670) |
 | a page file per post, 1,000 | 19,137 / 826 / 1,952 (753) | 19,194 / 819 / 1,878 (720) |
 
+At the head (all seven cuts), five more rounds against the base at 100 and 400 posts:
+
+| app | base | this branch |
+| --- | --- | --- |
+| static 100 | 2,469 / 353 / 199 (77) | 2,392 / 347 / 186 (73) |
+| live 100 | 2,901 / 481 / 251 (86) | 3,031 / 484 / 242 (80) |
+| a page file per post, 100 | 2,965 / 362 / 232 (91) | 2,821 / 360 / 209 (87) |
+| static 400 | 6,553 / 569 / 619 (258) | 6,561 / 552 / 566 (240) |
+| live 400 | 8,309 / 825 / 841 (290) | 8,184 / 812 / 804 (269) |
+| a page file per post, 400 | 7,980 / 601 / 735 (306) | 8,033 / 599 / 747 (293) |
+
 Checked: `bench/tools/ident.mjs` against the base, nine apps (the five benchmark variants at 100 posts and the four
 examples), every file the same; `pass-audit` and `render-audit --canon`, every app "same"; 1,569 tests of
 test/compiler, test/vite, test/check, check-cli and fold-cache.
@@ -216,10 +235,58 @@ high-water is 950 MB. Static pages have no module script to resolve and their tr
 Vite's code; the only lever sinter has is the one already in "Decisions for the owner" of pipeline-2.md (Vite's HTML
 step for pages it does not change), and live pages are pages it changes.
 
+## Where a page's 9.6 MB go, and what each item would need (the owner's table)
+
+400 posts static, sampling heap profile (collected objects included), each byte charged to the innermost of these
+frames on its stack (`bench/tools/mem/hpunder.mjs`); MB a page, base `f395fa2` → this branch:
+
+| owner | part | base | now | what it would need |
+| --- | --- | ---: | ---: | --- |
+| the compiler | the first pass's rendered rows (`render`, `fill`, `clone`, `instance`) | 1.67 | 1.64 | rows as text (stage 6's assessment): the DOM of rows that keep nothing live never made |
+| | the loops unrolled (`unroll`, `rowsOf`, `nodesOf`, `expandCase`) | 0.65 | 0.66 | the same |
+| | the second pass from the kept walk (without the minifier) | 0.77 | 0.55 | the second pass deleted for a template's entries (stage 5 / B2) |
+| | `copyState`: the kept expansion copied per entry | 0.26 | 0.25 | the same, or a cheaper copy (compile-units.md, "What is next", 2) |
+| | the frozen-data checks of helper results and rows (`frozenPlain`, `plainData`, `frozenData`) | 1.05 | 0.74 | `frozenPlain`'s property descriptors are its check (no getter); left: walking each helper result once, not three times (`plainData`, `frozenPlain`, `resultKey`), which reorders when a helper is called again: a change of its own |
+| | the minifier | 0.24 | 0.18 | nothing cheap left |
+| | the rest of the evaluation and the compile | 0.76 | 0.74 | spread thin: nothing above 0.1 |
+| markdown-it | the post's `tokenize` in the compile | 0.55 | 0.55 | nothing possible in sinter (a prebundled third-party parser) |
+| sinter's `memo` | `freeze` of md.parse's result (a property descriptor for every property), in the compile | 0.30 | 0.30 | see "the md.parse memo" below; the descriptor is how it tells data from a getter |
+| sinter-markdown | the tree built from the tokens (`blocks`, `inlines`) | 0.14 | 0.14 | nothing large |
+| the SN534 cross check | every call again in the fresh copy: markdown-it 0.55, `memo`'s freeze 0.31, the tree 0.15, the key and the hash 0.04 | 1.07 | 1.07 | the decision in pipeline-2.md ("the cross check off the critical path"); the fresh copy's memo freezes every result and is never hit there (each call once) |
+| Vite | the HTML step's parse5 (`traverseHtml`) | 1.31 | 1.28 | the decision in pipeline-2.md ("Vite's HTML step for pages it does not change") |
+| Vite and sinter | `generateBundle` (Vite's per-page `Object.values(bundle)`, sinter's assembly of the pages) | 0.36 | 0.35 | Vite's lookup is quadratic; sinter's share is small |
+| Rolldown, Node, the plugin's rest | | 0.47 | 0.47 | nothing large |
+| **all** | | **9.6** | **8.9** | |
+
+## The md.parse memo: what it still serves
+
+sinter-markdown's `parse` is `memo(parseTree, { maxSize: 8 MiB })` (packages/sinter-markdown/sinter/parse.ts). In a
+build the compiler keeps a page's calls itself (`FOLD_MEMO`, one record per page and per template entry), so on a page
+the library's memo is never what answers a repeated call. What it does serve:
+
+- **In the browser** (its reason to exist): `md-doc`'s components read their `doc` at every node and a let is
+  evaluated at every read; the memo makes that one parse per source.
+- **In dev**: every compile of a page (each edit, each request) folds its calls again; the memo answers the parse of a
+  post whose text did not change. Bounded by its 8 MiB.
+- **In a build, across pages**: two pages that parse the same text (an index that renders each post's excerpt or body
+  and the post's own page; one shared document on every page). Each is then parsed once per build, not once per page.
+  The blog benchmark has no such pair (every post is parsed by its own page only): 0 hits across the 400 pages.
+- **The compiler's sharing of a result** (`frozenPlain`): because the memo hands out the same frozen tree for the call
+  and its "called again" check, the compiler shares it as it is, without `JSON.stringify` of both results and a frozen
+  copy (`deepFreeze(structuredClone(v))`). A build that went around the memo would lose this and pay more per call.
+- **Not in the cross check**: the fresh copy's memo sees each call once; it only freezes (0.31 MB a page) and keeps up to
+  8 MiB until the check ends.
+
+What it costs in a build: ≈10 MB of trees live through the compiles (≈119 posts' worth at a time), most of the 8 MB
+`DEEP_FROZEN` table, all of it promoted; measured with its size set to 1 (local patch, reverted): GC −6 to −10 % at 400
+posts, peak unchanged. Not changed here: any smaller size can make a build parse twice what it parsed once (the shared
+document, the index and the post), and a per-build size would be a new rule of the package's. The owner's decision.
+
 ## Decisions for the owner
 
 1. **sinter-markdown's parse memo at build time** (step 1): ≈10 MB live through the build, ≈119 post trees, each
-   promoted; 6–10 % of the GC at 400 posts. Either a smaller `maxSize` in the package (its browser cache too), or the
+   promoted; 6–10 % of the GC at 400 posts. It is also what sizes the `DEEP_FROZEN` table (8 MB at 400 posts):
+   `frozenPlain` marks every object of each tree, and the cached trees keep ≈119 pages' marks alive at once. Either a smaller `maxSize` in the package (its browser cache too), or the
    build's fold calling a memoized helper's own function where the compiler keeps the page's calls itself.
 2. **The young generation's size** (step 3): `--max-semi-space-size=64` buys a quarter of the GC's pauses for 150 MB of
    peak and no time. Not recommended; it is the user's flag in any case.
