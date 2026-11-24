@@ -237,6 +237,62 @@ Found by the research, not changed:
   for inlined uses: the holes keep the output, and the runtime, as they are. Stage 7 is about the uses whose props
   are a frame already (definitions), and is a decision of its own.
 
+## Where it stands, and what waits for the owner (2026-11-24, 03:30 UTC)
+
+The integration branch `ccr-9ebf49d5-gpdej8` holds everything below; the full suite passes (3,015 tests at
+`f7aa3fa`; the status log has each run), and every merge was checked against the apps and sinter-mail.
+
+**The benchmark** (`bench/astro`, 100 posts, whole process, interleaved rounds on one machine): 13.6 to 16.8 s when
+this started; now static 2.4 to 2.7 s, live 2.7 to 3.2 s, a page file per post 2.8 to 3.3 s static and 3.3 to 3.8 s
+live, against Astro's 1.7 to 2.0 s in the same rounds: about 1.36 times Astro on the static template build. The
+compiler went from about 110 ms a post to about 6.7 ms (the library's markdown parse 1.8, the first pass's own work
+2.3, the second pass 2.4); outside the compiler a static page costs about 3.9 ms, which is Astro's whole page.
+
+**What was built** (each behind a switch, with an audit): rows rendered at build time (stages 1 and 2); one compile
+per page file and the description read off the page's head (stage 3); units kept per build, checked once (stage 4);
+second-pass units and the second pass taken from the first pass's walk (stage 5: 413 second passes in the suite;
+in the apps every page that is not a template's entry, except realworld's one prefold page and 13 of sinter-mail's
+16); the evaluation by one function per template, a render plan, the helpers' memo per entry (stage 6); the build
+outside the compiler (early scripts per shape, the Speculation Rules folded, the fold check's cache on disk, three
+scans made linear); embedded data folded into code; nine bugs found and fixed on the way (`redesign-notes/bugs.md`
+and the status log).
+
+**What is left in the compiler is small or not contained.** No single step is worth more than about 1 ms a post:
+- *Rows as markup text* (assessed, `stage6-eval.md`): about 1 ms of 6.7 on the blog, up to 31% of a 2,012-element
+  email's compile; a large build whose byte identity hangs on the minifier's white-space rule. It is also what the
+  second pass's deletion waits for: a template's entries can only leave the second pass once the kept walk is small
+  (`stage5-b1.md` §13, and the 2026-11-24 02:20 entry).
+- *The second pass deleted* (stage 3's leftover): not possible without three things that are not contained steps:
+  a template's entries (rows as text first), rows that keep a residue (a per-node residue in the IR: stage 7's
+  ground), and SN501's warning from the route (unsound as found). The list by reason is at the top of
+  `stage5-b1.md`.
+- *Garbage*: 8.9 MB allocated a page; no leak; what is left of the compiler's share is the rendered rows as nodes
+  (rows as text again). `alloc.md`.
+
+**Decisions for the owner**, in the order of what they buy:
+1. *The SN534 cross check run later* (after Vite's HTML step): about 0.23 s at 100 posts, 0.5 s at 400. A build that
+   fails that check would leave `dist/` emptied where it is untouched today. (`pipeline-2.md`)
+2. *Vite's HTML step skipped for pages it does not change*: about 0.1 s at 100 posts, 0.4 s at 400, and what makes
+   live builds at 1,000 posts peak at 1.4 to 1.6 GB. An app's own HTML plugins would not see those pages: the
+   coordinator's recommendation is to do it only where the app has no other HTML plugin. With 1 and 2 the static
+   build at 100 posts is about level with Astro by `pipeline-2.md`'s arithmetic; at 400 and above sinter still
+   trails (its page costs more).
+3. *Rows as markup text*: see above. Recommended only if the second pass's deletion or large emails' build time is
+   wanted; not for the blog alone.
+4. *The linker's deletion* (`stage4-units.md`): the coordinator's recommendation is not yet (units do not cover a
+   finished first pass under the type check, nor definitions first reached from a fill).
+5. *The old early-script scheme* (`SN_EARLY_SHAPES=kinds`): can go; the new one is proven (`early-script-shapes.md`).
+6. *sinter-markdown's parse memo* (`alloc.md`): leave as it is (recommended); a smaller one could make a build
+   parse a shared document twice.
+7. *A build with only type-check warnings passes* since warnings and errors are counted apart; it failed before.
+   Confirm or revert.
+8. *Units at run time* (stage 7): not started; a decision of its own.
+
+**Sessions** (all cloud; their branches are merged): `redesign/stage5-b1c` (session_01AjKzdx2BaC98XK45SbVGbn)
+stands by with context for decisions 3 and the row residues; `redesign/pipeline-2`
+(session_01AjKzdyy3dA5FDC6jCiY3dH) for decisions 1 and 2; `redesign/alloc` (session_01AjKzdxK4qaHMSKWGtkmHi2) for
+decision 6. The others are finished and archived or idle.
+
 ## What is next (the owner's instructions, 2026-11-23)
 
 1. **Stage 5 starts once the agents now running have finished and are merged** (dev rendering, the six bug fixes,
