@@ -269,6 +269,12 @@ and the status log).
 - *Garbage*: 8.9 MB allocated a page; no leak; what is left of the compiler's share is the rendered rows as nodes
   (rows as text again). `alloc.md`.
 
+**Decided by the owner on 2026-11-24, 03:41 UTC** (the coordinator's recommendation, taken as a whole): 1 and 2 go ahead (2 only
+where the app has no other HTML plugin; a failing cross check may leave `dist/` emptied), 5 goes ahead (the old
+early-script scheme deleted), 7 is confirmed (a build with only type-check warnings passes); 3, 4, 6 and 8 stay as
+they are (no rows as text now, the linker stays, the parse memo stays, no units at run time). After that the
+branch is to be reviewed and merged rather than optimised further.
+
 **Decisions for the owner**, in the order of what they buy:
 1. *The SN534 cross check run later* (after Vite's HTML step): about 0.23 s at 100 posts, 0.5 s at 400. A build that
    fails that check would leave `dist/` emptied where it is untouched today. (`pipeline-2.md`)
@@ -318,7 +324,8 @@ timings were not usable). A cloud session pushes to a branch of its own:
 | Workstream | Where | Branch | Log |
 | --- | --- | --- | --- |
 | stage 5, B1 continued toward B2: the second pass's unit placed in the route, choices, the old row route's fallbacks | cloud, `session_01AjKzdx2BaC98XK45SbVGbn` | `redesign/stage5-b1c` | `stage5-b1.md` |
-| (finished and merged, kept open for a decision) what a build allocates and keeps per page | cloud, `session_01AjKzdxK4qaHMSKWGtkmHi2` | `redesign/alloc` | `alloc.md` |
+| the SN534 cross check off the critical path; Vite's HTML step skipped where no other HTML plugin (decided 2026-11-24) | cloud, `session_01AjKzdyy3dA5FDC6jCiY3dH` | `redesign/pipeline-2` | `pipeline-2.md` |
+| the old early-script scheme deleted (decided 2026-11-24) | cloud, `session_01AjKzdxPErYYZv1d2K1hMsD` | `redesign/early-script-shapes` | `early-script-shapes.md` |
 
 **The bar, as the owner set it on 2026-11-23:** the output need not be byte for byte today's where only numbering
 and generated names differ (`data-sn` ids, anchor numbers, template, state and function numbers, renamed loop
@@ -1016,3 +1023,10 @@ decision of their own (stage 7). A step that can stay byte-identical does.
   copy of the fixture): 3,025 tests, 314 files.** Nothing further is ordered; "Where it stands, and what waits for
   the owner" above lists the decisions. (While the suite runs, `test/fixtures/vite-app/index.html` shows as
   modified: `build.test.ts` rewrites it in place and restores it.)
+- 2026-11-24, 03:41 UTC: **the owner decided** (see "Where it stands, and what waits for the owner"): the SN534 cross check off the
+  critical path and Vite's HTML step skipped where the app has no other HTML plugin go ahead, built by the pipeline
+  session (`redesign/pipeline-2`), each behind a switch with an audit; the old early-script scheme is deleted, by
+  the session that built the new one (`redesign/early-script-shapes`); a build with only type-check warnings
+  passing is confirmed. Not taken: rows as markup text, the linker's deletion, the parse memo, units at run time.
+  The second pass's deletion therefore stays where it is (`stage5-b1.md`, top). The check-ins run again while the
+  two sessions work.
