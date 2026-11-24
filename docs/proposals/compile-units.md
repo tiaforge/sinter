@@ -919,3 +919,18 @@ decision of their own (stage 7). A step that can stay byte-identical does.
   test built the same directory twice in another worker and compared the two builds, so a rewrite between its two
   builds made it fail. It builds a copy of the fixture of its own now. The test is main's, not the redesign's; the
   race is older than this work.
+- 2026-11-24, 02:54 UTC: **stage 5's third B1 session, first milestone merged** (`redesign-notes/stage5-b1.md` §21; `a91e70a`). The
+  two definition cases take the route, and not by placing the second pass's unit (§20 holds: a unit's numbers are
+  absolute): a definition a dropped walk compiled first is compiled again by the route's walk of the kept branch,
+  at the second pass's use and scope (refused where its first copy is still reached); where the page keeps some
+  of a first-pass unit's definitions the unit is kept whole as the page's own (`holdWhole` in `units.ts`: a
+  first-pass unit lists its objects; given back after the output is detached). A guard found on the way: the page
+  walk's tail steps (choices finished, definitions' root bindings, sources resolved, tree fills, aliases) never ran
+  for what the route walks again; choices and roots are finished for the new ones now and a block that would add
+  to the others is refused (none in the suite). In its suite 385 second passes take the route (368); "a definition
+  compiled first in a decided branch" 9 to 0, "a unit's definition the page keeps" 6 to 0; its suite 3,016 plain
+  and under the audit. Checked on the coordinating machine after the merge (the session cannot reach sinter-mail):
+  1,576 tests of test/compiler, test/vite, test/check pass; `render-audit --switch SN_FROM_WALK --canon` eight apps
+  the same; `mail-audit --switch SN_FROM_WALK` with `SN_UNITS_VERIFY=1`, raw and under `SN_CANON=1`: 48 files
+  byte for byte, and the 48 files identical to the build before the merge. sinter-mail's pages still compiled
+  again: SN501 7, prefold 5, shared code 1 (its two unit cases now stop at SN501). Next there: choices.
