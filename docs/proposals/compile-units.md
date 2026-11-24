@@ -1045,3 +1045,24 @@ decision of their own (stage 7). A step that can stay byte-identical does.
   (6 checks: next-page data, the Speculation Rules, transitions, the CSP hash of the folded rules), `e2e/links` (16),
   `e2e/permanent` (40), `e2e/swap-csp` (10). Firefox and WebKit are not installed on this machine: those runs, the
   suite's browser tests in them, the dashboard example's job and the Rust and .NET packages' jobs are CI's to run.
+- 2026-11-24, 04:27 UTC: **the SN534 cross check runs beside the build, merged** (`redesign-notes/pipeline-2.md`, "Decision 3";
+  `2ae0190`; `SN_CROSS_LATE=0` runs it where it ran, `SN_CROSS_LOG=1` prints the route and the wait). A worker
+  (`src/fold-late.ts`, `src/fold-worker.ts`) loads the fresh copy of the helpers at `buildStart` (the same root,
+  config, mode and aliases; TypeScript helpers through Vite's runner as before), takes every page's calls at
+  `buildEnd` and runs the same check (the pages reversed, the chains); a last plugin waits for it after Vite's HTML
+  step and reports with the same code, the same message and the same differences. A worker that cannot start or
+  dies falls back to the old place. **What changes for a user** (CHANGELOG, Changed): a build that fails this check
+  fails after Vite has emptied `dist/` (it was untouched), and a type error from `buildEnd`'s type check is
+  reported before an SN534 failure. The suite itself runs the old place unless a test asks for the new one (the
+  worker has to load `src/`'s TypeScript there, 0.7 s a build). The session's numbers, whole process, interleaved,
+  medians, the old place against the worker: static 100 posts 2.26 to 2.11 s, 400 posts 5.56 to 4.95, 1,000 posts
+  13.09 to 11.88; a page file per post 2.69 to 2.47, 7.05 to 6.44, 16.67 to 15.23; live 100 posts the same, 400
+  posts 6.89 to 6.47; peak memory 40 to 110 MB more (the worker's heap); its suite 3,030. Checked on the
+  coordinating machine after the merge: 1,589 tests of test/compiler, test/vite, test/check pass; `npm run
+  typecheck` failed on one error in the new test (its alias option typed `unknown`), fixed (`ef17a3a`);
+  `pass-audit` nine apps the same; `render-audit --switch SN_CROSS_LATE` eight apps the same; sinter-mail's 48
+  files identical to the build before the merge. Whole process here, seven interleaved rounds, median: static
+  2.40 s with the worker and 2.57 s at the old place; a page file per post 2.96 s and 3.03 s; live 2.84 s, live
+  page files 3.52 s; Astro 1.90 s (one cold run of 8.5 s among its seven). So static is at about 1.26 times Astro
+  (1.36 before). 400 posts, three builds each way: 5.72 s against 6.00 s, peak memory 662 MB against 553 MB.
+  Next there: Vite's HTML step skipped where the app has no other HTML plugin.
