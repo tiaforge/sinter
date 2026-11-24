@@ -417,9 +417,10 @@ replaced by the check on the build's thread, at the same place (`crossHere`, tod
 
 - A fresh copy in a thread of its own is at least as fresh as one beside the build's instance on its thread: the
   fold check does not let a folding helper reach `globalThis`, and Node's own modules are the thread's.
-- **The tests' `src/` plugin**: the worker is then TypeScript. It is started with Node's own transform
-  (`--experimental-transform-types`: `compiler/compile.ts` has a parameter property, which type stripping alone
-  refuses) and a resolve hook that maps a `.js` specifier to the `.ts` file beside it (`registerHooks`, in the worker
+- **The tests' `src/` plugin**: the worker is then TypeScript. Each `.ts` file it loads is transformed by the
+  bundler's `transformSync` in a load hook (`compiler/compile.ts` has a parameter property, which type stripping
+  alone refuses; it was Node's `--experimental-transform-types` at first, which Node 26 no longer has: the worker
+  could not start there and CI's Node 26 job caught the fallback) and a resolve hook that maps a `.js` specifier to the `.ts` file beside it (`registerHooks`, in the worker
   only), as `tsc`'s output has them. That is a loader of its own, 10 lines, used only when the plugin itself is a `.ts`
   file; the built plugin starts `dist/fold-worker.js`. It costs a worker about 0.7 s to load the sources, so this
   suite runs the check on the build's thread unless a test asks (`SN_CROSS_LATE=1`), as with the fold cache.
