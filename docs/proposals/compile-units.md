@@ -1069,3 +1069,25 @@ decision of their own (stage 7). A step that can stay byte-identical does.
 - 2026-11-24, 04:31 UTC: **with the cross check beside the build (`33a3a57`): the full suite passes, 3,030 tests, 314 files**; the
   four end-to-end suites in headless Chrome pass (navigation 6, links 16, permanent 40, swap-csp 10); `npm run
   size -- --check` passes; `npm run typecheck` passes.
+- 2026-11-24, 04:57 UTC: **Vite's HTML step skipped for a page it does not change, merged** (`redesign-notes/pipeline-2.md`,
+  "Decision 4"; `17455f0`; `SN_HTML_SKIP=0` sends every page through as before, `SN_HTML_LOG=1` counts). Vite's
+  transform cannot be kept off an `.html` module and sinter's hooks run inside it, so the page is kept out of the
+  step's work: sinter's last `pre` HTML hook keeps a qualifying page and hands Vite an empty stand-in (the same
+  empty module, so the same chunks and hashes), and its first `post` hook puts the page back, so every later hook
+  (sinter's own, Vite's nonce and import-map hooks, the placeholder replacements, the emitted asset) sees the real
+  page; a stand-in that comes back changed throws. A page qualifies only where nothing of Vite's step applies
+  (`src/html-step.ts`, in doubt through the step: no `%…%`, no `<style>` or `url()`, no asset element, no script
+  but the Speculation Rules, links only to other origins) and only in a build whose app has no other plugin with
+  an HTML hook, no CSP nonce, no additional asset sources, CSS code splitting on. It covers the benchmark's static
+  pages (101 of 101) and a live app's index; live pages, the examples and realworld keep the step. The session's
+  numbers, interleaved, medians, the step for every page against skipped: static 100 posts 2.21 to 2.11 s, 400
+  posts 5.33 to 5.03, 1,000 posts 12.05 to 11.48; a page file per post 2.51 to 2.38, 6.94 to 6.32, 16.06 to 15.41;
+  peak memory unchanged (live builds' 1.5 GB at 1,000 posts are pages that keep the step); its suite 3,059. Checked
+  on the coordinating machine after the merge: `npm run typecheck` passes; 1,618 tests of test/compiler, test/vite,
+  test/check pass; `pass-audit` nine apps the same; `render-audit --switch SN_HTML_SKIP` eight apps the same;
+  sinter-mail's 48 files identical to the build before the merge. **Both pipeline changes together, whole process
+  here, seven interleaved rounds, median**: static 2.17 s (2.44 s with both switched off), with the type check
+  2.37 s, live 2.74 s, a page file per post 2.64 s (3.01 s with both off) and 3.29 s live; Astro 1.82 s. So static
+  is at about 1.19 times Astro (1.36 before the two); the arithmetic that put it level was optimistic by about
+  0.3 s. 400 posts static, three builds each way: 5.35 s against 6.25 s with both off; peak memory 672 MB against
+  549 MB (the cross check's worker). With this every decision the owner took is built.
