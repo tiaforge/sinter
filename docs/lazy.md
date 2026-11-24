@@ -128,6 +128,9 @@ export class TaskRing extends TaskRingComponent {
   so an innocent import that makes a component wait does not go unnoticed. A script that should run at
   once reaches the package only through `await import()`.
 - Custom elements (custom elements your app defines and imports) are your modules: they get the stubs.
+- A [component library](libraries.md) in `lazy` is the package: its component scripts load with it, when
+  their component first renders, whatever they import (`lazy: ['@tiavision/sinter-mail']`, and
+  `<mail-width>`'s script waits with the library's code).
 
 ## Helpers that wait
 

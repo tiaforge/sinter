@@ -533,7 +533,10 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     const p = proj();
     let scans = lazyScans.get(p);
     if (!scans) lazyScans.set(p, (scans = new Map()));
-    const r = reachLazy(file, lazyPkgs, root, scans, undefined, false, p.libraries);
+    // a script of a component library in `lazy` is that package: it loads with it, whatever it imports
+    const lib = libraryOf(p.libraries, file);
+    const own = lib && lazyPackage(lib.name, lazyPkgs) ? [{ spec: lib.name, chain: [file] }] : [];
+    const r = own.length ? own : reachLazy(file, lazyPkgs, root, scans, undefined, false, p.libraries);
     if (r.length && !dev && !loggedScripts.has(module)) {
       loggedScripts.add(module);
       resolved?.logger.info(`sinter: ${relOf(file)} loads with ${r.map((x) => x.spec).join(', ')}, when its component first renders: ${r.map((x) => chainText(root, x)).join('; ')}`);
