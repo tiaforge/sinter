@@ -887,3 +887,17 @@ decision of their own (stage 7). A step that can stay byte-identical does.
   Checked on the coordinating machine after the merge: 1,573 tests of test/compiler, test/vite, test/check pass;
   `render-audit --switch SN_FROM_WALK --canon` eight apps the same; `mail-audit --switch SN_FROM_WALK` under
   `SN_CANON=1` 48 files byte for byte. Next there: prefold's image-attribute case, then the unit's placement.
+- 2026-11-24, 02:17 UTC: **stage 5's B1 continued, fifth milestone merged: prefold's image case** (`redesign-notes/stage5-b1.md`
+  §19; `f7aa3fa`). Rendered rows with images go through the image pipeline where the route splices them (the
+  eager rule kept through `RewriteContext.eagerTaken` in `images.ts`; the variants and pending work merged; refused
+  where the rules would need the document's order among the page's own), and the image constants in rows (`src`,
+  `srcset`, `alt`) are written there (`prefoldRows`); a constant the rows do not take is refused only where an
+  element outside the rows has its key. A bug of the route fixed on the way: after a late refusal the fallback
+  reused rows the route had already spaced (snapshotted and restored now). static-site takes the route on 6 of 6
+  pages (4 before), byte for byte; in its suite 368 second passes take the route (357), prefold as a refusal 57 to
+  48; its suite 3,015. Checked on the coordinating machine after the merge: 1,574 tests of test/compiler,
+  test/vite, test/check pass; `render-audit --switch SN_FROM_WALK --canon` eight apps the same (static-site 6,
+  multilingual-site 8, the blog's page files 100 each, none compiled again); `mail-audit --switch SN_FROM_WALK`
+  under `SN_CANON=1` 48 files byte for byte. Left in the apps: realworld 1 and sinter-mail 5 (prefold on class or
+  style, or outside rows), sinter-mail's SN501 4, shared code 2 and unit definitions 2; and a template's entries.
+  Next there: the second pass's unit placed in the route.
