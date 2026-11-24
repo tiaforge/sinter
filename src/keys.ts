@@ -12,7 +12,9 @@
 // - Keys pressed in a field (text input, textarea, select, contenteditable) or Enter and Space on
 //   a button, link, checkbox or the like are theirs: only a filter on that element itself matches.
 // - Never during IME composition. A match calls `preventDefault()`; repeats match.
-import type { App, BoundBinding, Feature } from './runtime/app.js';
+// - `page-` (bit 64): also for a key no element from the target up took, from wherever its element is (`pageKeys`;
+//   the compiler marks its element `data-sn-keys`).
+import { HANDLERS, type App, type BoundBinding, type Feature } from './runtime/app.js';
 
 const g = globalThis as { navigator?: { platform?: string; userAgentData?: { platform?: string } } };
 
@@ -27,7 +29,7 @@ const keys: Feature = {
   name: 'keys',
   install(app: App) {
     const nav = g.navigator, mac = /mac|iphone|ipad|ipod/i.test(nav?.userAgentData?.platform ?? nav?.platform ?? '');
-    app.ext.keys = ({ b, el }: BoundBinding, e: KeyboardEvent) => {
+    const match = app.ext.keys = ({ b, el }: BoundBinding, e: KeyboardEvent) => {
       const q = b.q!, m = b.m ?? 0, k = e.key ?? '', t = e.target as HTMLElement;
       if (e.isComposing || (t != el && t.localName && own(t, q))) return false;
       if (/^[a-z]$/.test(q) ? k.toLowerCase() != q && (/^[a-z]$/i.test(k) || e.code != 'Key' + q.toUpperCase()) : k != q) return false;
@@ -37,6 +39,20 @@ const keys: Feature = {
       if ((want ^ have) & (loose && !(m & 4) ? 11 : 15)) return false;
       e.preventDefault();
       return true;
+    };
+    // page-wide filters (`page-`, on elements the compiler marks `data-sn-keys`): for a key the walk from the target up
+    // left, those that match, in the page's order; not outside an open modal dialog (the page behind it is inert), nor
+    // in an `inert` subtree
+    app.ext.pageKeys = (e, on) => {
+      if (!/^key/.test(e.type)) return;
+      const els = app.root.querySelectorAll('[data-sn-keys]');
+      let modal: Element | undefined;
+      if (els.length) for (const d of app.root.querySelectorAll('dialog[open]')) if (d.matches(':modal')) modal = d;
+      for (const el of els) {
+        if ((modal && !modal.contains(el)) || el.closest('[inert]')) continue;
+        const hs = (el as Element & { [HANDLERS]?: BoundBinding[] })[HANDLERS];
+        if (hs?.map) for (const rb of hs) if (rb.b.m! >= 64 && rb.b.n == e.type && match(rb, e as KeyboardEvent)) on(rb, e);
+      }
     };
   },
 };

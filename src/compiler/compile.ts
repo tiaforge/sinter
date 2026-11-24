@@ -6901,6 +6901,7 @@ class Compiler {
         this.report(el, a.name, 'SN102', `a page-wide key filter (\`${a.name}\`) is not for a \`data-sn-for\` row: every row would take the key. Put it on an element around the loop, with the row in state`, 0);
         continue;
       }
+      if (filter && (filter.m ?? 0) & PAGE_KEY) setAttr(el, 'data-sn-keys', '');
       // sinter's events before the `sn-` prefix: a component that emits one of these names keeps it
       if (UNPREFIXED[event] && !use?.emits?.some((m) => m.name === event)) {
         this.report(el, a.name, 'SN101', `\`${a.name}\` is renamed to \`data-sn-on-${UNPREFIXED[event]}\`, as sinter's events are all \`sn-…\``, 0);
@@ -14076,7 +14077,7 @@ function setAttr(el: P5Element, name: string, value: string) {
   if (a) a.value = value; else el.attrs.push({ name, value });
 }
 
-const KEPT_ATTRS = new Set(['data-sn-navigate', 'data-sn-permanent', 'data-sn-swap', 'data-sn-options']);
+const KEPT_ATTRS = new Set(['data-sn-navigate', 'data-sn-keys', 'data-sn-permanent', 'data-sn-swap', 'data-sn-options']);
 /** the ids of a kept element's nodes: a range of its own, from its name, past any page's own numbering */
 const KEPT_IDS = 1000;
 export const keptBase = (name: string) => {
@@ -14093,7 +14094,8 @@ const hashText = (t: string) => {
 const propsDecl = (t: P5Element) => attr(t, 'data-sn-props') ?? attr(t, 'data-sn-component');
 
 function stripSn(el: P5Element) {
-  // what stays, for the runtime: `data-sn-navigate` marks an element with a `navigate` handler (navigate.ts),
+  // what stays, for the runtime: `data-sn-navigate` marks an element with a `navigate` handler (navigate.ts), `data-sn-keys`
+  // one with a page-wide key filter (keys.ts),
   // `data-sn-permanent` a kept element, `data-sn-swap` a link the swap leaves to the browser and `data-sn-options`
   // the owner of a list of options (options.ts)
   el.attrs = el.attrs.filter((a) => !a.name.startsWith('data-sn-') || KEPT_ATTRS.has(a.name));

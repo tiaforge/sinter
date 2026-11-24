@@ -201,6 +201,8 @@ export interface App {
     prefetch?: { take(def: ResourceDef, url: string): { t: number; items: unknown; total: number | null } | null };
     /** a key filter's handler (`b.q`): whether this key event is for it (a match prevents its default) */
     keys?: (rb: BoundBinding, e: KeyboardEvent) => boolean;
+    /** after the walk from an event's target up: the page-wide key filters (`data-sn-on-keydown-page-j`) for a key it left, run with `on` */
+    pageKeys?: (e: Event, on: (rb: BoundBinding, e: Event) => void) => void;
     /** write-through: a mutation's 2xx response, applied to the resources it is about (before `then`) */
     apply?: (a: ActionDef, scope: any, url: string, body: unknown, result: unknown) => void;
     /** an action is sent: the form's marks and `$error` are cleared; the function reports a failure, true when the form shows it */
@@ -456,7 +458,7 @@ export function endOf(start: Node): Comment | null {
 const templatesOf = (b: Binding): number[] => (b.k == 'ch' ? b.c! : b.k == 'for' || b.k == 'if' ? (b.z != null ? [b.x!, b.z] : [b.x!]) : []);
 const ET = EventTarget.prototype;
 /** Per-element registries, kept on the element (cheaper than WeakMaps on the row creation path). */
-const HANDLERS = Symbol('sinter.on');
+export const HANDLERS = Symbol('sinter.on');
 /** a control's model binding, on the element (location.ts reads it) */
 export const MODEL = Symbol('sinter.model');
 /** an element's own `data-sn-state`: `[sid, state object]` (for feature modules: a form's `$error`) */
@@ -536,8 +538,6 @@ export function mount(root: Document | Element, o: MountOptions): App {
    * (`draft = null` on a Cancel button) is not painted while the dialog is still showing.
    */
   const closing = new Set<Element>();
-  /** the bound page-wide key filters (`data-sn-on-keydown-page-j`) */
-  const pageKeys = new Set<RB>();
   const listeners = new Map<string, Set<(p: unknown) => void>>(), cleanups: Array<() => void> = [];
   const shared = new Map<string, { n: number; c: AbortController; p: Promise<Got> }>();
   /** `openDialog(id)`, `closeDialog(id)`: the dialog of this mount root with that id; `run(id)`: any element */
@@ -1031,8 +1031,6 @@ export function mount(root: Document | Element, o: MountOptions): App {
           // (a number has no `map`)
           const h = el[HANDLERS] as RB[] | undefined;
           h?.map ? h.push(rb) : (el[HANDLERS] = [rb]);
-          // a page-wide key filter (`data-sn-on-keydown-page-j`): also for a key nothing nearer the focus took
-          if ((b.m ?? 0) & 64) pageKeys.add(rb);
           continue;
         }
         if (F.MODEL && b.k == 'model') {
@@ -1698,8 +1696,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
         const h = handlersOf(el as Tagged, up), hs = h?.filter((x) => x.b.n == e.type && (x.b.q == null || app.ext.keys!(x, e as KeyboardEvent)));
         if (hs?.length) {
           // a debounced handler (debounce.ts) runs once, with the last event, if its element is still on the page
-          const u = ev;
-          for (const h of hs) F.ACTION && h.b.x != null ? trigger(h, e) : h.b.ms ? app.ext.debounce!(h, h.b.ms, () => h.el.isConnected && as(u, () => handle(h, h.b.f!, e, h.b.w))) : handle(h, h.b.f!, e, h.b.w);
+          for (const h of hs) on(h, e);
           // a bubbling custom event is a notification: it goes on up until a handler prevents it. Otherwise handled:
           // any handler or action ran; for keys, a filter matched (it prevents the default), an action or a
           // debounced handler ran, or a plain handler prevented the default. A key it did not prevent goes on up.
@@ -1708,27 +1705,16 @@ export function mount(root: Document | Element, o: MountOptions): App {
         if (el == root) break;
         if (el == up) up = rowNode(el.parentElement);
       }
-      if (pageKeys.size && /^key/.test(e.type)) pageKey(e as KeyboardEvent);
+      app.ext.pageKeys?.(e, on as (h: BoundBinding, e: Event) => void);
     } finally {
       ev = was;
     }
   }
 
-  /**
-   * A key no element from the target up took: the page-wide filters that match it, in the order they were bound.
-   * Not one outside an open modal dialog (the page behind it is inert) or in an `inert` subtree; one in a field's
-   * ancestor skips the keys the field takes, as any ancestor's filter does.
-   */
-  function pageKey(e: KeyboardEvent) {
-    let modal: Element | undefined;
-    for (const d of ((root as Node).ownerDocument ?? (root as Document)).querySelectorAll('dialog[open]')) { try { if (d.matches(':modal')) modal = d; } catch { /* no :modal */ } }
+  /** Runs a handler of `e` (its element's action, or after its debounce, with the last event) */
+  function on(h: RB, e: Event) {
     const u = ev;
-    for (const rb of [...pageKeys]) {
-      const el = rb.el;
-      if (!el.isConnected) { pageKeys.delete(rb); continue; }
-      if (rb.b.n != e.type || (modal && !modal.contains(el)) || el.closest('[inert]') || !app.ext.keys!(rb, e)) continue;
-      F.ACTION && rb.b.x != null ? trigger(rb, e) : rb.b.ms ? app.ext.debounce!(rb, rb.b.ms, () => rb.el.isConnected && as(u, () => handle(rb, rb.b.f!, e, rb.b.w))) : handle(rb, rb.b.f!, e, rb.b.w);
-    }
+    F.ACTION && h.b.x != null ? trigger(h, e) : h.b.ms ? app.ext.debounce!(h, h.b.ms, () => h.el.isConnected && as(u, () => handle(h, h.b.f!, e, h.b.w))) : handle(h, h.b.f!, e, h.b.w);
   }
 
   /** Runs a handler expression and invalidates what it may have changed. */

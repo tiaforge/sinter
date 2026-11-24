@@ -175,7 +175,7 @@ export interface Binding {
   ms?: number;
   /** key filter (`on` for keydown/keyup): the `KeyboardEvent.key` to match, letters in lowercase */
   q?: string;
-  /** key filter modifiers: 1 ctrl, 2 alt, 4 shift, 8 meta, 16 mod (Ctrl, or Meta on Apple), 32 Shift does not matter unless named, 64 page-wide (`page-`) */
+  /** key filter modifiers: 1 ctrl, 2 alt, 4 shift, 8 meta, 16 mod (Ctrl, or Meta on Apple), 32 Shift does not matter unless named, 64 page-wide (`page-`; the highest bit: the runtime tests `m >= 64`) */
   m?: number;
   /**
    * selection (a value binding in a row): the value is `row side === outer side` (`x`: `!==`). `r` and `o` are
