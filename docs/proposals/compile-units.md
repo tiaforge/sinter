@@ -261,8 +261,8 @@ timings were not usable). A cloud session pushes to a branch of its own:
 
 | Workstream | Where | Branch | Log |
 | --- | --- | --- | --- |
-| stage 5, B1 continued toward B2: what the apps still hit (prefold, SN501, a unit case), then unrolled loops and the small groups | cloud, `session_01AjKzdx4aCc4CWZp4zJDc1m` | `redesign/stage5-b1b` | `stage5-b1.md` |
-| what a build allocates and keeps per page: retention outside the compiler, allocation by function (stage 6 is finished and merged: `stage6-eval.md`) | cloud, `session_01AjKzdxK4qaHMSKWGtkmHi2` | `redesign/alloc` | `alloc.md` |
+| stage 5, B1 continued toward B2: the second pass's unit placed in the route, choices, the old row route's fallbacks | cloud, `session_01AjKzdx2BaC98XK45SbVGbn` | `redesign/stage5-b1c` | `stage5-b1.md` |
+| (finished and merged, kept open for a decision) what a build allocates and keeps per page | cloud, `session_01AjKzdxK4qaHMSKWGtkmHi2` | `redesign/alloc` | `alloc.md` |
 
 **The bar, as the owner set it on 2026-11-23:** the output need not be byte for byte today's where only numbering
 and generated names differ (`data-sn` ids, anchor numbers, template, state and function numbers, renamed loop
@@ -901,3 +901,15 @@ decision of their own (stage 7). A step that can stay byte-identical does.
   under `SN_CANON=1` 48 files byte for byte. Left in the apps: realworld 1 and sinter-mail 5 (prefold on class or
   style, or outside rows), sinter-mail's SN501 4, shared code 2 and unit definitions 2; and a template's entries.
   Next there: the second pass's unit placed in the route.
+- 2026-11-24, 02:18 UTC: **the second B1 session handed over** (its context was full; `redesign-notes/stage5-b1.md`, top). Its
+  answer on a template's entries with stage 6's numbers: the route's own work on an entry is about 1.3 ms (walking
+  the rendered rows 0.8, `finishPage` 0.5) against the 1.6 ms second pass, before any journal, and a journal has to
+  snapshot and restore everything `finishPage` and the route write on the kept walk (the page's nodes, definitions,
+  bindings, templates, about 40 tables), which costs what `copyState` does; so about 0 to -0.3 ms an entry for a
+  large change (a `touch` at every write site of `finishPage`'s about 30 steps, and a verifier). **Not built for
+  speed; it is only the step that lets the second pass be deleted, and only once the kept walk is small (rows as
+  text).** So the second pass's deletion (B2, stage 3's leftover) waits for the owner's decision on rows as text;
+  until then the route's coverage of everything else goes on. A fresh cloud session takes that
+  (`redesign/stage5-b1c`): the second pass's unit placed in the route (definitions first compiled in a dropped
+  branch, a unit's definition kept, sinter-mail's two), choices, the old second-pass row route's remaining
+  fallbacks, and the exact list of what still needs the second pass.
