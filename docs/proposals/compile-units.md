@@ -913,3 +913,9 @@ decision of their own (stage 7). A step that can stay byte-identical does.
   (`redesign/stage5-b1c`): the second pass's unit placed in the route (definitions first compiled in a dropped
   branch, a unit's definition kept, sinter-mail's two), choices, the old second-pass row route's remaining
   fallbacks, and the exact list of what still needs the second pass.
+- 2026-11-24, 02:27 UTC: **the full suite passes at `f7aa3fa` (stage 5's fifth milestone): 3,015 tests, 314 files.** The one-off
+  failure of `test/vite/compile-hints.test.ts` at 01:31 has a cause and a fix (`eeec813`): `build.test.ts` rewrites
+  `test/fixtures/vite-app`'s page and early script in place while it runs and restores them, and the compile-hints
+  test built the same directory twice in another worker and compared the two builds, so a rewrite between its two
+  builds made it fail. It builds a copy of the fixture of its own now. The test is main's, not the redesign's; the
+  race is older than this work.
