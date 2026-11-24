@@ -155,6 +155,25 @@ the expressions, which sinter generates code around. A component file's `<script
 of them, as a module of yours would be: [docs/islands.md](islands.md#single-file-components). Without a
 tsconfig, the check uses its own options and nulls are not checked.
 
+What only runs where a condition holds is narrowed by it, as TypeScript narrows an `if`: the content of a
+`<template data-sn-if>` by its condition (and a `data-sn-else` by the negation of the ones before), a resource's
+`src`, `call` and `body` by its `when` (`<sn-resource when="ref" src="/thread?id={ref.id}">`), and an
+`<sn-event>`'s `value` and `then` by its `when` (`when="$event.contact" value="$event.contact"`). An action's
+URL and body are evaluated when it starts, which the check cannot follow through a `run('id')` or a
+`data-sn-trigger`: [docs/actions.md](actions.md#run-an-action-from-a-handler) says what to write.
+
+An app with a strict tsconfig whose expressions were checked without `strictNullChecks` (sinter 0.21 and earlier)
+can get many errors at once (SN208) on upgrading, mostly reads of a value that starts `null`:
+
+- a typed draft or selection read in a dialog or detail view (`/** @type {Draft|null} */ (null)` and
+  `{draft.to}`): put the view's content in `<template data-sn-if="draft">`, which also keeps it out of the page
+  while there is nothing to show; or read it with `?.` (`draft?.to ?? ''`);
+- a resource loaded by state that may be `null`: `when="ref"` on the resource narrows its `src` and `call`;
+- a prop given a value that may be `undefined` (`at: last?.tick`): give a default (`?? 0`), or declare the prop
+  optional;
+- state an action reads after a handler set it: [run an action](actions.md#run-an-action-from-a-handler);
+- a field that is `null` only before the first load and a cast is honest: `/** @type {Message} */ (open)`.
+
 It also reports `then`/`catch` handlers that start each other through `run()` (`SN509`).
 
 `--strict` fails the check on warnings too, `--allow SN504,SN517` keeps codes warnings for one run: [docs/strict.md](strict.md).

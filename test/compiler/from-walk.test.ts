@@ -218,9 +218,9 @@ describe('compiled again: each reason', () => {
     expect(r).toMatchObject({ taken: 1, why: [] });
   });
 
-  test('an else-if decided', () => {
+  test('an else-if chain: left to the browser (each branch is over the ones before it), so nothing is decided', () => {
     const r = both(page('<div data-sn-state="{ a: false, b: true, c: 0 }"><button data-sn-on-click="c++">+</button><template data-sn-if="c"><i>c</i></template><template data-sn-else data-sn-if="b"><b>b</b></template></div>'));
-    expect(r).toMatchObject({ taken: 0, why: ['an else-if decided'] });
+    expect(r).toMatchObject({ taken: 0, why: [] });
   });
 
   test('code the decided branch compiled first, compiled again by the page: the page\'s site (a source map shows it)', () => {

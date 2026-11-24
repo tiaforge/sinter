@@ -69,7 +69,7 @@ test('a renderer that returns false or throws leaves the root to the script', as
 
 const files = (early: string | null): Record<string, string> => ({
   '/p/src/components/x-view.html': VIEW,
-  '/p/src/components/x-view.ts': 'export class XView {}',
+  '/p/src/components/x-view.ts': 'export class XView { connected() { this.root.innerHTML = "…"; } }',
   ...(early === null ? {} : { '/p/src/components/x-view.early.ts': early }),
 });
 const build = (html: string, f: Record<string, string>) => compile(html, {
@@ -97,6 +97,10 @@ test('SN543: a script-filled component without an early renderer where its props
   expect(build(PAGE(null), files(null)).diagnostics).toEqual([]);
   expect(build(PAGE('{"t":"a"}'), { ...files(null), '/p/src/components/x-view.html': VIEW.replace('<div class="v"></div>', '<i hidden></i>') }).diagnostics).toEqual([]);
   expect(build(PAGE('{"t":"a"}'), { ...files(null), '/p/src/components/x-view.html': VIEW.replace('<div class="v"></div>', '<div class="v"><i>…</i></div>') }).diagnostics).toEqual([]);
+  // nor for a script that writes no content: a handle that only listens is empty by design
+  expect(build(PAGE('{"t":"a"}'), { ...files(null), '/p/src/components/x-view.ts': 'export class XView { connected() { this.root.addEventListener("pointerdown", () => { const h = this.root; h.setPointerCapture(1); this.state.on = true; }); } }' }).diagnostics).toEqual([]);
+  // a root handed to a library may be filled by it
+  expect(build(PAGE('{"t":"a"}'), { ...files(null), '/p/src/components/x-view.ts': 'import { mount } from "lib"; export class XView { connected() { mount(this.root); } }' }).diagnostics.map((d) => d.code)).toEqual(['SN543']);
   const none = build(PAGE('{"t":"a"}'), files('export const x = 1;')).diagnostics;
   expect(none.map((d) => d.code)).toEqual(['SN312']);
   expect(none[0]!.message).toMatch(/^the early renderer of `<x-view>` \(`\/src\/components\/x-view\.early\.ts`\) has no default export/);

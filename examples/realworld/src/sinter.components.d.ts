@@ -9,9 +9,3 @@ type LayoutName = "conduit-layout";
 interface LayoutProps {
   "conduit-layout": { nav: string; title: string; description: string };
 }
-declare module '*/md-view.html' {
-  type Root = import('../node_modules/@tiaforge-ui/sinter-markdown/sinter/sinter.types').Root;
-  const Base: typeof import('@tiaforge-ui/sinter/runtime/components').Component;
-  /** the base of `@tiaforge-ui/sinter-markdown/sinter/components/internal/md-view.ts`: props, events, refs and state as `md-view.html` declares them */
-  export class MdViewComponent extends Base<{ doc?: Root | null }, {}, {  }, {}> {}
-}

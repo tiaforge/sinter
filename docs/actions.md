@@ -412,6 +412,15 @@ for chaining, or for "mark read after the body loads":
   hidden target runs; that is the pattern above. A `block` action with a request pending ignores
   the run.
 - It returns nothing. Results go to the target's `then` and `catch`.
+- Under `strictNullChecks`, `sinter check` cannot see that the caller staged the state the target reads
+  (`open = m; run('mark-read')`, or a drag that sets `drag.msg` before `data-sn-trigger="drop"`), so `{open.id}`
+  is `'open' is possibly 'null'`. Say what holds:
+  - where the target only runs while a branch is shown, put it in that branch:
+    `<template data-sn-if="open"><span hidden id="mark-read" data-sn-patch="/api/messages/{open.id}" …></span></template>`.
+    `run()` finds the element in the page at once, so this suits a run that comes later (after a load, as
+    above), not one in the handler that opens the branch;
+  - otherwise cast at the read: `data-sn-body="flagBody(/** @type {Message} */ (open), true)"`,
+    `{/** @type {Message} */ (open).id}`. The cast is the handler's promise, unchecked.
 - `run()` works in every handler (`data-sn-on-*`, `then`, `catch`, `<sn-resource then>`,
   `<sn-event then>`), not in value expressions or `data-sn-optimistic`.
 - A loop of actions that run each other (`data-sn-catch="run('save')"` on `#save`) is an endless

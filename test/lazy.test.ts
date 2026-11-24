@@ -92,6 +92,13 @@ describe('SN324: what a stub cannot serve', () => {
     expect(scanLazy(code, 'src/other.ts', ['openpgp']).problems.length).toBe(2);
   });
 
+  test('a stylesheet or asset of a lazy package is no code of it: imported for its side effects without loading the package', () => {
+    const s = scan(`import 'openpgp/style.css';\nimport url from 'chart.js/logo.svg?url';\nexport const u = url;`);
+    expect(s.problems).toEqual([]);
+    expect(s.lazy).toEqual([]);
+    expect(problems(`import 'openpgp/lightweight';`).join('\n')).toMatch(/runs the package for its side effects/);
+  });
+
   test('type re-exports are fine', () => {
     expect(problems(`export type { PrivateKey } from 'openpgp';\nexport type * from 'openpgp';`)).toEqual([]);
   });

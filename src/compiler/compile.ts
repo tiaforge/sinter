@@ -2285,6 +2285,10 @@ class Compiler {
   readonly frameOf = new Map<object, number>();
   /** `sinter check`: the condition a branch is checked under, when it is not its own `data-sn-if` (the `data-sn-else` of a choice); and each `if` binding's, for its `data-sn-else` */
   private readonly branchGuard = new WeakMap<object, string>();
+  /** an `if` binding's chain so far (its own condition, and each else-if's before it): an else-if after it is shown where none holds */
+  private readonly chainOf = new WeakMap<Binding, { inner: string; deps: string[]; src: string; elseIf: boolean }>();
+  /** the templates of a chain with an else-if (`inElseIfChain`): not decided at build time */
+  private readonly chainEls = new WeakSet<P5Element>();
   /** a list's empty state (`emptyStates`): the `data-sn-else` after a `data-sn-for`, now a `data-sn-if`, and the list it is about */
   /** the second pass: the expressions of the branches it decided and the lists it unrolled to no rows, which read what they name (SN501) */
   private readonly foldedText: string[] = [];
@@ -3628,8 +3632,10 @@ class Compiler {
       }
       // a root element with no content of its own (white space at most): what the component shows is its script's
       // (SN543 where a use of it would render early). Not a `hidden` root: it shows nothing, whatever its script does
-      // (a component that only works: measures, warms a parser up, listens)
-      if (c.script) {
+      // (a component that only works: measures, warms a parser up, listens). Nor one whose script writes no content:
+      // no DOM-writing call, and its root passed to no function (a library's `mount(this.root)`): a resize handle that
+      // only listens is empty by design
+      if (c.script && scriptText !== null && scriptMayFill(scriptText)) {
         const t = declaringTemplate(parse5.parseFragment(c.text).childNodes) as DefaultTreeAdapterMap['template'] | null;
         const roots = t ? t.content.childNodes.filter((n): n is P5Element => 'tagName' in n) : [];
         if (roots.length === 1 && roots[0]!.tagName !== 'template' && !roots[0]!.tagName.includes('-') && roots[0]!.tagName !== 'slot'
@@ -6730,29 +6736,46 @@ class Compiler {
     // templates
     let content: { tid: number; scope: Scope } | null = null;
     if (isTemplate && (has('for') || has('if'))) this.snSource.set(el, get(has('for') ? 'for' : 'if')!);
+    if (isTemplate && (has('if') || has('else')) && inElseIfChain(el)) this.chainEls.add(el);
     if (isTemplate && has('for')) content = this.forTemplate(el, node, scope, get('for')!, get('key'));
     else if (isTemplate && has('if')) {
       // a list's empty state: its condition is the compiler's, over what the list already reads (compiled quietly: the
       // list reported its own problems), and no `data-sn-else` follows it
       const empty = this.emptyOf.get(el);
-      const r = empty ? this.emptyExpr(el, empty.list, scope) : this.expr(el, 'data-sn-if', scope, { mode: 'value', cond: true });
+      // an else-if (`<template data-sn-else data-sn-if="q">`): a branch of its own, shown where no branch before it
+      // holds and `q` does, so a chain shows one branch at most; `q` is checked where none before it holds
+      const elseIf = !empty && has('else');
+      if (elseIf && get('else')) this.report(el, 'data-sn-else', 'SN401', '`data-sn-else` takes no value; an else-if is `<template data-sn-else data-sn-if="…">`', 0);
+      if (elseIf && !prevIf) this.report(el, 'data-sn-else', 'SN102', '`data-sn-else` must be on a `<template>` directly after a `data-sn-if` template, or after a `data-sn-for` (the list\'s empty state)', 0);
+      const prior = elseIf && prevIf ? this.chainOf.get(prevIf.binding) : undefined;
+      const r = empty ? this.emptyExpr(el, empty.list, scope) : this.expr(el, 'data-sn-if', prior ? this.guarded(scope, `!(${prior.src})`) : scope, { mode: 'value', cond: true });
       const tid = this.newTemplate();
-      const b = this.binding({ k: 'if', f: this.fn(r.code), d: r.deps, x: tid, ...usesEl(r) });
+      const own = prior ? { code: `($) => !(${prior.inner}) && (${r.inner})`, deps: [...new Set([...prior.deps, ...r.deps])].sort() } : r;
+      const b = this.binding({ k: 'if', f: this.fn(own.code), d: own.deps, x: tid, ...usesEl(r) });
+      if (!empty) this.chainOf.set(b, prior
+        ? { inner: `(${prior.inner}) || (${r.inner})`, deps: own.deps, src: `(${prior.src}) || (${get('if')})`, elseIf: true }
+        : { inner: r.inner, deps: r.deps, src: `(${get('if')})`, elseIf: false });
       if (r.usesEl) this.report(el, 'data-sn-if', 'SN213', '`$el` in a `data-sn-if`: the condition is marked by comments in the page, so there is no element to read', 0, 'read the element in a binding inside the template, or move the condition onto an element with `data-sn-show`');
       node.b.push(b);
       if (empty) content = { tid, scope };
       else {
         result = { node, binding: b };
-        const cond = this.branchGuard.get(el) ?? `(${get('if')})`;
-        if (this.checking) this.branchGuard.set(b, cond);
+        const cond = prior ? `!(${prior.src}) && (${get('if')})` : this.branchGuard.get(el) ?? `(${get('if')})`;
+        // (what a `data-sn-else` after it is checked under the negation of: every branch of the chain so far)
+        if (this.checking) this.branchGuard.set(b, prior ? `(${prior.src} || (${get('if')}))` : cond);
         content = { tid, scope: this.guarded(scope, cond) };
       }
     } else if (isTemplate && has('else')) {
       if (get('else')) this.report(el, 'data-sn-else', 'SN401', '`data-sn-else` takes no value; an else-if is `<template data-sn-else data-sn-if="…">`', 0);
       if (!prevIf) this.report(el, 'data-sn-else', 'SN102', '`data-sn-else` must be on a `<template>` directly after a `data-sn-if` template, or after a `data-sn-for` (the list\'s empty state)', 0);
       const tid = this.newTemplate();
-      node.b.push(this.binding({ k: 'else', x: tid }));
-      if (prevIf) prevIf.binding.y = nodeIdx;
+      // after an else-if: shown where no branch of the chain holds (the binding before it is the else-if's own)
+      const chain = prevIf ? this.chainOf.get(prevIf.binding) : undefined;
+      if (chain?.elseIf) node.b.push(this.binding({ k: 'if', f: this.fn(`($) => !(${chain.inner})`), d: chain.deps, x: tid }));
+      else {
+        node.b.push(this.binding({ k: 'else', x: tid }));
+        if (prevIf) prevIf.binding.y = nodeIdx;
+      }
       const before = prevIf && this.branchGuard.get(prevIf.binding);
       content = { tid, scope: before ? this.guarded(scope, `!${before}`) : scope };
     }
@@ -8295,9 +8318,13 @@ class Compiler {
       }
     }
     const deps = new Set<string>();
+    // `when`: `src`, `call` and `body` are evaluated only where it holds (the runtime asks it first), so `sinter check`
+    // narrows them by it (`when="ref"` and `src="/t?id={ref.id}"` with a `ref` that may be null)
+    const whenText = attr(el, 'when');
+    const wScope = whenText != null && whenText.trim() ? this.guarded(ctx.scope, `(${whenText})`) : ctx.scope;
     // `for="a in accounts"`: src is evaluated once per list item, with the item in scope
     let each: ResourceDef['each'];
-    let srcScope = ctx.scope;
+    let srcScope = wScope;
     const eachAttr = attr(el, 'for');
     if (eachAttr != null) {
       const m = /^\s*([A-Za-z_$][\w$]*)\s+in\s+/.exec(eachAttr);
@@ -8311,7 +8338,7 @@ class Compiler {
           this.frameOf.set(loop, this.checkFrames.length);
           this.checkFrames.push({ kind: 'loop', item: m[1]!, index: null, init: listExpr, loc: this.locOf(el, 'for', eachAttr.indexOf(m[1]!)) });
         }
-        srcScope = { ...ctx.scope, loops: [...ctx.scope.loops, loop] };
+        srcScope = { ...wScope, loops: [...ctx.scope.loops, loop] };
         if (list.ok) each = { item: m[1]!, list: this.fn(list.code), ...(list.resource ? { of: list.resource } : {}) };
         this.features.add('for');
         if (!info.key) this.report(el, 'for', 'SN401', 'a `for` resource is a collection: it needs `key`, with a field that tells the sources apart', 0);
@@ -8335,7 +8362,7 @@ class Compiler {
       // started by the page module only: not preloaded, requested early, prefetched or embedded
       this.noEarly.add(name);
     }
-    const call = hasCall ? this.callExpr(el, 'call', ctx.scope, deps) : null;
+    const call = hasCall ? this.callExpr(el, 'call', wScope, deps) : null;
     let when: number | null = null;
     if (attr(el, 'when') != null) {
       const r = this.expr(el, 'when', ctx.scope, { mode: 'value', cond: true });
@@ -8455,7 +8482,7 @@ class Compiler {
     let body: number | null = null;
     if (post && attr(el, 'body') != null) {
       const m = target?.match ?? (!this.opts.apis && this.opts.openapi?.length ? matchOperation(this.opts.openapi, src, 'post') : null);
-      const r = this.expr(el, 'body', ctx.scope, { mode: 'value' });
+      const r = this.expr(el, 'body', wScope, { mode: 'value' });
       this.encodedBody(el, 'body', r.ast);
       if (m && 'request' in m && m.request != null) this.typeLast({ returns: { kind: 'openapi', spec: m.spec, schema: m.request } });
       for (const d of r.deps) deps.add(d);
@@ -9051,6 +9078,9 @@ class Compiler {
       (this.page.listWrites ??= []).push({ name: resource, fn: op, report: (code, m, h) => this.report(el, 'op', code, m, 0, h) });
     }
     const scope = ctx.scope;
+    // `value` and `then` run only where `when` holds (sse.ts asks it first), so `sinter check` narrows them by it
+    const whenText = attr(el, 'when');
+    const inner = whenText != null && whenText.trim() ? this.guarded(scope, `(${whenText})`) : scope;
     const typeAttr = attr(el, 'type')?.trim() || null;
     const payloadType: TypeRef | null = typeAttr && typeAttr !== 'any' ? { kind: 'ts', text: typeAttr, loc: this.locOf(el, 'type') } : null;
     if (this.checking && !typeAttr && ['value', 'when', 'then'].some((n) => attr(el, n) != null)) {
@@ -9060,7 +9090,7 @@ class Compiler {
     let writes: string[] = [];
     const fnOf = (n: string, object = false) => {
       if (attr(el, n) == null) return null;
-      const r = this.expr(el, n, scope, n === 'then' ? { mode: 'handler', payload: true, payloadState: true, noElement: 'sn-event' } : { mode: 'value', payload: true, payloadState: true });
+      const r = this.expr(el, n, n === 'when' ? scope : inner, n === 'then' ? { mode: 'handler', payload: true, payloadState: true, noElement: 'sn-event' } : { mode: 'value', payload: true, payloadState: true });
       writes = r.writes;
       this.typeLast({
         payload: payloadType,
@@ -9305,6 +9335,9 @@ class Compiler {
       if (c.if) {
         // per instance (its uses too); one template in two instances nothing tells apart: decided only when they agree
         const key = this.instKey(c.el)!;
+        // a branch of a chain with an else-if: left to the browser (the second pass would take out the branches it
+        // decides, and the ones after them would follow no branch)
+        if (this.chainEls.has(c.el)) { this.decided.delete(key); this.undecided.add(key); continue; }
         if (v === FAIL) { this.decided.delete(key); this.undecided.add(key); continue; }
         if (this.undecided.has(key)) continue;
         if (this.decided.has(key) && this.decided.get(key) !== !!v) { this.decided.delete(key); this.undecided.add(key); continue; }
@@ -14908,6 +14941,31 @@ export function writeFirstPaint(el: P5Element, kind: Kind, name: string | null, 
  * element's attributes), and its value written at the end (`done`): nothing reads it in between, as nothing else writes
  * it (an element with a `data-sn-attr` of `style` is written one write at a time). `SN_STYLE_BATCH=0`: one at a time.
  */
+/**
+ * a `<template>` of an if chain with an else-if in it: the else-if itself, the branch before it, or the `data-sn-else`
+ * after one (each is a branch of its own, over the conditions before it: not decided at build time, `prerender`)
+ */
+function inElseIfChain(el: P5Element): boolean {
+  const elseIf = (e: P5Element | undefined) => !!e && e.tagName === 'template' && attr(e, 'data-sn-else') !== undefined && attr(e, 'data-sn-if') !== undefined;
+  if (elseIf(el)) return true;
+  const sibs = ((el.parentNode as P5Parent | null)?.childNodes ?? []).filter(isElement) as P5Element[];
+  const i = sibs.indexOf(el);
+  if (i < 0) return false;
+  return (attr(el, 'data-sn-if') !== undefined && elseIf(sibs[i + 1])) || (attr(el, 'data-sn-else') !== undefined && elseIf(sibs[i - 1]));
+}
+
+/**
+ * whether a component's script may write its root's content (SN543): a DOM-writing property or method, an
+ * element made, a template cloned, or its root (`this.root`, `root`) handed to a function or a constructor, which
+ * may fill it. A script that only listens, measures or sets attributes and state writes none.
+ */
+export function scriptMayFill(text: string): boolean {
+  const code = text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+  if (/\b(?:innerHTML|outerHTML|innerText|textContent|nodeValue)\s*(?:\+?=|\?\?=)(?!=)|\.(?:append|appendChild|prepend|replaceChildren|replaceWith|insertBefore|insertAdjacentHTML|insertAdjacentElement|insertAdjacentText|setHTMLUnsafe|setHTML|attachShadow|before|after)\s*\(|\b(?:createElement|createElementNS|createTextNode|createDocumentFragment|importNode|cloneNode|createContextualFragment|parseFromString)\s*\(/.test(code)) return true;
+  // the root as an argument: `f(this.root)`, `new Chart(root, …)`, `mount(…, this.root)`
+  return /[(,]\s*(?:this\.)?root\b(?!\s*\.)/.test(code);
+}
+
 export class StyleWrites {
   private a: P5Element['attrs'][number] | null;
   /** the value as written (an attribute's at the start), or null: as `list` */
