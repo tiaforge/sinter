@@ -16,8 +16,15 @@ Continued on branch `redesign/stage5-b1b` (2026-11-23/24, second session; sectio
 - **Written up, not built**: template entries (13; the coordinator holds them for stage 6's finding); prefold
   constants other than an image's own attributes in rows (realworld 1, sinter-mail 5, suite 48); the renderer's own
   fallbacks (18, stage 2/6's).
-- **Next** (the coordinator's order, 2026-11-24): what the apps still hit (prefold, sinter-mail's SN501 and unit pages),
-  then the small groups (code or definitions first compiled in a dropped walk, choices, folds that ship).
+- **Next** (the coordinator's order, 2026-11-24, after 2802ce1): (1) the second pass's unit placed in the route over
+  the routed page before `finishPage` (`placeUnits(…, second = true, livePoints)`, the first pass's unit's entries taken
+  out as now): serves `a definition compiled first in a decided branch` (9), `a unit's definition the page keeps` (6),
+  sinter-mail's `a definition the page compiles, a unit placed` (2); (2) choices (16, §18). SN501 stays a refusal.
+- **For a fresh session**: the route is `Compiler#fromWalk`/`fromWalkIn` and `compileTwice` in src/compiler/compile.ts;
+  tests in test/compiler/from-walk.test.ts; check with the suite plain and under `SN_FROM_WALK_AUDIT=1`
+  (`SN_FROM_WALK_STATS=<file>` for the counts), the test/compiler audits, `scripts/render-audit.mjs --switch SN_FROM_WALK
+  --canon`, `scripts/pass-audit.mjs --switch SN_FROM_WALK`, `scripts/mail-audit.mjs <sinter-mail> --switch SN_FROM_WALK`
+  with `SN_UNITS_VERIFY=1`; merge `ccr-9ebf49d5-gpdej8` before each report.
 
 ## How it is measured
 
