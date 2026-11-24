@@ -168,9 +168,15 @@ describe('compiled again: each reason', () => {
     expect(r).toMatchObject({ taken: 0, why: ['an else-if decided'] });
   });
 
-  test('code the decided branch compiled first, compiled again elsewhere (its site would be the branch\'s)', () => {
-    const r = both(page('<div data-sn-state="{ a: true, n: 0 }"><button data-sn-on-click="n++">+</button><template data-sn-if="a"><b>a</b></template><p data-sn-show="a"></p></div>'));
-    expect(r).toMatchObject({ taken: 0, why: ['code a decided branch compiled first is compiled elsewhere too'] });
+  test('code the decided branch compiled first, compiled again by the page: the page\'s site (a source map shows it)', () => {
+    const r = both(page('<div data-sn-state="{ a: true, n: 0 }"><button data-sn-on-click="n++">+</button><template data-sn-if="a"><b>a</b></template><p data-sn-show="a"></p></div>'), { sourcemap: true });
+    expect(r).toMatchObject({ taken: 1, why: [] });
+    expect(JSON.stringify(r.on.sources)).toBe(JSON.stringify(r.off.sources));
+  });
+
+  test('code the decided branch compiled first, called by the page and by the branch walked again', () => {
+    const r = both(page('<div data-sn-state="{ a: true, n: 0 }"><button data-sn-on-click="n++">+</button><p data-sn-show="n"></p><template data-sn-if="a"><i data-sn-show="n"></i></template><b data-sn-show="n"></b></div>'), { sourcemap: true });
+    expect(r.taken + r.why.length).toBe(1);
   });
 
   test('a decided if in a template that stays', () => {
@@ -182,6 +188,11 @@ describe('compiled again: each reason', () => {
     const r = both(page('<sn-resource name="user" src="/api/user"></sn-resource><div data-sn-state="{ a: false }"><template data-sn-if="a"><p data-sn-text="user.name"></p></template></div>'));
     expect(r.on.diagnostics.map((d) => d.code)).toContain('SN501');
     expect(r).toMatchObject({ taken: 0, why: ['a resource read only in a decided branch (SN501)'] });
+  });
+
+  test('a resource a dropped branch read first, read by the rows rendered after it: not unread (the rows\' reads)', () => {
+    const r = both(page('<sn-resource name="doc" src="file:/content/post.json"></sn-resource><div data-sn-state="{ a: false }"><template data-sn-if="a"><p data-sn-text="doc.title"></p></template><ul><template data-sn-for="t in doc.tags"><li data-sn-text="t"></li></template></ul></div>'));
+    expect(r).toMatchObject({ taken: 1, why: [] });
   });
 
   test('nothing evaluates: no record kept, the first pass as before', () => {
