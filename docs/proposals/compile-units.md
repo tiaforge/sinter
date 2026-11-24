@@ -870,3 +870,20 @@ decision of their own (stage 7). A step that can stay byte-identical does.
   `a196ecc`, `30c3ef9` (357 second passes routed in its suite, a guard for a unit's name-keyed entries that
   sinter-mail needed, the counts sorted, what each small refusal needs in `stage5-b1.md` §18): its branch conflicts
   with the allocation cuts in `compile.ts` and was sent back to be merged and verified there.
+- 2026-11-24, 01:48 UTC: **stage 5's B1 continued, fourth milestone merged** (`redesign-notes/stage5-b1.md` §18; `1afb6e0`, the
+  session's `4a70cd5`, its conflict with the allocation cuts resolved on its side: their lazy `foldedNames` kept,
+  its own `unread` helper dropped). A function a dropped walk or the unit made first is made at the page's site, so
+  those pages take the route; **a guard sinter-mail needed**: where the page's walk reads the unit's name-keyed
+  entries the route is refused (sinter-mail's `mail` namespace would have been lost; its own mail audit caught
+  it, the suite did not, and a test pins it now); loops on pages that are not quiet take the route (35 refusals to
+  1); SN501 from the route is unsound (a later read of a resource a dropped walk read first leaves no trace) and
+  stays a refusal, two false ones fixed; the stats say "no second pass (nothing decided)" for 52 and count the 33
+  "not recorded" where they belong; "unrolled, not rendered" is 63 reference compiles with rendering off and 14
+  real ones. In its suite 359 second passes take the route (333 before); in the apps: the blog's page files 200 of
+  200, static-site 4 of 6, multilingual-site 8 of 8, sinter-mail 3 of 16. Not built, written up: prefold (the image
+  pipeline per image, the eager rule, the order of CSS rules, bindings off before settle), and what each small
+  group needs (choices; shared code called from the walk's tail; folds that ship; the second pass's unit placed
+  over the routed page, which serves definitions first compiled in a dropped branch and a unit's kept definition).
+  Checked on the coordinating machine after the merge: 1,573 tests of test/compiler, test/vite, test/check pass;
+  `render-audit --switch SN_FROM_WALK --canon` eight apps the same; `mail-audit --switch SN_FROM_WALK` under
+  `SN_CANON=1` 48 files byte for byte. Next there: prefold's image-attribute case, then the unit's placement.
