@@ -486,10 +486,13 @@ becomes `question`). Uppercase is an error too: N is `shift-n`.
   whose filter matched, or whose plain handler ran and prevented the key. A
   `<dialog data-sn-on-keydown-escape>` does not swallow the `j` meant for `<body>`.
 - **Where.** Keys go to the focused element, or `<body>` when nothing is focused. Page-wide
-  shortcuts belong on `<body>`.
+  shortcuts belong on `<body>` (with a layout, on its tag). For a shortcut over a part's own state,
+  `<body>`'s filter sends the part an event it handles in its scope:
+  `$el.querySelector('.pane')?.dispatchEvent(step(1))`, with `step` a helper that makes a
+  `CustomEvent` ([pane-shortcuts](recipes/pane-shortcuts.html)).
 - `data-sn-debounce-keydown-j` delays only that filter's handler.
 
-Recipe: [keyboard-shortcuts](recipes/keyboard-shortcuts.html).
+Recipes: [keyboard-shortcuts](recipes/keyboard-shortcuts.html), [pane-shortcuts](recipes/pane-shortcuts.html).
 
 ## Lists you move through with the keys
 

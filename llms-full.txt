@@ -371,6 +371,7 @@ export async function upload(file, digest, ctx) {
 - SignalR (or another transport) for <sn-sync>: https://github.com/tiaforge/sinter/blob/main/docs/recipes/signalr.html, https://github.com/tiaforge/sinter/blob/main/docs/recipes/signalr-transport.js
 - Cached list across page loads: https://github.com/tiaforge/sinter/blob/main/docs/recipes/cached-list.html
 - Keyboard shortcuts: https://github.com/tiaforge/sinter/blob/main/docs/recipes/keyboard-shortcuts.html
+- Page-wide shortcuts for a part that owns its state: https://github.com/tiaforge/sinter/blob/main/docs/recipes/pane-shortcuts.html, https://github.com/tiaforge/sinter/blob/main/docs/recipes/pane-shortcuts.helpers.js
 - Row selection with Ctrl and Shift: logic in a helper, applied by the handler: https://github.com/tiaforge/sinter/blob/main/docs/recipes/row-select.html, https://github.com/tiaforge/sinter/blob/main/docs/recipes/row-select.helpers.js
 - Run an action from a handler: mark a mail read once its body has loaded, and a shortcut: https://github.com/tiaforge/sinter/blob/main/docs/recipes/run-action.html
 - First paint: page chrome that renders before the script: https://github.com/tiaforge/sinter/blob/main/docs/recipes/first-paint.html
