@@ -31,6 +31,13 @@ How to write an entry (from 0.21.0 on; older sections keep their own form):
   file as a plain stylesheet before it, instead of the original stylesheet: every page caches one stylesheet, and the
   fitted fallback fonts apply on that page too ([docs/first-paint.md](docs/first-paint.md#fonts-after-the-load)).
 
+### Fixed
+
+- A stylesheet with `@import 'virtual:…'` (a plugin's CSS, such as temper's `virtual:temper-icons.css`) is read for
+  image sizes again: the import is left out and the rest of the stylesheet counts. It used to fail whole (`SN527`),
+  and its images fell back to `sizes="auto, 100vw"`. An `SN527` for an `@import` that cannot be opened now names the
+  import ([docs/images.md](docs/images.md)).
+
 ## 0.22.1 (2026-11-24)
 
 ### Fixed

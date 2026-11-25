@@ -163,12 +163,19 @@ export async function pageStyles(html: string, file: string, ctx: StyleContext):
   return sheets;
 }
 
+/**
+ * `@import`s of a plugin's virtual module (`virtual:…`) left out: Vite's CSS pipeline, which compiles the
+ * stylesheet for its sizes here, reads `@import`s as files, without the plugins that serve or rewrite them, and the
+ * whole stylesheet would fail. Their rules do not count (an icon set's, a library's: not the site's layout).
+ */
+export const withoutVirtual = (css: string) => css.replace(CSS_IMPORT, (m, _q, href: string) => (href.startsWith('virtual:') ? `/* ${href.replace(/\*\//g, '')} */` : m));
+
 async function compileFile(path: string, compile: NonNullable<StyleContext['compile']>): Promise<string | null> {
   const c = compiled.get(path);
   if (c && c.stamps.every(([f, m]) => mtime(f) === m)) return c.code;
   const text = read(path);
   if (text === null) return null;
-  const out = await compile(text, path).catch(() => null);
+  const out = await compile(withoutVirtual(text), path).catch(() => null);
   const files = [path, ...(out?.deps ?? [])];
   compiled.set(path, { stamps: files.map((f) => [f, mtime(f)]), code: out?.code ?? null });
   return out?.code ?? null;

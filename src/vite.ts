@@ -698,7 +698,10 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       return { code: out.code, deps: [...(out.deps ?? [])] };
     } catch (e) {
       // e.g. a .scss file without sass installed: the build reports it; here its sizes are unknown
-      if (!failedCss.has(file)) { failedCss.add(file); resolved!.logger.warn(coded('SN527', `image sizes from ${relOf(file)} are not read: ${(e as Error).message.split('\n')[0]}`)); }
+      // an `@import` Vite's pipeline cannot open as a file (ENOENT): named, as the cause to look for
+      const msg = (e as Error).message.split('\n')[0]!, missing = /ENOENT\b.*?'([^']+)'/.exec(msg)?.[1];
+      const why = missing ? `\`@import '${missing}'\` cannot be read as a file (${msg})` : msg;
+      if (!failedCss.has(file)) { failedCss.add(file); resolved!.logger.warn(coded('SN527', `image sizes from ${relOf(file)} are not read: ${why}`)); }
       return null;
     }
   };
