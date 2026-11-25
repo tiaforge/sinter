@@ -9,6 +9,7 @@ always matches the compiler the build uses.
 | sinter's diagnostics as you type, in pages, components and [layouts](layouts.md) | any TypeScript, or none |
 | Type errors (`SN208`) as you type, hover types, completion in expressions, go to definition | TypeScript 7 in the project |
 | Type errors on save | TypeScript 5 or 6 |
+| `data-sn-for` completion: before `in`, each list in scope with an item name (`contact in contacts`) and the syntax; after `in`, the lists first | TypeScript 7 in the project |
 | In a [single-file component's](islands.md#single-file-components) `<script lang="ts">`: completion, hover, go to definition and type errors (`SN208`), typed by its props, events, refs and state | TypeScript 7 in the project (type errors on save with 5 or 6) |
 | Did-you-mean quick fix | any |
 | `slot="…"` completion (the slots of the tag the element is in; a layout's head slots on head elements), tag completion after `<`, go from a `slot` value to its `<slot>` and from a tag to its component or layout, hover with a tag's props and slots | any TypeScript, or none |

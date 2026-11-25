@@ -482,6 +482,65 @@ describe('completion, definition, quick fixes', () => {
     expect(labels.filter((l) => /^\$(any|item|p|e\d+)$/.test(l))).toEqual([]);
   });
 
+  test('offers the names expressions can use: not the browser\'s globals, nor the shadow\'s `arguments`', async () => {
+    const root = project({ 'src/sinter.types.ts': TYPES, 'index.html': PAGE('c.name') });
+    const e = await editor(root);
+    e.open('index.html', PAGE('c.name + '));
+    await e.diagnostics('index.html', (d) => d.length > 0);
+    const labels = (await e.completion('index.html', 3, 31))!.items.map((i) => i.label);
+    expect(labels).toEqual(expect.arrayContaining(['contacts', 'query', 'Math', 'JSON', 'true', 'typeof']));
+    for (const no of ['window', 'document', 'HTMLElement', 'onclick', 'console', 'eval', 'globalThis', 'arguments', '$waits', 'function', 'await']) expect(labels).not.toContain(no);
+  });
+
+  describe('data-sn-for', () => {
+    const LOOP = (value: string) => `<sn-resource name="contacts" src="/api/contacts" key="id" type="Contact[]"></sn-resource>
+<div data-sn-state="{ query: '', entries: ['a'], tagSet: new Set(['a']) }">
+  <template data-sn-for="${value}">
+    <li></li>
+  </template>
+</div>
+`;
+    type Item = { label: string; sortText?: string; preselect?: boolean; insertTextFormat?: number; textEdit?: { range: Range; newText: string } };
+    const SNIPPETS = { textDocument: { completion: { completionItem: { snippetSupport: true } } } };
+    const at = async (value: string) => {
+      const root = project({ 'src/sinter.types.ts': TYPES, 'index.html': LOOP('c in contacts') });
+      const e = await editor(root, { capabilities: SNIPPETS });
+      e.open('index.html', LOOP(value));
+      await e.diagnostics('index.html', (d) => d.length > 0);
+      const items = (await e.completion('index.html', 2, 25 + value.length))!.items as Item[];
+      return [...items].sort((a, b) => (a.sortText ?? '').localeCompare(b.sortText ?? '') || a.label.localeCompare(b.label));
+    };
+
+    test('an empty value: the lists in scope, each with an item name, then the syntax as snippets', async () => {
+      const items = await at('');
+      expect(items.map((i) => i.label)).toEqual([
+        'contact in contacts', '(contact, i) in contacts', 'entry in entries', '(entry, i) in entries', 'tag in tagSet', '(tag, i) in tagSet',
+        'item in list', '(item, i) in list',
+      ]);
+      expect(items[0]!.preselect).toBe(true);
+      expect(items[1]!.textEdit).toEqual({ range: { start: { line: 2, character: 25 }, end: { line: 2, character: 25 } }, newText: '(contact, ${1:i}) in contacts' });
+      expect(items.at(-1)!.insertTextFormat).toBe(2);
+    });
+
+    test('a partly typed item is replaced', async () => {
+      const items = await at('co');
+      expect(items[0]!.textEdit).toEqual({ range: { start: { line: 2, character: 25 }, end: { line: 2, character: 27 } }, newText: 'contact in contacts' });
+    });
+
+    test('after the item: `in`, and `in` with each list', async () => {
+      expect((await at('c ')).map((i) => i.label)).toEqual(['in contacts', 'in entries', 'in tagSet', 'in']);
+      const items = await at('c i');
+      expect(items[0]!.textEdit).toEqual({ range: { start: { line: 2, character: 27 }, end: { line: 2, character: 28 } }, newText: 'in contacts' });
+    });
+
+    test('after `in`: TypeScript\'s names, the lists first', async () => {
+      const labels = (await at('(c, i) in ')).map((i) => i.label);
+      expect(labels.slice(0, 3)).toEqual(['contacts', 'entries', 'tagSet']);
+      expect(labels).toEqual(expect.arrayContaining(['query', 'refresh', 'Math']));
+      expect(labels.indexOf('query')).toBeGreaterThan(2);
+    });
+  });
+
   test('go to definition lands where the HTML declares a name', async () => {
     const root = project({ 'src/sinter.types.ts': TYPES, 'index.html': PAGE('c.name + query + contacts.length + i') });
     const e = await editor(root);

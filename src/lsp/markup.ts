@@ -72,23 +72,30 @@ export function elementAt(text: string, offset: number): { el: P5Element; parent
   return best;
 }
 
-/** The value of `slot="…"` the offset is in: the element, the text typed so far and its range. */
-export function slotValueAt(text: string, offset: number): { parentTag: string; tag: string; typed: string; from: number; to: number } | null {
+/** The quoted value of attribute `name` the offset is in: the element, its parent element and the value's range. */
+export function attrValueAt(text: string, offset: number, name: string): { el: P5Element; parent: P5Element | null; from: number; to: number } | null {
   const hit = elementAt(text, offset);
   if (!hit) return null;
-  const a = hit.el.sourceCodeLocation?.attrs?.slot;
+  const a = hit.el.sourceCodeLocation?.attrs?.[name];
   if (!a || offset < a.startOffset || offset > a.endOffset) return null;
   const raw = text.slice(a.startOffset, a.endOffset);
   const q = raw.search(/["']/);
   if (q < 0) return null;
   const from = a.startOffset + q + 1;
-  const close = raw.slice(q + 1).search(/["']/);
+  const close = raw.slice(q + 1).indexOf(raw[q]!);
   const to = close < 0 ? a.endOffset : from + close;
   if (offset < from || offset > to) return null;
+  return { ...hit, from, to };
+}
+
+/** The value of `slot="…"` the offset is in: the element, the text typed so far and its range. */
+export function slotValueAt(text: string, offset: number): { parentTag: string; tag: string; typed: string; from: number; to: number } | null {
+  const hit = attrValueAt(text, offset, 'slot');
+  if (!hit) return null;
   // the tag whose content this is: its parent, or for a page that is a layout's tag, that tag
   const parent = hit.parent && hit.parent.tagName !== 'body' && hit.parent.tagName !== 'head' ? hit.parent : null;
   if (!parent) return null;
-  return { parentTag: parent.tagName, tag: hit.el.tagName, typed: text.slice(from, offset), from, to };
+  return { parentTag: parent.tagName, tag: hit.el.tagName, typed: text.slice(hit.from, offset), from: hit.from, to: hit.to };
 }
 
 /**

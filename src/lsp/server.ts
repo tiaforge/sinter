@@ -13,6 +13,7 @@ import { inlineScripts } from '../compiler/components.js';
 import { componentKinds } from '../compiler/head.js';
 import { offsetOf, slotCompletions, slotDefinition, tagCompletions, tagHover, type TagFile } from './markup.js';
 import { didYouMeanEdit, endTagEdit } from './quickfix.js';
+import { forPlace, loopItems } from './loops.js';
 import { pathCompletions, pathDefinition, pathFix, pathHover } from './paths.js';
 import { editFor, fixPlans, plans, type ExtractContext, type Plan } from './extract.js';
 import { TypeScriptBridge, typescriptMajor, type Target } from './typescript.js';
@@ -296,7 +297,20 @@ export function startServer(input: Readable, output: Writable, o: ServerOptions 
     const tags = tagCompletions(text, offset, tagFiles(root));
     if (tags?.length) return { isIncomplete: false, items: tags.map((t) => ({ label: t.label, kind: 7, detail: t.detail, textEdit: { range: rangeAt(text, t.from, t.to), newText: t.label } })) };
     const b = await bridgeFor(file);
-    return b ? b.bridge.completion(file, p.position.line + 1, p.position.character + 1, p.context) : null;
+    if (!b) return null;
+    // a `data-sn-for` value: its syntax and the lists in scope before `in`, the lists first after it
+    const loop = forPlace(text, offset);
+    if (loop?.part === 'list') return b.bridge.completion(file, p.position.line + 1, p.position.character + 1, p.context, { lists: true });
+    if (loop) {
+      // the lists in the template's scope: at the value's end, where the compiler keeps an empty list for this
+      const end = rangeAt(text, loop.value.to, loop.value.to).start;
+      const lists = await b.bridge.lists(file, end.line + 1, end.character + 1);
+      return { isIncomplete: false, items: loopItems(loop, lists, snippets).map((c, k) => ({
+        label: c.label, kind: c.kind, detail: c.detail, sortText: c.sortText, ...(k === 0 ? { preselect: true } : {}),
+        ...(c.snippet ? { insertTextFormat: 2 } : {}), textEdit: { range: rangeAt(text, c.from, c.to), newText: c.insert },
+      })) };
+    }
+    return b.bridge.completion(file, p.position.line + 1, p.position.character + 1, p.context);
   });
 
   conn.onRequest('completionItem/resolve', async (item: any) => {

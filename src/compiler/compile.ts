@@ -7206,7 +7206,7 @@ class Compiler {
     this.lastExpr = null;
     if (this.checking && (kept || !r.ok)) {
       // resources named by value (`refresh(people)`) are checked as their names, which the store's types take
-      const i = this.recordExpr(el, attrName, scope, o, r.nameEdits ? applyEdits(src, r.nameEdits) : src, shift, r);
+      const i = this.recordExpr(el, attrName, scope, o, r.nameEdits ? applyEdits(src, r.nameEdits) : src, shift);
       // a broken expression is there for editor completion only; nothing refers to it
       if (r.ok) this.lastExpr = i;
       else this.checkExpr(i).broken = true;
@@ -7497,7 +7497,7 @@ class Compiler {
     return { ...scope, guards: [...(scope.guards ?? []), g] };
   }
 
-  recordExpr(el: P5Element, attrName: string, scope: Scope, o: Omit<ExprOptions, 'report'>, src: string, shift: number, r: ExprResult): number {
+  recordExpr(el: P5Element, attrName: string, scope: Scope, o: Omit<ExprOptions, 'report'>, src: string, shift: number): number {
     const frames: number[] = [];
     for (const f of [...(scope.component ? [scope.component] : []), ...scope.states, ...scope.loops, ...(scope.lets ?? []), ...(scope.slot ? [scope.slot] : []), ...(scope.guards ?? [])]) {
       const i = this.frameOf.get(f);
@@ -8036,6 +8036,8 @@ class Compiler {
     const m = /^\s*(?:\(\s*([A-Za-z_][\w]*)\s*,\s*([A-Za-z_][\w]*)\s*\)|([A-Za-z_][\w]*))\s+in\s+/.exec(value);
     if (!m) {
       this.report(el, 'data-sn-for', 'SN401', '`data-sn-for` takes `item in list` or `(item, i) in list`', 0);
+      // for editor completion: an empty list at the value's end, in the template's scope (the lists it could repeat over)
+      if (this.checking) this.checkExpr(this.recordExpr(el, 'data-sn-for', scope, { mode: 'value' }, '', value.length)).broken = true;
       return null;
     }
     const item = (m[1] ?? m[3])!;

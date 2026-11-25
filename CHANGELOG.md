@@ -20,6 +20,9 @@ How to write an entry (from 0.21.0 on; older sections keep their own form):
 - `closePopover()` and `closePopover('id')` in handlers: hide the `popover` around the element, or the one with that
   id (a literal naming an element with `popover`, `SN309`), as `closeDialog()` does for dialogs. A same-page link in a
   menu popover closes it: `<a href="#services" data-sn-on-click="closePopover()">` ([docs/actions.md](docs/actions.md)).
+- Completion in a `data-sn-for` value: in an empty value, each list in scope with an item name made from it
+  (`contact in contacts`, `(contact, i) in contacts`) and the syntax as snippets; after the item, `in` and
+  `in contacts`; after `in`, the lists before the other names ([docs/editors.md](docs/editors.md)).
 
 ### Changed
 
@@ -37,6 +40,10 @@ How to write an entry (from 0.21.0 on; older sections keep their own form):
   image sizes again: the import is left out and the rest of the stylesheet counts. It used to fail whole (`SN527`),
   and its images fell back to `sizes="auto, 100vw"`. An `SN527` for an `@import` that cannot be opened now names the
   import ([docs/images.md](docs/images.md)).
+- Completion in expressions no longer offers the browser's globals (`window`, `HTMLElement`, `onclick`, … about a
+  thousand names) or the shadow's `arguments`: only names an expression can use. In a component's `<script>` nothing
+  changes ([docs/editors.md](docs/editors.md)).
+- The VS Code extension starts the language server again: it failed with `onDidChangeLogLevel is not a function`.
 
 ## 0.22.1 (2026-11-24)
 

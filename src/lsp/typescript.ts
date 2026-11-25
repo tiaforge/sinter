@@ -12,6 +12,8 @@ import { mapPosition, quietLine, shadowPosition, type Region } from '../check/sh
 import type { CheckUnit } from '../compiler/check-unit.js';
 import type { Diagnostic, HelperManifest } from '../compiler/index.js';
 import { checkOptionsOf, inlineScriptFiles, type Project } from '../project.js';
+import { GLOBALS } from '../compiler/expr.js';
+import { listType } from './loops.js';
 import { Connection } from './rpc.js';
 import { specLocation } from './spec-location.js';
 
@@ -56,6 +58,8 @@ interface OpenScript {
 /** Where a position in the HTML is in TypeScript's files, and how its answers map back. */
 interface Located {
   uri: string;
+  /** in an expression of the markup (not a component's \`<script>\`) */
+  markup: boolean;
   line: number;
   col: number;
   toHtml(r: LspRange): LspRange | null;
@@ -65,7 +69,17 @@ interface Located {
 export interface Target { file: string; line: number; col: number; endLine?: number; endCol?: number }
 
 /** Names the shadow declares for itself, never offered as completions. */
-const INTERNAL = /^(\$any|\$item|\$p|\$e\d+)$/;
+const INTERNAL = /^(\$any|\$item|\$waits|\$p|\$e\d+|arguments)$/;
+/** The keywords an expression may use; the others (`function`, `await`, …) are not offered. */
+const KEYWORDS = new Set(['true', 'false', 'null', 'typeof', 'instanceof', 'in', 'new', 'void']);
+/**
+ * Whether a completion TypeScript offers in an expression is a name expressions can use: the page's own (declared in
+ * the shadow), and of the globals and keywords only those sinter allows; not the browser's (`window`, `HTMLElement`, …).
+ */
+const usable = (item: { label: string; sortText?: string }) =>
+  !INTERNAL.test(item.label) && (item.sortText?.replace(/^z/, '') !== '15' || GLOBALS.has(item.label) || KEYWORDS.has(item.label));
+/** TypeScript's sort text for a name declared in the shadow: the page's own names */
+const OWN = '11';
 
 interface LspRange { start: { line: number; character: number }; end: { line: number; character: number } }
 
@@ -252,13 +266,13 @@ export class TypeScriptBridge {
   locate(file: string, line: number, col: number): Located | null {
     const script = this.scripts.get(file);
     if (script && line >= script.first && line <= script.last) {
-      return { uri: script.uri, line, col, toHtml: (r) => (r.start.line + 1 >= script.first && r.end.line + 1 <= script.last ? r : null) };
+      return { uri: script.uri, markup: false, line, col, toHtml: (r) => (r.start.line + 1 >= script.first && r.end.line + 1 <= script.last ? r : null) };
     }
     // the page itself first, then pages that include `file`
     const order = [...this.shadows].sort(([a], [b]) => Number(b === file) - Number(a === file));
     for (const [, s] of order) {
       const p = shadowPosition(s.regions, s.lines, file, line, col);
-      if (p) return { uri: s.uri, ...p, toHtml: (r) => this.toHtml(s, r, file) };
+      if (p) return { uri: s.uri, markup: true, ...p, toHtml: (r) => this.toHtml(s, r, file) };
     }
     return null;
   }
@@ -293,8 +307,11 @@ export class TypeScriptBridge {
     return m ? m[1]! : v;
   }
 
-  /** Completions at a 1-based HTML position inside an expression, with edits mapped to the HTML. */
-  async completion(file: string, line: number, col: number, context: unknown): Promise<{ isIncomplete: boolean; items: any[] } | null> {
+  /**
+   * Completions at a 1-based HTML position inside an expression, with edits mapped to the HTML. In the markup, only
+   * names expressions can use; with `lists` (a `data-sn-for` list), the names whose type is a list first.
+   */
+  async completion(file: string, line: number, col: number, context: unknown, o: { lists?: boolean } = {}): Promise<{ isIncomplete: boolean; items: any[] } | null> {
     await this.ready;
     const at = this.locate(file, line, col);
     if (!at) return null;
@@ -302,7 +319,15 @@ export class TypeScriptBridge {
       textDocument: { uri: at.uri }, position: { line: at.line - 1, character: at.col - 1 }, context,
     });
     if (!r) return null;
-    const list: any[] = Array.isArray(r) ? r : r.items ?? [];
+    let list: any[] = Array.isArray(r) ? r : r.items ?? [];
+    if (at.markup) list = list.filter(usable);
+    if (o.lists) {
+      const kinds = await this.listKinds(list);
+      for (const item of list) {
+        const k = kinds.get(item);
+        if (k !== undefined) item.sortText = k === true ? '10' : k === false ? '12' : OWN;
+      }
+    }
     const items: any[] = [];
     for (const item of list) {
       // the shadow's own names, and auto-imports that would edit a page shadow's header (in a component's `<script>`
@@ -324,6 +349,26 @@ export class TypeScriptBridge {
       items.push(item);
     }
     return { isIncomplete: Array.isArray(r) ? false : !!r.isIncomplete, items };
+  }
+
+  /** Of TypeScript's completions, the page's own names, each with whether its type is a list (`listType`). */
+  private async listKinds(list: any[]): Promise<Map<any, boolean | null>> {
+    const own = list.filter((i) => i.sortText === OWN && !INTERNAL.test(i.label));
+    const details = await Promise.all(own.map((i) => this.conn.request<any>('completionItem/resolve', i).then((d) => d?.detail as string | undefined, () => undefined)));
+    return new Map(own.map((i, k) => [i, details[k] ? listType(details[k]) : null]));
+  }
+
+  /** The page's names at a 1-based HTML position inside an expression whose type is a list, then those of a type it cannot tell. */
+  async lists(file: string, line: number, col: number): Promise<string[]> {
+    await this.ready;
+    const at = this.locate(file, line, col);
+    if (!at) return [];
+    const r = await this.conn.request<any>('textDocument/completion', {
+      textDocument: { uri: at.uri }, position: { line: at.line - 1, character: at.col - 1 }, context: { triggerKind: 1 },
+    });
+    const kinds = await this.listKinds(!r ? [] : Array.isArray(r) ? r : r.items ?? []);
+    const named = (k: boolean | null) => [...kinds].filter(([, v]) => v === k).map(([i]) => i.label as string).sort();
+    return [...named(true), ...named(null).filter((n) => !n.startsWith('$'))];
   }
 
   /** Details for a completion item this bridge returned (documentation, signature). */
