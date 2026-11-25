@@ -38,6 +38,8 @@ export const TWIN = true;
 export const SHARED = true;
 /** embedded data that is the signed-out answer (`ResourceDef.so`): the page requests it instead while a token is stored */
 export const SIGNEDOUT = true;
+/** `closePopover()` in a handler (`IR.po`) */
+export const POPOVER = true;
 /**
  * Not a part of the core: `sinter({ swap: true })`. A stream whose URL the next page declares stays open across a
  * swap (src/sse-handover.ts, docs/proposals/stream-handover.md). A build decides it from its `swap` option, so an

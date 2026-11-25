@@ -22,6 +22,15 @@ test('a sized background: the source as 2x, AVIF first, the original declaration
   expect(out!.variants.map(name)).toEqual(['/v/hero-800.avif', '/v/hero-1600.avif', '/v/hero-800.jpg', '/v/hero-1600.jpg']);
 });
 
+test('`images.widths`: a sized background\'s 2x is at most the largest; a smaller source, or an unsized rule, keeps its own width', async () => {
+  const capped = await rewriteCssImages('.hero{background:url(/app/hero.jpg) 50%/cover}', { ...host, widths: [480, 960, 1200] });
+  expect(capped!.variants.map(name)).toEqual(['/v/hero-600.avif', '/v/hero-1200.avif', '/v/hero-600.jpg', '/v/hero-1200.jpg']);
+  const wide = await rewriteCssImages('.hero{background:url(/app/hero.jpg) 50%/cover}', { ...host, widths: [480, 3840] });
+  expect(wide!.variants.map(name)).toEqual(['/v/hero-800.avif', '/v/hero-1600.avif', '/v/hero-800.jpg', '/v/hero-1600.jpg']);
+  const tile = await rewriteCssImages('.t{background-image:url(/app/hero.jpg)}', { ...host, widths: [480] });
+  expect(tile!.variants.map(name)).toEqual(['/v/hero-1600.avif', '/v/hero-1600.jpg']);
+});
+
 test('sized by background-size in the same rule; not sized: 1x only, so the tile keeps its size', async () => {
   const sized = await rewriteCssImages('.a{background-image:url("/app/hero.jpg");background-size:cover}', host);
   expect(sized!.css).toContain('2x');

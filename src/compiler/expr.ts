@@ -159,6 +159,8 @@ export interface PageInfo {
   usedHelpers: Set<string>;
   usedNs: Map<string, Set<string>>;
   usesNow: boolean;
+  /** a handler calls `closePopover()` (the core's `POPOVER` part) */
+  popover?: boolean;
   /** a handler or model writes `$url` (the `location` feature) */
   writesUrl?: boolean;
   /**
@@ -190,6 +192,8 @@ export interface PageInfo {
   lazy?: Map<string, { i: number; name: string }>;
   /** literal `id`s of the page's `<dialog>` elements, for `openDialog()` and `closeDialog()` */
   dialogs: Set<string>;
+  /** literal `id`s of the page's elements with `popover`, for `closePopover()` */
+  popovers: Set<string>;
   /** an API of the app has a `token` (`signOut()` has something to remove, SN347) */
   tokens?: boolean;
   /** the resources an `<sn-event resource>` on the page names: the ones a stream feeds (`$meta.<name>.live`, SN516) */
@@ -350,7 +354,7 @@ const EVERYWHERE_MAGIC = ['$el', '$url', '$now', '$locale', '$meta'];
 export const ALL_MAGIC = ['$event', '$el', '$url', '$now', '$locale', '$result', '$error', '$meta'];
 /** names the build fills in, where they apply: the site's URLs (`sinter({ site })`) and a fill's slot values */
 export const BUILD_NAMES = ['$site', '$canonical', '$slot'];
-export const STORE_FNS = ['refresh', 'upsert', 'merge', 'remove', 'page', 'openDialog', 'closeDialog', 'emit', 'run', 'navigate', 'signOut'];
+export const STORE_FNS = ['refresh', 'upsert', 'merge', 'remove', 'page', 'openDialog', 'closeDialog', 'closePopover', 'emit', 'run', 'navigate', 'signOut'];
 /** store functions that are gone or renamed (docs/proposals/vocabulary.md): what to write instead. Removed at 1.0 */
 const RETIRED_FNS: Record<string, string> = {
   showModal: '`showModal()` is renamed to `openDialog()`, the pair of `closeDialog()`: `openDialog(\'edit\')`',
@@ -1500,9 +1504,11 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
       return;
     }
     const first = n.arguments[0];
+    if (name === 'closePopover') page.popover = true;
     // an element-less handler has no nearest dialog or form, nothing to dispatch from
-    if (opts.noElement && (name === 'emit' || (name === 'closeDialog' && !first))) {
-      report('SN203', `\`${name}()\` needs an element; an \`<${opts.noElement}>\` handler has none${name === 'closeDialog' ? `: name the dialog, \`closeDialog('id')\`` : ''}`, n.start);
+    if (opts.noElement && (name === 'emit' || ((name === 'closeDialog' || name === 'closePopover') && !first))) {
+      const what = name === 'closeDialog' ? 'dialog' : 'popover';
+      report('SN203', `\`${name}()\` needs an element; an \`<${opts.noElement}>\` handler has none${name !== 'emit' ? `: name the ${what}, \`${name}('id')\`` : ''}`, n.start);
       return;
     }
     if (name === 'run') {
@@ -1544,6 +1550,14 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
         report('SN309', `\`${name}()\` takes the dialog's \`id\` as a string literal`, n.start);
       } else if (!page.dialogs.has(first.value)) {
         report('SN309', `no \`<dialog id="${first.value}">\` on this page.${didYouMean(first.value, page.dialogs)}`, first.start);
+      }
+      return;
+    }
+    if (name === 'closePopover' && first) {
+      if (first.type !== 'Literal' || typeof first.value !== 'string') {
+        report('SN309', '`closePopover()` takes the popover\'s `id` as a string literal', n.start);
+      } else if (!page.popovers.has(first.value)) {
+        report('SN309', `no element with \`popover\` and \`id="${first.value}"\` on this page.${didYouMean(first.value, page.popovers)}`, first.start);
       }
       return;
     }

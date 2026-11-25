@@ -370,6 +370,8 @@ export interface IR {
   si?: SignedIn;
   /** an action's element has an `id` or bound attributes (`data-sn-attr`): the core keeps the same-id hand-over of a running action (the `TWIN` part) */
   tw?: 1;
+  /** a handler calls `closePopover()`: the core keeps it (the `POPOVER` part) */
+  po?: 1;
   resources: ResourceDef[];
   /** absent in a page module without streams */
   syncs?: SyncDef[];

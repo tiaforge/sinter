@@ -354,9 +354,11 @@ does Android, which has neither system font (the face does not apply there).
 - The page links the stylesheet inside `<noscript data-sn-fonts>` at the start of its head, so the fonts load without
   JavaScript too, and its stylesheets lose the rules: each one becomes a copy without them (a
   hashed file like any other; one fonts file per distinct set of faces).
-- A page without an early script (a page with nothing to run, or `firstPaint: false`) keeps its
-  stylesheets as they were and loads its fonts as before. A stylesheet it shares with a page that
-  defers stays as it is for it.
+- A page without an early script (a page with nothing to run, or `data-sn-early="off"` everywhere)
+  that links a stylesheet a deferring page changed links the same copy, and the fonts file as a
+  plain stylesheet before it. Its fonts load as before (render-blocking rules, files on first use),
+  every page caches one stylesheet, and the fitted fallback fonts apply there too while the fonts
+  swap in.
 - No inline script, style or `onload` attribute: the early script adds a `<link>` element, so
   `script-src 'self'; style-src 'self'` needs no change. A [swap](navigation.md#swaps) adds the next
   page's fonts stylesheet with its other stylesheets.

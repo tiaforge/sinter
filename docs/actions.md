@@ -301,6 +301,7 @@ a failure with `$error`. Both are handlers: state assignments and these built-in
 | `page(messages, 'next')` | change the page of a paginated resource |
 | `openDialog('edit')` | open `<dialog id="edit">`, nothing if it is open |
 | `closeDialog()`, `closeDialog('edit')` | close the nearest `<dialog>`, or the one with that id |
+| `closePopover()`, `closePopover('menu')` | hide the nearest open `popover`, or the one with that id; nothing if it is hidden |
 | `emit('name', detail)` | dispatch a bubbling, cancelable `CustomEvent` from the element |
 | `navigate(url, { replace })` | go to `url` (relative to the page's): to this page with only parameters it reads changed, as a [same-page link](navigation.md#same-page-links), in the page; anywhere else the browser loads it, as a new history entry or, with `replace: true`, in the current one |
 | `run('id')` | start the action of the element with that id ([below](#run-an-action-from-a-handler)) |
@@ -563,6 +564,10 @@ Use the native `<dialog>`. A button that only opens it needs no handler: `comman
   `then` after a request or a custom event. `closeDialog()` alone closes the nearest dialog. The id must
   be a string literal naming a `<dialog id>` on the page or in the components it uses, or the build fails
   (`SN309`).
+- `closePopover()` hides the popover around the element, `closePopover('menu')` the one with that id
+  (a literal naming an element with `popover`, `SN309`). Buttons have the platform's
+  `commandfor="menu" command="hide-popover"`; links do not, so a same-page link in a menu popover
+  stays open as the page scrolls. `<a href="#services" data-sn-on-click="closePopover()">` closes it.
 - Bindings inside a dialog render when it opens. A resource that only dialogs read loads with low
   priority.
 - Reset state when the dialog closes, however it closes (Escape included):

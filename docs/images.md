@@ -69,7 +69,9 @@ less. With only `width` or only `height`, the other follows from the source's ra
 
 **Fluid image.** No `width`/`height`, or ones equal to or larger than the source: they only give
 the ratio. The image gets the widths 480, 960, 1440, 1920 and 2560 below the source's width, plus
-the source's own width. `sizes` is yours if you wrote one, otherwise `auto, 100vw` for a lazy image
+the source's own width. With `images.widths`, it gets those below the source's width, and the
+largest of them is the widest file: a 6000 px photo with `widths: [480, …, 3840]` ships no 6000 px
+file. `sizes` is yours if you wrote one, otherwise `auto, 100vw` for a lazy image
 (`auto` where the browser supports it) and `100vw` for the rest.
 
 ### How the rendered width is worked out
@@ -261,7 +263,9 @@ not support `image-set()` types:
 - Formats are as for `<img>`. Files under 4 KB are left alone (Vite inlines them anyway).
 - **The source counts as 2x** when the rule sizes the background (`background-size` other than
   `auto`, or a size in the shorthand such as `center / cover`): a 1600 px source gives 800 px for
-  1x screens and 1600 px for 2x. A rule that does not size it gets one file per format at 1x.
+  1x screens and 1600 px for 2x. With `images.widths`, the 2x file is no wider than the largest of
+  them: a 6000 px source with `widths: [480, …, 3840]` gives 1920 px and 3840 px. A rule that does
+  not size it gets one file per format at 1x.
 - A background whose element is larger at 1x than half the source looks soft on 1x screens. Use a
   source twice the largest width it is shown at; the dev console warns about this.
 - `url()`s in Sass, Less, Stylus and PostCSS partials work.

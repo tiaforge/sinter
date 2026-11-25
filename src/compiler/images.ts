@@ -47,7 +47,7 @@ export interface ImageHost {
   info(file: string): ImageInfo | null | undefined;
   /** the URL a variant is served from */
   url(v: ImageVariant): string;
-  /** widths for fluid images (default `FLUID_WIDTHS`) */
+  /** widths for fluid images (default `FLUID_WIDTHS`, which add the source's width; given ones end at their largest) */
   widths?: number[];
   /** add `vite-ignore`, so Vite's HTML processing leaves the variants' URLs alone */
   ignore?: boolean;
@@ -277,8 +277,10 @@ function rewriteOne(el: P5Element, eager: boolean, ctx: RewriteContext): 'pendin
     }
     widths = [...new Set(want.map((w) => Math.min(w, w0)))];
   } else {
-    // a fluid image no wider than `bound` CSS px needs at most 3x of it (a DPR-3 phone)
-    const cap = bound !== null ? Math.min(w0, 3 * bound) : w0;
+    // a fluid image no wider than `bound` CSS px needs at most 3x of it (a DPR-3 phone); `images.widths`, when
+    // the app gives them, end at the largest (a 6000 px source does not ship 6000 px files)
+    const top = ctx.host.widths?.length ? Math.max(...ctx.host.widths) : Infinity;
+    const cap = Math.min(w0, top, bound !== null ? 3 * bound : Infinity);
     widths = (ctx.host.widths ?? FLUID_WIDTHS).filter((w) => w <= cap * 0.9);
     widths.push(cap);
   }
