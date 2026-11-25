@@ -61,7 +61,11 @@ describe('extension', () => {
         onDidOpenTextDocument: (f: (d: any) => void) => { opened = f; return { dispose() {} }; },
         onDidChangeConfiguration: () => ({ dispose() {} }),
       },
-      window: { createOutputChannel: () => ({ appendLine() {}, dispose() {} }) },
+      // Like VS Code: only `{ log: true }` gives the LogOutputChannel vscode-languageclient 10 needs.
+      window: {
+        createOutputChannel: (_name: string, options?: { log?: boolean }) =>
+          options?.log ? { appendLine() {}, trace() {}, logLevel: 0, onDidChangeLogLevel: () => ({ dispose() {} }), dispose() {} } : { appendLine() {}, dispose() {} },
+      },
       commands: { registerCommand: () => ({ dispose() {} }) },
     };
     class LanguageClient {
@@ -89,6 +93,7 @@ describe('extension', () => {
     expect(clients[0]!.server.run).toEqual({ module: join(a, 'node_modules/@tiaforge-ui/sinter/dist/cli.js'), args: ['lsp'], transport: 0, options: { cwd: a } });
     expect(clients[0]!.options.documentSelector).toEqual([{ scheme: 'file', language: 'html', pattern: `${a}/**/*` }]);
     expect(clients[0]!.started).toBe(true);
+    expect(typeof clients[0]!.options.outputChannel.onDidChangeLogLevel).toBe('function');
 
     opened!(doc(join(a, 'index.html')));
     opened!(doc(join(b, 'index.html')));

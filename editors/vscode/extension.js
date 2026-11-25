@@ -70,7 +70,7 @@ async function stopAll() {
 }
 
 function activate(context) {
-  output = vscode.window.createOutputChannel('sinter');
+  output = vscode.window.createOutputChannel('sinter', { log: true });
   context.subscriptions.push(
     output,
     vscode.workspace.onDidOpenTextDocument(consider),
