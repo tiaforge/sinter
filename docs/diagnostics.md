@@ -848,7 +848,7 @@ Warning, for example:
 
 > image sizes from src/styles.scss are not read: Undefined variable $gap
 
-The build reads the page's CSS to size its images, and a stylesheet could not be compiled (by Vite's CSS pipeline, Sass, PostCSS, …). Those images get sizes without that stylesheet. This depends on the tools installed, so `--strict` leaves it a warning. Reported by the build, without a file and line.
+The build reads the page's CSS to size its images, and a stylesheet could not be compiled (by Vite's CSS pipeline, Sass, PostCSS, …). Those images get sizes without that stylesheet. (An `@import 'virtual:…'` of a plugin's CSS is left out first: it does not fail the stylesheet.) This depends on the tools installed, so `--strict` leaves it a warning. Reported by the build, without a file and line.
 
 **Fix:** Fix the error the message shows, or install the preprocessor the stylesheet needs.
 

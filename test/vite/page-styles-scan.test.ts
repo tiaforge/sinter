@@ -29,3 +29,19 @@ test('the stylesheets the modules import, on every page; a module edited is scan
   // a module script in the page itself is scanned as it is
   expect((await pageStyles(page.replace('<p>', '<script type="module">import "./b.css"</script><p>'), join(root, 'p4.html'), { ...ctx, modules: [] })).map((s) => s.file.slice(root.length + 1))).toEqual(['b.css']);
 });
+
+test("a plugin's virtual `@import` is left out, and the rest of the stylesheet is read (Vite's CSS pipeline)", async () => {
+  const { preprocessCSS, resolveConfig } = await import('vite');
+  const config = await resolveConfig({ root, configFile: false, logLevel: 'silent' }, 'build');
+  put('site.css', "@import 'virtual:icons.css';\n@import url(\"virtual:core.css\") layer(base);\n@import './a.css';\n.wrap { max-width: 83em }");
+  put('a.css', '.a { color: red }');
+  const compile = async (code: string, file: string) => { const out = await preprocessCSS(code, file, config); return { code: out.code, deps: [...(out.deps ?? [])] }; };
+  const page = '<!doctype html><html><head><link rel="stylesheet" href="/site.css"></head><body><p>x</p></body></html>';
+  const [sheet, ...rest] = await pageStyles(page, join(root, 'v.html'), { root, publicDir: null, modules: [], resolve: async (id, importer) => resolve(dirname(importer), id), compile });
+  expect(rest).toEqual([]);
+  expect(sheet!.css).toContain('max-width: 83em');
+  expect(sheet!.css).toContain('.a { color: red }');
+  expect(sheet!.css).not.toMatch(/@import/);
+  // without it, the pipeline opens the import as a file and the whole stylesheet fails
+  await expect(compile("@import 'virtual:icons.css';\n.wrap { max-width: 83em }", join(root, 'site.css'))).rejects.toThrow(/ENOENT/);
+});

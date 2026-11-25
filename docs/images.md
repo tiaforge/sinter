@@ -124,8 +124,10 @@ one, as before. Checked in Chromium at 12, 16, 20 and 24 px.
 **Which CSS is read.** The page's `<link rel="stylesheet">` and `<style>` elements, and
 stylesheets imported by its module scripts. Remote stylesheets, CSS modules and `?inline`/`?url`
 imports are left out. Stylesheets are compiled with your Vite config first (Sass, Less, Stylus,
-PostCSS, Lightning CSS), so what sinter reads is what ships. A stylesheet that does not compile
-is skipped with a warning, and the build reports the error itself.
+PostCSS, Lightning CSS), so what sinter reads is what ships. An `@import` of a plugin's virtual
+module (`@import 'virtual:…'`, an icon set's CSS) is left out and the rest of the stylesheet is
+read. A stylesheet that does not compile is skipped with a warning (`SN527`), and the build
+reports the error itself.
 
 **Tailwind and UnoCSS.** Both are supported: sinter asks the project's own engine for the CSS of
 the classes the page uses. Engines that run through PostCSS need nothing extra. Responsive
