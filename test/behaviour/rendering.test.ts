@@ -667,27 +667,23 @@ test('openDialog(id) opens a dialog anywhere on the page; close(id) closes it fr
   expect(dialog.open).toBe(false);
 });
 
-test('closePopover() hides the popover around the element, closePopover(id) that one; a hidden one is left alone', async () => {
+test('closePopover() hides the popover around the element, closePopover(id) that one', async () => {
   const { root, flush } = await render(`
     <div data-sn-state="{ n: 0 }">
       <nav id="menu" popover><a class="link" href="#services" data-sn-on-click="n++; closePopover()">Services</a></nav>
-      <button class="shut" data-sn-on-click="closePopover('menu')">close</button>
+      <aside id="help" popover></aside>
+      <button class="shut" data-sn-on-click="closePopover('help')">close</button>
     </div>`);
-  // happy-dom has no popover API: an open popover, as far as the runtime asks
-  const menu = root.querySelector<HTMLElement>('#menu')!;
-  let open = true;
-  const hide = vi.fn(() => { open = false; });
-  Object.assign(menu, { hidePopover: hide, matches: (s: string) => (s === ':popover-open' ? open : Element.prototype.matches.call(menu, s)) });
+  // happy-dom has no popover API; hiding a hidden popover does nothing in browsers, so the runtime just calls it
+  const menu = vi.fn(), help = vi.fn();
+  Object.assign(root.querySelector('#menu')!, { hidePopover: menu });
+  Object.assign(root.querySelector('#help')!, { hidePopover: help });
   root.querySelector<HTMLAnchorElement>('.link')!.click();
   await flush();
-  expect(hide).toHaveBeenCalledTimes(1);
+  expect([menu.mock.calls.length, help.mock.calls.length]).toEqual([1, 0]);
   root.querySelector<HTMLButtonElement>('.shut')!.click();
   await flush();
-  expect(hide).toHaveBeenCalledTimes(1);
-  open = true;
-  root.querySelector<HTMLButtonElement>('.shut')!.click();
-  await flush();
-  expect(hide).toHaveBeenCalledTimes(2);
+  expect([menu.mock.calls.length, help.mock.calls.length]).toEqual([1, 1]);
 });
 
 test('a dialog an event is closing keeps its content while it closes; it renders if the close was prevented', async () => {

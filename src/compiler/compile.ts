@@ -2954,6 +2954,7 @@ class Compiler {
     if (this.page.usesNow) ir.now = true;
     if (this.guard) { ir.si = this.guard; this.features.add('signed-in'); }
     if (this.twin) ir.tw = 1;
+    if (this.page.popover) ir.po = 1;
     // lets that wait for a lazy helper module (lets.ts), each module loaded by a function of the table
     const lazyHelpers = this.lazyMods.filter((_, i) => this.fns.some((c) => c.includes(`$.$z(${i}, `)));
     if (lazyHelpers.length) {

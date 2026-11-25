@@ -9,12 +9,12 @@ import type { IR } from '../src/ir.js';
 /** not a part: decided by the build from its `apis`; always on here */
 export const TOKEN = true;
 
-export let LIST = false, BRANCH = false, ACTION = false, DIALOG = false, EVENTS = false, MODEL = false, PROP = false, STYLE = false, RESOURCE = false, TWIN = false;
+export let LIST = false, BRANCH = false, ACTION = false, DIALOG = false, EVENTS = false, MODEL = false, PROP = false, STYLE = false, RESOURCE = false, TWIN = false, POPOVER = false;
 
 const on = new Set<string>();
 const apply = () => {
   LIST = on.has('LIST'); BRANCH = on.has('BRANCH'); ACTION = on.has('ACTION'); DIALOG = on.has('DIALOG'); EVENTS = on.has('EVENTS');
-  MODEL = on.has('MODEL'); PROP = on.has('PROP'); STYLE = on.has('STYLE'); RESOURCE = on.has('RESOURCE'); TWIN = on.has('TWIN');
+  MODEL = on.has('MODEL'); PROP = on.has('PROP'); STYLE = on.has('STYLE'); RESOURCE = on.has('RESOURCE'); TWIN = on.has('TWIN'); POPOVER = on.has('POPOVER');
 };
 
 /** a page mounts: its parts join those of the pages mounted before it in this test */
@@ -26,6 +26,6 @@ export function use(ir: IR): void {
 /** every part off, as at the start of a test; `all`: every part on (a test about the core itself, not a page) */
 export function reset(all = false): void {
   on.clear();
-  if (all) for (const p of ['LIST', 'BRANCH', 'ACTION', 'DIALOG', 'EVENTS', 'MODEL', 'PROP', 'STYLE', 'RESOURCE', 'TWIN']) on.add(p);
+  if (all) for (const p of ['LIST', 'BRANCH', 'ACTION', 'DIALOG', 'EVENTS', 'MODEL', 'PROP', 'STYLE', 'RESOURCE', 'TWIN', 'POPOVER']) on.add(p);
   apply();
 }

@@ -159,6 +159,8 @@ export interface PageInfo {
   usedHelpers: Set<string>;
   usedNs: Map<string, Set<string>>;
   usesNow: boolean;
+  /** a handler calls `closePopover()` (the core's `POPOVER` part) */
+  popover?: boolean;
   /** a handler or model writes `$url` (the `location` feature) */
   writesUrl?: boolean;
   /**
@@ -1502,6 +1504,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
       return;
     }
     const first = n.arguments[0];
+    if (name === 'closePopover') page.popover = true;
     // an element-less handler has no nearest dialog or form, nothing to dispatch from
     if (opts.noElement && (name === 'emit' || ((name === 'closeDialog' || name === 'closePopover') && !first))) {
       const what = name === 'closeDialog' ? 'dialog' : 'popover';
