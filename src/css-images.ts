@@ -2,7 +2,7 @@
 // local JPEG, PNG, WebP or AVIF get `image-set()` with AVIF (photos) or lossless WebP (graphics) and
 // a JPEG/PNG fallback, after the original declaration, which stays for browsers without
 // `image-set()` types. A rule that sizes the background (`background-size`, or a size in the
-// shorthand) gets 1x and 2x files, the source counting as 2x; a rule that does not keeps the
+// shorthand) gets 1x and 2x files, the source counting as 2x (no wider than the largest of `images.widths`); a rule that does not keeps the
 // image's intrinsic size, so only the format changes (a 2x file would halve it). The adapter
 // passes CSS as Vite outputs it: dev, between Vite's CSS compiler and its post-processing;
 // builds, the finished stylesheets in `generateBundle`.
@@ -16,6 +16,8 @@ export interface CssImageHost {
   analyze(files: string[]): Promise<void>;
   /** where a variant is served */
   url(v: ImageVariant): string;
+  /** `images.widths`: a sized background's 2x file is at most the largest */
+  widths?: number[];
 }
 
 const MIME: Record<string, string> = { avif: 'image/avif', webp: 'image/webp', jpeg: 'image/jpeg', png: 'image/png' };
@@ -79,7 +81,7 @@ export async function rewriteCssImages(css: string, host: CssImageHost): Promise
   return { css: out + css.slice(last), variants };
 }
 
-/** `image-set()` for one file: 1x and 2x (the source as 2x) when the rule sizes it, else 1x only */
+/** `image-set()` for one file: 1x and 2x (the source, or the largest of `images.widths`, as 2x) when the rule sizes it, else 1x only */
 function imageSet(file: string, info: ImageInfo, sized: boolean, variants: ImageVariant[], host: CssImageHost): string {
   const graphic = info.kind === 'graphic';
   const best: ImageFormat = graphic ? 'webp' : 'avif';
@@ -89,9 +91,10 @@ function imageSet(file: string, info: ImageInfo, sized: boolean, variants: Image
     variants.push(variant);
     return `url("${host.url(variant).replace(/["\\]/g, (c) => `\\${c}`)}")`;
   };
-  const half = Math.max(1, Math.round(info.width / 2));
+  const top = Math.min(info.width, host.widths?.length ? Math.max(...host.widths) : Infinity);
+  const half = Math.max(1, Math.round(top / 2));
   const options = sized
-    ? [[best, half, '1x'], [best, info.width, '2x'], [fallback, half, '1x'], [fallback, info.width, '2x']] as const
+    ? [[best, half, '1x'], [best, top, '2x'], [fallback, half, '1x'], [fallback, top, '2x']] as const
     : [[best, info.width, '1x'], [fallback, info.width, '1x']] as const;
   return `image-set(${options.map(([f, w, x]) => `${v(f, w)} type("${MIME[f]}") ${x}`).join(',')})`;
 }

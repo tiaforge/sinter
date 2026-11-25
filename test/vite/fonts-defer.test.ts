@@ -2,7 +2,7 @@
 // Web fonts after `load` (docs/first-paint.md#fonts-after-the-load): in a build, a page with an early file loads its
 // bundled stylesheets' `font-display: swap` faces from a stylesheet of their own, linked in `<noscript data-sn-fonts>`,
 // which its early file adds after the window's `load`. Faces that hold text for the font, faces `fonts.preload` names
-// and faces in a conditional rule stay; a page with no script keeps its stylesheet as it was.
+// and faces in a conditional rule stay; a page with no script links the same stylesheet and the faces' file as is.
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -134,20 +134,19 @@ test('faces fonts.preload names stay in the render-blocking stylesheet', async (
   expect(fonts).toMatch(/swap-400-[\w-]+\.woff2/);
 });
 
-test('a page with nothing to run keeps the stylesheet as it was, and no script; the early page gets a copy without the faces', async () => {
+test('a page with nothing to run gets no script, and the same stylesheet as the early page, with the faces in a plain link before it', async () => {
   const { read, assets } = await site({ staticPage: true });
   const about = read('about/index.html'), index = read('index.html');
   // (the Speculation Rules, as on any page, are no script that runs)
   expect(about).not.toMatch(/<script(?! type="speculationrules")/);
   expect(about).not.toContain('<noscript');
-  const kept = linksOf(about).sheets, early = linksOf(index);
-  expect(kept).toHaveLength(1);
-  expect(early.sheets[0]).not.toBe(kept[0]);
-  // the original, byte for byte as Vite wrote it: every face in it
-  const css = read(kept[0]!);
-  for (const f of FILES) expect(css).toMatch(new RegExp(`${f}-[\\w-]+\\.woff2`));
+  const early = linksOf(index), plain = linksOf(about);
+  // the faces' file first (render-blocking, as the faces were), then the stylesheet both pages share
+  expect(plain.sheets).toEqual([early.fonts, early.sheets[0]]);
   expect(read(early.sheets[0]!)).not.toMatch(/swap-400/);
-  expect(assets.filter((a) => a.endsWith('.css'))).toHaveLength(3);
+  expect(read(early.fonts!)).toMatch(/swap-400-[\w-]+\.woff2/);
+  // the original, which no page links, is gone: the copy and the faces' file
+  expect(assets.filter((a) => a.endsWith('.css'))).toHaveLength(2);
 });
 
 test('a relative base: the noscript link and the copy are relative to the page', async () => {

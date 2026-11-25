@@ -538,7 +538,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
   const closing = new Set<Element>();
   const listeners = new Map<string, Set<(p: unknown) => void>>(), cleanups: Array<() => void> = [];
   const shared = new Map<string, { n: number; c: AbortController; p: Promise<Got> }>();
-  /** `openDialog(id)`, `closeDialog(id)`: the dialog of this mount root with that id; `run(id)`: any element */
+  /** `openDialog(id)`, `closeDialog(id)`: the dialog of this mount root with that id; `closePopover(id)`: the popover; `run(id)`: any element */
   const byId = (id: string, s = '[id]') => [...root.querySelectorAll(s)].find((d) => d.id === id);
   const dialog = (id: string) => byId(id, 'dialog') as HTMLDialogElement | undefined;
   const rootRbs: RB[] = [], rootScopes: any[] = [], found = new Map<number, Element | Comment>();
@@ -875,6 +875,10 @@ export function mount(root: Document | Element, o: MountOptions): App {
       remove: byItem('remove'),
       page: (n: string, t: string | number) => app.ext.paginate!.page(n, t),
       closeDialog: (id?: string) => (id ? dialog(id) : el?.closest('dialog'))?.close(),
+      closePopover: (id?: string) => {
+        const p = (id ? byId(id, '[popover]') : el?.closest('[popover]')) as HTMLElement | null | undefined;
+        if (p?.matches(':popover-open')) p.hidePopover();
+      },
       emit: (n: string, detail?: unknown) => el?.dispatchEvent(new CustomEvent(n, { detail, bubbles: true, cancelable: true })),
       // to this page with only parameters it reads changed: as a same-page link (no load); else the browser navigates
       // the navigation chain where a feature installed one (links.ts), else the page loads

@@ -667,6 +667,29 @@ test('openDialog(id) opens a dialog anywhere on the page; close(id) closes it fr
   expect(dialog.open).toBe(false);
 });
 
+test('closePopover() hides the popover around the element, closePopover(id) that one; a hidden one is left alone', async () => {
+  const { root, flush } = await render(`
+    <div data-sn-state="{ n: 0 }">
+      <nav id="menu" popover><a class="link" href="#services" data-sn-on-click="n++; closePopover()">Services</a></nav>
+      <button class="shut" data-sn-on-click="closePopover('menu')">close</button>
+    </div>`);
+  // happy-dom has no popover API: an open popover, as far as the runtime asks
+  const menu = root.querySelector<HTMLElement>('#menu')!;
+  let open = true;
+  const hide = vi.fn(() => { open = false; });
+  Object.assign(menu, { hidePopover: hide, matches: (s: string) => (s === ':popover-open' ? open : Element.prototype.matches.call(menu, s)) });
+  root.querySelector<HTMLAnchorElement>('.link')!.click();
+  await flush();
+  expect(hide).toHaveBeenCalledTimes(1);
+  root.querySelector<HTMLButtonElement>('.shut')!.click();
+  await flush();
+  expect(hide).toHaveBeenCalledTimes(1);
+  open = true;
+  root.querySelector<HTMLButtonElement>('.shut')!.click();
+  await flush();
+  expect(hide).toHaveBeenCalledTimes(2);
+});
+
 test('a dialog an event is closing keeps its content while it closes; it renders if the close was prevented', async () => {
   const { root, flush, advance } = await render(`
     <div data-sn-state="{ draft: {name: 'Ada'} }">

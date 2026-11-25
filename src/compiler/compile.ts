@@ -2506,7 +2506,7 @@ class Compiler {
     this.page = {
       resources: new Map(), helpers: new Set(opts.helpers.names), namespaces: ns,
       actions: new Set([...(opts.actions?.names ?? []), ...Object.keys(opts.actions?.namespaces ?? {})]),
-      usedHelpers: new Set(), usedNs: new Map(), usesNow: false, pathParams: new Set(), dialogs: new Set(), fed: new Set(), ids: new Map(),
+      usedHelpers: new Set(), usedNs: new Map(), usesNow: false, pathParams: new Set(), dialogs: new Set(), popovers: new Set(), fed: new Set(), ids: new Map(),
       ...(opts.apis?.list.some((a) => a.token) ? { tokens: true } : {}),
     };
     const l = opts.locale;
@@ -6171,8 +6171,9 @@ class Compiler {
     for (const child of parent.childNodes) {
       if (isElement(child) && this.renderedAt.has(child)) {
         // rows the first pass rendered: the ids their markup writes (no action: they are static), at the first
-        for (const { id, dialog } of this.renderedAt.get(child)?.rows.idAttrs ?? []) {
+        for (const { id, dialog, popover } of this.renderedAt.get(child)?.rows.idAttrs ?? []) {
           if (dialog) this.page.dialogs.add(id);
+          if (popover) this.page.popovers.add(id);
           const t = this.page.ids!.get(id) ?? { action: false, row: false, n: 0 };
           t.n++;
           this.page.ids!.set(id, t);
@@ -6208,6 +6209,7 @@ class Compiler {
       if (child.tagName === 'sn-event') { const fed = attr(child, 'resource'); if (fed) this.page.fed.add(fed); }
       const id = attr(child, 'id');
       if (id && child.tagName === 'dialog') this.page.dialogs.add(id);
+      if (id && attr(child, 'popover') != null) this.page.popovers.add(id);
       if (id) {
         const t = this.page.ids!.get(id) ?? { action: false, row: false, n: 0 };
         const action = attr(child, 'data-sn-call') != null || METHODS.some((m) => attr(child, `data-sn-${m}`) != null);
@@ -10362,7 +10364,7 @@ class Compiler {
        * last, whose items an axis list's link names (`markAxisLink`: each row's list as written and its item)
        */
       const hrefs: RenderedRows['hrefs'] = [];
-      /** the ids its markup writes, in its order, which the second pass declares (`page.ids`, `dialogs`) */
+      /** the ids its markup writes, in its order, which the second pass declares (`page.ids`, `dialogs`, `popovers`) */
       const idList: RenderedRows['idAttrs'] = [];
       const loops: Array<{ list: string; value: unknown }> = [];
       /** a link's `data-sinter-pt`, written after `prefold`'s writes (in `fill`, for an element with bindings) */
@@ -10417,7 +10419,7 @@ class Compiler {
           // (an id the markup writes: the page's ids are declared before the second pass compiles the rows, `declare`;
           // one a binding writes is not there yet)
           const id = cp.id;
-          if (id) idList.push({ id, dialog: e.tagName === 'dialog' });
+          if (id) idList.push({ id, dialog: e.tagName === 'dialog', popover: e.attrs.some((a) => a.name === 'popover') });
           // (a component's root: its use, which the old route's expansion registers, `uses`)
           const u = cp.use;
           if (u && !u.head) st.uses.add(u.name);
@@ -14586,7 +14588,7 @@ const LOOP_HEAD = /^\s*(?:\(\s*([A-Za-z_][\w]*)\s*,\s*([A-Za-z_][\w]*)\s*\)|([A-
  * (once, at the first row element, for its diagnostics), the conditions and empty lists it folds (SN501 reads them),
  * the component files their instances are expanded from, the resources their bindings read.
  */
-export type RenderedRows = { nodes: P5Node[]; idAttrs: Array<{ id: string; dialog: boolean }>; hrefs: Array<{ el: P5Element; prefixes: HrefPrefix[]; literal: boolean; query?: string[]; src?: string; bound: boolean; origin: Origin | undefined; loc: P5Element['sourceCodeLocation'] }>; empty: P5Node[]; shown: Array<[P5Element, P5Element['attrs']]>; ids: number; list: boolean; folded: string[]; files: string[]; reads: string[]; rootStyled: string[]; late: Array<[P5Element, P5Element['attrs']]>; state: string[]; uses: Array<{ name: string; css: string | null | undefined; rawCss: string | undefined }>; rows: number };
+export type RenderedRows = { nodes: P5Node[]; idAttrs: Array<{ id: string; dialog: boolean; popover: boolean }>; hrefs: Array<{ el: P5Element; prefixes: HrefPrefix[]; literal: boolean; query?: string[]; src?: string; bound: boolean; origin: Origin | undefined; loc: P5Element['sourceCodeLocation'] }>; empty: P5Node[]; shown: Array<[P5Element, P5Element['attrs']]>; ids: number; list: boolean; folded: string[]; files: string[]; reads: string[]; rootStyled: string[]; late: Array<[P5Element, P5Element['attrs']]>; state: string[]; uses: Array<{ name: string; css: string | null | undefined; rawCss: string | undefined }>; rows: number };
 
 /**
  * What rendered rows' markup stands for, for the second pass's minifier, which minifies the markup its walk compiles

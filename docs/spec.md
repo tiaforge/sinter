@@ -264,7 +264,7 @@ A free identifier resolves to the first match, innermost first:
 - State variables declared by the nearest enclosing `data-sn-state`.
 - Resource names declared on the page.
 - Magic names: `$event`, `$el`, `$url`, `$now`, `$locale`, `$result`, `$error`, `$meta`.
-- Registered helpers, helper namespaces and the store functions (`refresh`, `upsert`, `merge`, `remove`, `page`, `openDialog`, `closeDialog`, `emit`, `run`, `navigate`).
+- Registered helpers, helper namespaces and the store functions (`refresh`, `upsert`, `merge`, `remove`, `page`, `openDialog`, `closeDialog`, `closePopover`, `emit`, `run`, `navigate`).
 - Allowed globals (below).
 Anything else is a build error with a suggestion: `contcts` → "did you mean `contacts`?".
 Globals: JavaScript yes, browser no. Expressions may use the ECMAScript standard library, including `new`: `Math`, `JSON`, `Object`, `Array`, `Set`, `Map`, `Date`, `Intl.*`, `RegExp` and the rest. Three pure web-platform utilities are allowed as well: `URL`, `URLSearchParams`, `structuredClone`. Forbidden are browser and I/O APIs (`window`, `document`, `fetch`, `localStorage`, `navigator`, timers, …) and the language's meta-tools (`eval`, `Function`, `Proxy`, `Reflect`, `globalThis`, `WeakRef`, `FinalizationRegistry`, `Atomics`). Browser work belongs in custom elements. `$el` and `$event` are handed in explicitly, so their properties and methods may be used: `$event.preventDefault()`, `$el.focus()`, `$el.form.requestSubmit()`.
@@ -562,7 +562,7 @@ Single-object resources (no `key`): `upsert` replaces the object, `merge` merges
 - Also for a reload answered with the version of the data already shown (see Unchanged responses under Behaviour): `$result` is what the load that stored the data stored.
 - So it runs again on every reload: a handler meant to run once guards itself with state or with the data, one guard per step (`!opened && openDialog('x'); opened = true`, `$result && …` for a resource that is empty when nothing is pending). A handler that refreshes its own resource loops.
 - Order: after the store has the response (writes made during the load replayed on top) and `$meta.<name>` is current (`loading` false, `loadedAt` set, `error` null), so the handler reads the resource and other resources as they now are. Its state writes re-render like any handler's, in the same flush.
-- Scope: the scope the resource's `src` and `when` see, so the state around the `<sn-resource>` element, which it may assign, and every resource. Store functions work, `run('id')` included (the mark-read case in Running an action from a handler); there is no element, so `closeDialog()` names its dialog and `emit()` is an error (`SN203`), as in `<sn-event then>`. `$event` and `$error` are not defined here; `$result` is not defined in the resource's other expressions. The `for` item name is not in scope.
+- Scope: the scope the resource's `src` and `when` see, so the state around the `<sn-resource>` element, which it may assign, and every resource. Store functions work, `run('id')` included (the mark-read case in Running an action from a handler); there is no element, so `closeDialog()` and `closePopover()` name theirs and `emit()` is an error (`SN203`), as in `<sn-event then>`. `$event` and `$error` are not defined here; `$result` is not defined in the resource's other expressions. The `for` item name is not in scope.
 - An exception in the handler is logged; the load still counts as successful.
 - A resource with `then` counts as used: one that only its own `then` reads, with or without `$result`, is not `SN501`.
 
@@ -798,12 +798,13 @@ An action is an element with one method attribute; it sends a request when its t
 | `page(messages, 'next')` | change page: a direction, or a page number where the resource can jump; may be computed (see Pagination) |
 | `openDialog('edit')` | open `<dialog id="edit">` as a modal; nothing if it is open |
 | `closeDialog()`, `closeDialog('edit')` | close the nearest `<dialog>`, or the one with that id |
+| `closePopover()`, `closePopover('menu')` | hide the nearest open `popover`, or the one with that id; nothing if it is hidden |
 | `emit('name', detail)` | dispatch a bubbling, cancelable `CustomEvent` from the element; every container with a handler for it runs, inner first, until one calls `$event.preventDefault()` |
 | `navigate(url, { replace })` | go to `url` (relative to the page's): a same-page link when only parameters the page reads change, else a navigation (a swap where on) |
 | `run('id')` | start the action of the element with that id, as its trigger would (a form: submit it); see Running an action from a handler |
 
 State assignments work too: `data-sn-then="editing = null; closeDialog()"`.
-The dialog id of `openDialog()` and `closeDialog()` is a string literal that must name a `<dialog id>` on the page or the components it uses (`SN309`), so a typo fails the build. A button that only opens a dialog needs no handler: `commandfor="edit" command="show-modal"` is the platform's. `openDialog()` is for opening after a request or call (`data-sn-then`), from a custom event, or after setting state in the same handler. Bindings inside the dialog render when it opens.
+The dialog id of `openDialog()` and `closeDialog()` is a string literal that must name a `<dialog id>` on the page or the components it uses (`SN309`), so a typo fails the build. A button that only opens a dialog needs no handler: `commandfor="edit" command="show-modal"` is the platform's. `closePopover('id')` names an element with `popover` and that `id` the same way (`SN309`); `closePopover()` hides the popover around the element, which `command="hide-popover"` cannot do for a link: a same-page link in a menu popover (`<a href="#services" data-sn-on-click="closePopover()">`) closes it as it scrolls. `openDialog()` is for opening after a request or call (`data-sn-then`), from a custom event, or after setting state in the same handler. Bindings inside the dialog render when it opens.
 
 ### Write-through
 A mutation's 2xx response is applied to the resources it is about, by the `write-through` feature module (`@tiaforge-ui/sinter/runtime/write-through`, `apply` until 2026-11-20) (loaded by pages that have something to apply), after the optimistic layer commits and before `then` runs, so `then` has the last word. Nothing is declared: the compiler knows what the action is about and what the response holds.

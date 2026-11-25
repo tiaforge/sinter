@@ -248,9 +248,9 @@ Error, for example:
 
 > no `<dialog id="compose-dialg">` on this page. Did you mean `compose-dialog`?
 
-`openDialog(id)` and `closeDialog(id)` name a `<dialog>` by its literal `id`, which must be on the page or one of its partials. `run(id)` starts the action of the element with that literal `id`: an element on the page or one of its partials with `data-sn-post`, `-put`, `-patch`, `-delete` or `data-sn-call`. Also reported: an id that is not a string literal, an element without an action, an element inside a `data-sn-for` row (every row would have the id), and an id that more than one element has.
+`openDialog(id)` and `closeDialog(id)` name a `<dialog>` by its literal `id`, which must be on the page or one of its partials; `closePopover(id)` names an element with `popover` the same way. `run(id)` starts the action of the element with that literal `id`: an element on the page or one of its partials with `data-sn-post`, `-put`, `-patch`, `-delete` or `data-sn-call`. Also reported: an id that is not a string literal, an element without an action, an element inside a `data-sn-for` row (every row would have the id), and an id that more than one element has.
 
-**Fix:** Fix the id, or add `id` to the `<dialog>`. `closeDialog()` without an argument closes the dialog around the element. Fix the id, or give the action element an `id`. For a row's action, put one action element outside the list and pass the row through state: `open = m; run('mark-read')`.
+**Fix:** Fix the id, or add `id` to the `<dialog>` (or the `popover` element). `closeDialog()` without an argument closes the dialog around the element, `closePopover()` the popover. Fix the id, or give the action element an `id`. For a row's action, put one action element outside the list and pass the row through state: `open = m; run('mark-read')`.
 
 ## SN310 unknown-action
 

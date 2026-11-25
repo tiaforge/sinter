@@ -111,6 +111,8 @@ const cases: Array<[string, string, RegExp, Opts?]> = [
   ['SN308', '<sn-resource name="c" src="/api/c" select="contcts"></sn-resource><p data-sn-text="c"></p>', /the response of `GET \/api\/c` has no `contcts`. Did you mean `contacts`\?/, { openapi: true }],
   ['SN306', '<x-a></x-a>', /`<x-a>` → `<x-b>` → `<x-a>` uses itself with no `data-sn-for` or `data-sn-if` template between/],
   ['SN309', '<dialog id="compose"></dialog><button data-sn-on-click="openDialog(\'compse\')"></button>', /no `<dialog id="compse">` on this page. Did you mean `compose`\?/],
+  ['SN309', '<nav id="menu" popover></nav><button data-sn-on-click="closePopover(\'mneu\')"></button>', /no element with `popover` and `id="mneu"` on this page. Did you mean `menu`\?/],
+  ['SN309', '<div id="menu"></div><button data-sn-on-click="closePopover(\'menu\')"></button>', /no element with `popover` and `id="menu"`/],
   ['SN310', '<button data-sn-call="archive(1)"></button>', /`archive` is not exported by the actions module/],
   ['SN309', `<span id="mark-read" data-sn-post="/x"></span><button data-sn-on-click="run('mark-raed')"></button>`, /no element `id="mark-raed"` on this page. Did you mean `mark-read`\?/],
   ['SN312', '<x-two></x-two>', /a component's root renders at most one element/],
@@ -371,6 +373,9 @@ describe('<sn-event then>', () => {
     expect(codes(`<sn-event name="n" then="closeDialog(); emit('x')"></sn-event>`)).toEqual([
       "SN203 `closeDialog()` needs an element; an `<sn-event>` handler has none: name the dialog, `closeDialog('id')`",
       'SN203 `emit()` needs an element; an `<sn-event>` handler has none',
+    ]);
+    expect(codes(`<sn-event name="n" then="closePopover()"></sn-event>`)).toEqual([
+      "SN203 `closePopover()` needs an element; an `<sn-event>` handler has none: name the popover, `closePopover('id')`",
     ]);
     expect(codes(`<sn-event name="n" then="$event.id = 2"></sn-event>`)).toEqual([expect.stringMatching(/^SN203 `\$event\.id` cannot be assigned/)]);
     expect(codes(`<sn-event name="r" resource="contacts" op="remove" thn="sel = null"></sn-event>`))

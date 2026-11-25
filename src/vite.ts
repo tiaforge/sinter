@@ -79,7 +79,8 @@ export interface SinterOptions extends ProjectOptions {
   /**
    * static images (default on, needs sharp): every `<img src>` of a local JPEG, PNG, WebP or AVIF
    * becomes a `<picture>` with AVIF or lossless WebP, widths for each screen, dimensions and lazy
-   * loading (docs/images.md). `false`: images stay as written; `widths`: the widths of fluid images
+   * loading (docs/images.md). `false`: images stay as written; `widths`: the widths of fluid images, the
+   * largest also the widest file of any fluid image or sized CSS background (default: up to the source's width)
    */
   images?: false | {
     widths?: number[];
@@ -2422,6 +2423,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         },
         info: (f) => img.info(f), analyze: (f) => img.analyze(f),
         url: (v) => `${base}${IMG.slice(1)}${img.fileName(v)}`,
+        ...(options.images && options.images.widths ? { widths: options.images.widths } : {}),
       };
       const out = await rewriteCssImages(code, host);
       if (!out) return null;
@@ -2466,6 +2468,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
             const relPath = posix.relative(from, file);
             return relPath.startsWith('.') ? relPath : `./${relPath}`;
           },
+          ...(options.images && options.images.widths ? { widths: options.images.widths } : {}),
         };
         const out = await rewriteCssImages(String(a.source), host);
         if (!out) continue;
@@ -2579,9 +2582,11 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
    * distinct set (`fonts-<hash>.css` beside the CSS assets), linked in `<noscript data-sn-fonts>` at the start of the
    * head, which the early file reads. Each stylesheet that lost faces gets their fitted
    * fallback faces (`fallbackFaces`), and every stylesheet of the page names the fitted families after their web
-   * fonts (`withFallbackFamilies`): a stylesheet that changed is replaced, on that page, with a copy. The original
-   * stays for any page that still links it (a page without an early file, whose fonts load as they always did) and
-   * is removed when none does, unless a manifest names it.
+   * fonts (`withFallbackFamilies`): a stylesheet that changed is replaced, on that page, with a copy. A page without
+   * an early file that links one of those stylesheets gets the same copies, and the faces' file as a plain
+   * stylesheet link before the first of them (render-blocking, as the faces were), so every page shares one
+   * stylesheet; its fonts load as they always did, with the fitted fallbacks while they swap. The original is
+   * removed when no page links it, unless a manifest names it.
    */
   async function deferFonts(ctx: { emitFile(f: { type: 'asset'; fileName: string; source: string }): string }, bundle: Record<string, { type: string; fileName: string; source?: string | Uint8Array; code?: string }>) {
     if (!fontPages.size) return;
@@ -2597,18 +2602,22 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     // a family no font list of the build's stylesheets names needs no fitted fallback (a Google Fonts URL asks for more than the CSS uses)
     const allCss = Object.values(bundle).filter((o) => o.type === 'asset' && o.fileName.endsWith('.css')).map((o) => text(o.source)).join('\n');
     const listed = (family: string) => withFallbackFamilies(allCss, [family]) != allCss;
-    for (const rel of fontPages) {
-      const page = bundle[rel];
+    // the pages with an early file first (they decide which stylesheets lose faces), then the other pages that link one
+    const others = Object.values(bundle).filter((o) => o.type === 'asset' && /\.html?$/i.test(o.fileName) && !fontPages.has(o.fileName)).map((o) => o.fileName);
+    for (const rel of [...fontPages, ...others]) {
+      const page = bundle[rel], early = fontPages.has(rel);
       if (page?.type !== 'asset') continue;
       let html = text(page.source);
       const base = pageBase(r.base, rel), faces: string[] = [], sheets: Array<{ tag: string; href: string; name: string }> = [];
-      let last = '', cors = false;
+      let last = '', first = '', cors = false;
       for (const m of html.matchAll(/<link\b[^>]*>/gi)) {
         const tag = m[0];
         if (!/\brel=["']?stylesheet\b/i.test(tag)) continue;
         const href = /\bhref=["']([^"']+)["']/i.exec(tag)?.[1] ?? '';
         const name = href.startsWith(base) ? href.slice(base.length) : '', a = name ? bundle[name] : undefined;
         if (a?.type !== 'asset' || !name.endsWith('.css')) continue;
+        // (a page without an early file only follows what the early pages decided)
+        if (!early && !splits.has(name)) continue;
         if (!splits.has(name)) {
           const split = deferredFaces(text(a.source), preloads, await textFamiliesOf(bundle, name));
           // a system font fitted to each deferred face of a text font, for the text painted before it (fallbackFaces)
@@ -2617,23 +2626,30 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         }
         sheets.push({ tag, href, name });
       }
+      if (!early && !sheets.some((x) => splits.get(x.name))) continue;
       // the fitted families go after their web fonts in the font lists of every stylesheet of the page
       const families = [...new Set(sheets.flatMap((x) => splits.get(x.name)?.families ?? []))];
       for (const { tag, href, name } of sheets) {
         const c = splits.get(name), was = text(bundle[name]!.source), css = withFallbackFamilies(c?.css ?? was, families);
         if (c) { faces.push(...c.faces); cors ||= /\scrossorigin\b/i.test(tag); }
-        if (css == was) { if (c) last = tag; continue; }
+        if (css == was) { if (c) { last = tag; first ||= tag; } continue; }
         // Vite's name less its hash (`index-B3xk2_9a.css`), then the copy's own
         const fileName = `${name.slice(0, -4).replace(/-[\w-]{8}$/, '')}-${hash(css)}.css`;
         emit(fileName, css);
         copied.add(name);
         const now = tag.replace(href, base + fileName);
         html = html.replace(tag, now);
-        if (c) last = now;
+        if (c) { last = now; first ||= now; }
       }
       if (!faces.length) continue;
       const source = faces.join('\n') + '\n', fileName = `${dir}/fonts-${hash(source)}.css`;
       emit(fileName, source);
+      if (!early) {
+        // no early file to load them after `load`: a stylesheet, before the first that lost them (render-blocking, as they were)
+        const link = `<link rel="stylesheet"${cors ? ' crossorigin' : ''} href="${base}${fileName}">`;
+        page.source = html.replace(first, link + first);
+        continue;
+      }
       // inert for a visitor with scripts, a stylesheet without (render-blocking, as the faces were); at the start of the
       // head, where the early file, which runs before the stylesheets are parsed, finds it: its attributes repeat the link's
       const at = /<meta\s+charset[^>]*>/i.exec(html) ?? /<head[^>]*>/i.exec(html);

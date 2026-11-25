@@ -13,6 +13,24 @@ How to write an entry (from 0.21.0 on; older sections keep their own form):
 - Implementation details and benchmark figures go in the commit or the pull request. A speed-up or a size
   change is a Performance bullet with its headline number.
 
+## Unreleased
+
+### Added
+
+- `closePopover()` and `closePopover('id')` in handlers: hide the `popover` around the element, or the one with that
+  id (a literal naming an element with `popover`, `SN309`), as `closeDialog()` does for dialogs. A same-page link in a
+  menu popover closes it: `<a href="#services" data-sn-on-click="closePopover()">` ([docs/actions.md](docs/actions.md)).
+
+### Changed
+
+- With `images.widths`, the largest width is the widest file: a fluid `<img>` no longer adds a file at the source's
+  own width above it, and a sized CSS background's 2x file is at most that width (1x half of it). A 6000 px hero
+  with `widths: [480, …, 3840]` ships no 6000 px files. Without `widths` nothing changes
+  ([docs/images.md](docs/images.md)).
+- A page without an early script links the same stylesheet copy as the pages that defer their fonts, plus the fonts
+  file as a plain stylesheet before it, instead of the original stylesheet: every page caches one stylesheet, and the
+  fitted fallback fonts apply on that page too ([docs/first-paint.md](docs/first-paint.md#fonts-after-the-load)).
+
 ## 0.22.1 (2026-11-24)
 
 ### Fixed

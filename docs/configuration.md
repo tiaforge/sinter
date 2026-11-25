@@ -122,7 +122,7 @@ To self-host fonts (no requests to Google, `font-src 'self'`), use a local packa
 | Option | Default | Purpose |
 | --- | --- | --- |
 | `images` | on (needs `sharp`) | local `<img src>` JPEG, PNG, WebP and AVIF become responsive `<picture>` elements. `false` leaves images as written |
-| `images.widths` | built in | widths for fluid images |
+| `images.widths` | built in | widths for fluid images; the largest is also the widest file of a fluid image or a sized CSS background (built in: the source's width) |
 | `images.remote` | none | images from the API: `{ url, cover, origins }` for a resizing service |
 
 [docs/images.md](images.md) covers both steps.

@@ -34,6 +34,14 @@ test('a fluid photo: AVIF source, JPEG fallback, widths below the source and the
   expect(out.module.startsWith('import "/@sinter/img/index.html.css";\n')).toBe(true);
 });
 
+test('a fluid photo with `images.widths`: those below the source, the largest the widest file; a source narrower than it adds its own width', () => {
+  const capped = body(run('<img src="img/photo.jpg" alt="">', { ...host, widths: [400, 800, 1200] }).html);
+  expect(capped).toContain('srcset="/i/photo-400.avif 400w, /i/photo-800.avif 800w, /i/photo-1200.avif 1200w"');
+  expect(capped).not.toContain('photo-1600');
+  const wide = body(run('<img src="img/photo.jpg" alt="">', { ...host, widths: [800, 3840] }).html);
+  expect(wide).toContain('srcset="/i/photo-800.avif 800w, /i/photo-1600.avif 1600w"');
+});
+
 test('a fixed box: 1x, 2x and, for a small box, 3x; `sizes` from the box', () => {
   const out = run('<img src="img/photo.jpg" width="200" alt="">');
   const html = body(out.html);
