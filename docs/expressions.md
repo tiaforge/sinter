@@ -95,6 +95,19 @@ export const toc = memo((body: string, depth: number) => headings(parseDocument(
 
 Always available, no import. They read the current locale, so a locale switch updates them. Each `Intl` formatter is built once per locale and options, then reused.
 
+The locale, and `$locale`, is one of these, the first that applies:
+
+1. The app's own source, `configure({ locale })` ([docs/configuration.md](configuration.md)): its locale, in the
+   browser only. The build looks for it in the config and early modules (`src/sinter.config.*`, `src/sinter.early.*`):
+   when either source has a `locale` key, nothing is formatted at build time and `<html lang>` is not used.
+2. The page's language with [`languages()`](static-pages.md#languages).
+3. The page's `<html lang>` (or its layout's) as written: at build time, in the first paint and in the browser alike
+   (`<html lang="de">`: `number(1234.5)` is `1.234,5` for every visitor). A page sets it when it formats something
+   (a built-in formatter, `$locale`, a component's script); an app helper that calls sinter's `date()` itself gets it
+   on those pages only.
+4. Otherwise the browser's default locale, and `$locale` is `undefined`: with no `lang`, one a binding sets
+   (`data-sn-attr="{ lang: … }"` on `<html>` or a layout's tag), or one `Intl` does not take (`en_US`).
+
 | Helper | Example | Result in `en` |
 | --- | --- | --- |
 | `date(v, style, timeStyle)` | `date(c.born, 'long')` | `March 4, 1990` |
@@ -109,8 +122,9 @@ Always available, no import. They read the current locale, so a locale switch up
 A calendar date, a string `YYYY-MM-DD` (`'2026-11-11'`), is the same day for every visitor: `date()` formats it in UTC,
 where it was parsed, so it never shows the day before west of Greenwich. A moment (a timestamp, a `Date`,
 `'2026-11-11T09:00:00Z'`) is shown in the visitor's time zone. In a page built in one language
-([`localePrefix`](static-pages.md#languages)), `number()`, `bytes()` and `date()` of a calendar date over constants
-are written into the HTML at build time; moments, times and `relative()` are formatted in the browser.
+([`localePrefix`](static-pages.md#languages), or a literal `<html lang>` in an app that sets no locale), `number()`, `bytes()`
+and `date()` of a calendar date over constants are written into the HTML at build time; moments, times and
+`relative()` are formatted in the browser.
 
 ## What belongs in markup
 

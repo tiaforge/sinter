@@ -15,6 +15,19 @@ How to write an entry (from 0.21.0 on; older sections keep their own form):
 
 ## Unreleased
 
+### Breaking
+
+- In an app that sets no locale (no `languages()`, no `localePrefix`, no `configure({ locale })`), the page's literal
+  `<html lang>` (or its layout's) is now the locale of `date()`, `number()`, `bytes()` and `relative()` and the value
+  of `$locale`, at build time, in the first paint and in the browser. Before, the formatters used each visitor's
+  browser locale and `$locale` was `undefined`. Most apps have `<html lang="en">`: their dates and numbers are now
+  English for every visitor (one whose browser is in German sees `January 26, 2026` and `1,234.5` where it saw
+  `26. Januar 2026` and `1.234,5`), and `$locale` is `'en'`. To keep formatting by the visitor's locale, set a source in `src/sinter.config.js`:
+  `configure({ locale: { get: () => navigator.language, set() {} } })`. Any `locale` key in the config or early module
+  opts out completely, build-time formatting included. A page with no `lang`, a bound one (`data-sn-attr`, also on a
+  layout's tag), or one `Intl` does not take (`en_US`) is unchanged
+  ([docs/expressions.md](docs/expressions.md#built-in-formatters)).
+
 ### Added
 
 - The store handle `instance(root).resource(name)` has `src` and `order`: the URL the resource loads now (its `src` resolved in its scope, an API's `base` included, without pagination parameters or a POST body; `null` while `when` is false and for `call`, `for` and `file:` resources) and its `order` attribute as written (`-rank`). A custom element can save to the resource's API without being told the URL again ([docs/islands.md](docs/islands.md#instance-api)).

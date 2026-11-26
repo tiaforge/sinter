@@ -317,13 +317,16 @@ export function earlyPage(early: EarlyParts): { code: string; uses: string[] } {
   // `data-sn-signed-in`: the page passes the guard (else the early file carries none of it); `signIn` a path, the one
   // without loginRedirect's options
   const away = early.ir.si ? (typeof early.ir.si.i == 'string' ? 'away' : 'awayVia') : null;
-  const extra = [...(lc ? ['locale'] : []), ...(ls ? ['lists'] : []), ...(away ? [away] : [])];
+  // (an app that sets no locale: the page's `<html lang>`, which the page object carries; the head script's runtime is
+  // shared, so a `$lang` in this file would not reach it)
+  const extra = [...(lc && !early.lang ? ['locale'] : []), ...(ls ? ['lists'] : []), ...(away ? [away] : [])];
+  const own = lc && early.lang ? `, locale: () => ({ get: () => ${JSON.stringify(early.lang)} })` : '';
   // a resource that needs its API's token: its early status reads whether one is stored
   // (and the guard, which the page passes it)
   const so = away || early.fns.some((x) => x.includes('$so(')) ? ['$so'] : [];
   const more = [...extra, ...hr, ...so, ...(req?.uses ?? [])];
   const uses = more.length ? [...new Set([...r.uses, ...more])].sort() : r.uses;
-  return { code: `{ ir: ${JSON.stringify(ir)}, fns: f, scopes: ${r.scopes}, render: ${r.render}${req ? `, req: ${req.code}` : ''}${extra.map((x) => (x == away ? `, away: (o, b) => ${x}(o, b, $so)` : ', ' + x)).join('')} }`, uses };
+  return { code: `{ ir: ${JSON.stringify(ir)}, fns: f, scopes: ${r.scopes}, render: ${r.render}${req ? `, req: ${req.code}` : ''}${extra.map((x) => (x == away ? `, away: (o, b) => ${x}(o, b, $so)` : ', ' + x)).join('')}${own} }`, uses };
 }
 
 function earlyLines(early: EarlyParts | null, options: Pick<CompileOptions, 'helpers' | 'early' | 'observe' | 'locale' | 'contentNs'>): MappedLines | null {
@@ -362,9 +365,11 @@ function earlyLines(early: EarlyParts | null, options: Pick<CompileOptions, 'hel
   // the built-in formatters the early bindings call, from the package (not the early runtime, which the build shares
   // between pages): each early file bundles only those it calls, beside the messages module that sets its locale
   // (in the page's language, when it has one: `$lang`)
+  // (an app that sets no locale: the page's literal `<html lang>`; `$locale` early comes from the page object, `earlyPage`)
+  const lang = options.locale?.name ?? early?.lang;
   if (early?.formatters?.length) {
-    lines.push(`import { ${[...early.formatters, ...(options.locale ? ['$lang'] : [])].join(', ')} } from '${RUNTIME}';`);
-    if (options.locale) lines.push(`$lang(${JSON.stringify(options.locale.name)});`);
+    lines.push(`import { ${[...early.formatters, ...(lang ? ['$lang'] : [])].join(', ')} } from '${RUNTIME}';`);
+    if (lang) lines.push(`$lang(${JSON.stringify(lang)});`);
   }
   lines.push('');
   if (early) {
@@ -385,10 +390,12 @@ export function pageModule(parts: CompiledParts, options: Pick<CompileOptions, '
 function pageLines(parts: CompiledParts, options: Pick<CompileOptions, 'helpers' | 'dev' | 'config' | 'actions' | 'prefetch' | 'origins' | 'locale' | 'apis' | 'swap' | 'swapList'> & Partial<Pick<CompileOptions, 'root'>>): MappedLines {
   const lines = new MappedLines();
   // the page module is `async`: it waits for the parse, and for the early file if the page has one
-  const core = ['mount', '$k', parts.early ? 'rendered' : 'parsed', ...parts.helpers.builtin, ...(options.locale ? ['$lang'] : [])];
+  // a page in one language: the locale the formatters use, the app's and the page's (an app without languages: the
+  // page's literal `<html lang>`; an app's `configure({ locale })` wins over it)
+  const lang = options.locale?.name ?? parts.lang;
+  const core = ['mount', '$k', parts.early ? 'rendered' : 'parsed', ...parts.helpers.builtin, ...(lang ? ['$lang'] : [])];
   lines.push(`import { ${core.join(', ')} } from '${RUNTIME}';`);
-  // a page in one language: the locale the formatters use, the app's and the page's
-  if (options.locale) lines.push(`$lang(${JSON.stringify(options.locale.name)});`);
+  if (lang) lines.push(`$lang(${JSON.stringify(lang)});`);
   // prefixed (a helper may be named as a feature: `keys`, `form`, …), and an identifier (`query-links` is `sn$query_links`)
   const local = (f: string) => `sn$${f.replace(/-/g, '_')}`;
   for (const f of parts.features) lines.push(`import ${local(f)} from '${RUNTIME}/${f}';`);

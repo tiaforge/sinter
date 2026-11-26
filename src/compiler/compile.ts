@@ -188,6 +188,11 @@ export interface CompileOptions {
    */
   changesRequests?: boolean;
   /**
+   * the app sets a locale source itself (`configure({ locale })` in its config or early module, `project.ts`
+   * `configuresLocale`): the page's `<html lang>` is not its locale
+   */
+  appLocale?: boolean;
+  /**
    * Content namespaces (docs/proposals/messages.md §1): by name, the entries a page may call as `ns.id(args)` in the
    * page's language (or at its point), and how they are formatted: `format`, a formatter module whose
    * `format(entry, args, locale)` makes the value (absolute, or a package), or null for the built-in `{param}` text;
@@ -440,6 +445,8 @@ export interface EarlyParts {
   formatters?: string[];
   /** the early renderers of the components whose uses render early (their `cmp` bindings): by local name, the module */
   renderers?: Record<string, string>;
+  /** an app without languages: the page's literal `<html lang>`, the locale of the formatters and `$locale` (`$lang`) */
+  lang?: string;
 }
 
 /**
@@ -448,6 +455,8 @@ export interface EarlyParts {
  * sets their locale). Not `relative`: it reads the clock.
  */
 export const EARLY_FORMATTERS = ['date', 'number', 'bytes'];
+/** the built-in formatters, which read the locale */
+const FORMATTERS = new Set([...EARLY_FORMATTERS, 'relative']);
 
 /**
  * What another page needs to request this page's data ahead (the `prefetch` feature): its
@@ -591,6 +600,8 @@ export interface CompiledParts {
   keptBound?: string[];
   /** `<html data-sn-swap="off">`: links to this page load it */
   swapOff?: true;
+  /** an app without languages: the page's literal `<html lang>`, the locale of the formatters and `$locale` (`$lang`) */
+  lang?: string;
   /** origins of resources that could be requested early but are not in `origins` */
   unlistedOrigins?: string[];
   /** the scoped styles of the components the page uses, by component */
@@ -2608,8 +2619,9 @@ class Compiler {
     if (this.opts.urls) this.canonical(doc);
     // a page in one language says which: `<html lang="de">`
     if (this.opts.locale && this.opts.locale.prefix !== false) { const h = doc.childNodes.find((n): n is P5Element => isElement(n) && n.tagName === 'html'); if (h) setAttr(h, 'lang', this.opts.locale.name); }
-    // the page's language, for what the build sorts (`order` on a `file:` list): its `<html lang>`, the layout's included
-    { const h = doc.childNodes.find((n): n is P5Element => isElement(n) && n.tagName === 'html'); this.pageLang = (h && attr(h, 'lang')) || undefined; }
+    // the page's language, for what the build sorts (`order` on a `file:` list): its `<html lang>`, the layout's included;
+    // and in an app that sets no locale itself, the locale of `$locale` and the formatters (`pageLocale`)
+    { const h = doc.childNodes.find((n): n is P5Element => isElement(n) && n.tagName === 'html'); this.pageLang = (h && attr(h, 'lang')) || undefined; this.htmlLocale = h && !this.tagBindsLang ? literalLang(h) : undefined; }
     this.checkHead();
     const twice = this.componentIds();
     for (const { el, why } of this.repeatedIds) {
@@ -2666,7 +2678,7 @@ class Compiler {
     if (this.opts.units && unitsOn() && (!ships || live?.size) && !this.opts.describeOnly && !this.opts.dev) {
       // (B1: what placing it adds to the page's tables, which the second pass from this walk takes out: `fromWalk`)
       const sizes = this.fw && this.pointNames.length ? this.fwSizes() : null;
-      this.placedUnit = placeUnits(this, this.opts.units as UnitStore, [this.keepsAttrs, this.opts.locale?.name ?? '', this.page.axisUrl ?? '', this.finishedFirst ? 'first' : ''].join('\u0001'), ships, live ?? undefined);
+      this.placedUnit = placeUnits(this, this.opts.units as UnitStore, [this.keepsAttrs, this.pageLocale() ?? '', this.page.axisUrl ?? '', this.finishedFirst ? 'first' : ''].join('\u0001'), ships, live ?? undefined);
       if (sizes && (this.placedUnit || this.earlyDefs)) { this.fw!.unit = { ...this.fwSince(sizes), f1: this.fns.length, fnUses: this.fnUses.slice() }; this.fwWatchUnit(); }
       if (ships) holdUnit(this);
       // (a unit refused after its definitions were compiled here: the page compiled again without one, `compileTwice`)
@@ -3034,6 +3046,9 @@ class Compiler {
       ...((effect) => (effect ? { loadEffect: effect } : {}))(this.loadEffects(ir, doc)),
       ...(this.permanentNames.length ? { permanent: [...this.permanentNames], keptSource: Object.fromEntries(this.keptSource), ...(this.keptBound.size ? { keptBound: [...this.keptBound] } : {}) } : {}),
       ...(this.swapOff ? { swapOff: true as const } : {}),
+      // (only for a page module that reads the locale: a built-in formatter, `$locale`, a component's script)
+      ...(this.ownLang() && (builtin.some((h) => FORMATTERS.has(h)) || this.scripts.size
+        || this.fns.some((f) => f.includes('$.$locale'))) ? { lang: this.ownLang() } : {}),
       ...(this.unlisted.size ? { unlistedOrigins: [...this.unlisted].sort() } : {}),
       styles: [...this.uses.keys()].sort().flatMap((n) => {
         const f = this.componentFiles.get(n), css = f?.css;
@@ -3863,6 +3878,8 @@ class Compiler {
     this.fillSlots(use, ldoc);
     // the tag's attributes: plain ones replace the layout's on `<html>` (its defaults), `class` is joined
     for (const a of host.attrs) {
+      // (a binding of the tag's on the layout's `<html>`: its `lang` is not the page's locale, `literalLang`)
+      if (a.name === 'data-sn-attr' && bindsLang(a.value)) this.tagBindsLang = true;
       if (a.name === 'data-sn-with' || a.name === 'data-sn-state') continue;
       // `data-sn-for`: the layout's lists (its axes, `tenant in tenants`) are outside the page's own
       if (a.name === 'data-sn-for') { const own = attr(lhtml, 'data-sn-for'); setAttr(lhtml, a.name, own ? `${own}; ${a.value}` : a.value); continue; }
@@ -8572,6 +8589,23 @@ class Compiler {
   private pagesOut: CompiledParts['pages'] | undefined;
   /** the page's `<html lang>`, once the layout is merged */
   private pageLang: string | undefined;
+  /** the page's `<html lang>` when it is literal (`literalLang`), once the layout and its tag are merged */
+  private htmlLocale: string | undefined;
+  /** a layout's tag has a `data-sn-attr` that may set `lang` (it binds the layout's `<html>`) */
+  private tagBindsLang = false;
+
+  /**
+   * The page's one locale: its language with `localePrefix` or `languages()`; in an app that sets no locale itself
+   * (`ownLang`), its literal `<html lang>`. `$locale` and the built-in formatters read it, at build and in the browser.
+   */
+  pageLocale(): string | undefined {
+    return this.opts.locale?.name ?? this.ownLang();
+  }
+
+  /** an app without languages and without `configure({ locale })`: the page's literal `<html lang>` (`$lang`) */
+  ownLang(): string | undefined {
+    return this.opts.locale || this.opts.appLocale ? undefined : this.htmlLocale;
+  }
 
   /**
    * `<html data-sn-for="post in posts">` (on the page's `<html>`, or its layout's tag): the page once per entry of a
@@ -9196,9 +9230,10 @@ class Compiler {
     // records which helper kept the binding in the browser, for SN322
     const folding = (this.folding = this.helperCalls(NOT));
     for (const h of this.opts.helpers.names) params.set(h, folding.fn(h));
-    // a page built in one language: what depends only on the language is written as the browser would. A calendar
-    // date (`2026-11-11`) is the same day everywhere; a moment (`…T09:00Z`) is the visitor's time zone's
-    const lang = this.opts.locale?.name;
+    // a page in one language (`localePrefix`, `languages()`, or a literal `<html lang>`): what depends only on the
+    // language is written as the browser would. A calendar date (`2026-11-11`) is the same day everywhere; a moment
+    // (`…T09:00Z`) is the visitor's time zone's
+    const lang = this.pageLocale();
     if (lang) {
       // the browser's own formatters, with the page's language as the locale for the call
       const inLang = <T>(f: () => T): T => { const was = config.locale; config.locale = { get: () => lang, set: () => {} }; try { return f(); } finally { config.locale = was; } };
@@ -13041,7 +13076,9 @@ class Compiler {
     if ((url || readsUrl) && this.pathList.length) ir.path = this.pathList;
     const arrays = this.urlArrays();
     if ((url || readsUrl) && arrays.length) ir.urlArrays = arrays;
-    return { ir, fns, helpers, namespaces, ...(formatters.length ? { formatters } : {}), ...(Object.keys(renderers).length ? { renderers } : {}) };
+    // an app that sets no locale: the page's literal `<html lang>`, for the formatters and `$locale` (`$lang`)
+    const lang = this.ownLang();
+    return { ir, fns, helpers, namespaces, ...(formatters.length ? { formatters } : {}), ...(Object.keys(renderers).length ? { renderers } : {}), ...(lang ? { lang } : {}) };
   }
 
   /**
@@ -14063,6 +14100,26 @@ const memberNames = (namespaces: Record<string, { members: string[] }>) => Objec
 
 function isElement(n: P5Node): n is P5Element {
   return 'tagName' in n;
+}
+
+/**
+ * `<html lang>` as written, when no binding may set it and `Intl` takes it as a language tag; else undefined. A
+ * `data-sn-attr` that is no object literal, or has a `lang` key (`{ lang }`, `'lang': …`, a computed or spread one), may.
+ */
+function literalLang(html: P5Element): string | undefined {
+  const lang = attr(html, 'lang')?.trim();
+  if (!lang || bindsLang(attr(html, 'data-sn-attr'))) return undefined;
+  try { Intl.getCanonicalLocales(lang); } catch { return undefined; }
+  return lang;
+}
+
+/** whether a `data-sn-attr` value may set `lang`: no object literal, or a `lang` key, a computed key or a spread */
+function bindsLang(value: string | undefined): boolean {
+  if (!value?.trim()) return false;
+  let e: acorn.Expression;
+  try { e = parseExpression(value); } catch { return true; }
+  return e.type !== 'ObjectExpression' || e.properties.some((p) => p.type !== 'Property' || p.computed
+    || (p.key.type === 'Identifier' ? p.key.name : p.key.type === 'Literal' ? String(p.key.value) : '').toLowerCase() === 'lang');
 }
 
 function attr(el: P5Element, name: string): string | undefined {

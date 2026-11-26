@@ -167,9 +167,12 @@ const entries = {
 // 57.375 KB) for the component-library requests: an optimistic change's throw reported as the page's error, the resource
 // handle's `src` and `order`, refs set inside a closed dialog, and the runtime telling a second copy of sinter apart
 // (60–100 B gzip in the core; the minimal page had 1 B left)
+// Raised on 2026-11-26 to 57.4375 KB (58,816 B): RealWorld's layout has `<html lang="en">` and its config sets no locale,
+// so its pages that format dates now set that locale (`$lang("en")` in the page module and the early file): 31 B gzip
+// on the article; the core and pages that format nothing are as before
 const BUDGET = {
   'multilingual de/status': 12.625 * 1024, 'multilingual de/status, html': 0.875 * 1024,
-  minimal: 11.125 * 1024, 'minimal, swaps': 13 * 1024, 'realworld article': 57.375 * 1024,
+  minimal: 11.125 * 1024, 'minimal, swaps': 13 * 1024, 'realworld article': 57.4375 * 1024,
   'minimal, link': 11.125 * 1024, 'minimal, token': 12.125 * 1024, 'minimal, token, early': 1.875 * 1024, 'realworld early, shared': 3.375 * 1024,
 };
 let failed = false;

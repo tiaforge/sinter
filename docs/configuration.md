@@ -156,7 +156,7 @@ configure({
 | `request` | `Middleware[]` | the [request layer](#the-request-layer) |
 | `sessionProbe` | URL | a cheap authenticated endpoint. After a network error, and before a stream reconnects, sinter requests it: a 2xx means go on, a 401 goes to your login handler, anything else waits and tries again ([docs/retry.md](retry.md), [docs/sync.md](sync.md)) |
 | `onError` | `(error, element) => void` | called for an action or load error nothing else handled. `element` is the element that started it, or `null` |
-| `locale` | `{ get(), set(locale) }` | connects your own locale source to `$locale` and the date and number helpers (a message library that switches language in place). Not needed with [`inlang()`](messages.md), whose pages each have one language |
+| `locale` | `{ get(), set(locale) }` | connects your own locale source to `$locale` and the date and number helpers (a message library that switches language in place). Not needed with [`inlang()`](messages.md), whose pages each have one language. Without it, an app without languages uses the page's literal `<html lang>`; with it (a `locale` key in this module or the early module), the build formats nothing in `<html lang>` ([docs/expressions.md](expressions.md#built-in-formatters)) |
 | `origins` | `string[]` | allowed origins besides the page's own. Replaces the list; prefer `sinter({ origins })` |
 | `urlSchemes` | `string[]` | extra URL schemes allowed in bound `href` and `src`, e.g. `['sms']`. `http`, `https`, `mailto` and `tel` are always allowed; `javascript:`, `vbscript:` and `data:` never are |
 | `transport` | `(url) => Transport \| undefined` | the connection for a `<sn-sync src>`. Return `undefined` for the default `EventSource` ([docs/sync.md](sync.md)) |

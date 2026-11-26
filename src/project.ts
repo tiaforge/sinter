@@ -117,6 +117,11 @@ export interface Project {
    * `<link rel="preload">`, whose response the browser gives a later fetch whatever headers it adds
    */
   changesRequests: boolean;
+  /**
+   * the config or early module may set a locale source (`configure({ locale })`): the app sets the locale itself, so
+   * the page's `<html lang>` is not its locale (docs/expressions.md#built-in-formatters)
+   */
+  configuresLocale: boolean;
   /** root-relative URL of the early module (`/src/sinter.early.ts`), or null */
   early: string | null;
   /** the generated `src/sinter.components.d.ts` (written when a component has a script), or null */
@@ -300,6 +305,7 @@ export function project(root: string, options: ProjectOptions = {}): Project {
     componentsTypes: writeComponentTypes(root, readFile, libs.libraries),
     config: configRel ? url(configRel) : null,
     changesRequests: configRel ? changesRequests(configSource(configRel, readFile(resolve(root, configRel)))) : false,
+    configuresLocale: [configRel, earlyRel].some((rel) => !!rel && configuresLocale(readFile(resolve(root, rel)))),
     early: earlyRel ? url(earlyRel) : null,
     types: typesRel ? resolve(root, typesRel) : null,
   };
@@ -327,6 +333,8 @@ export function compileOptionsOf(p: Project, file?: string) {
     ...(p.lazy.length ? { lazyModule: lazyReachOf(p).reach } : {}),
     ...(file !== undefined && p.isStatic(file) ? { static: true, prerender: true } : {}),
     ...(file !== undefined && p.swap ? { swap: true } : {}),
+    // the app sets its locale itself (`configure({ locale })`): the page's `<html lang>` is not its locale
+    ...(p.configuresLocale ? { appLocale: true } : {}),
   } satisfies Partial<CompileOptions>;
 }
 
@@ -471,6 +479,11 @@ export function retiredExport(source: string): string | null {
   if (/['"]@tiaforge-ui\/sinter\/components['"]/.test(source)) return '`@tiaforge-ui/sinter/components` is gone: a component\'s script extends its base from its own HTML (`import { TaskRingComponent } from \'./task-ring.html\'`), which imports `@tiaforge-ui/sinter/runtime/components` as compiled pages do';
   if (!/\bclearPersisted\b/.test(source) || !/['"]@tiaforge-ui\/sinter['"]/.test(source)) return null;
   return '`clearPersisted()` is renamed to `clearStored()`: it removes the page-load cache and the next-page data as well as the `data-sn-persist` values';
+}
+
+/** Whether a config or early module's source may set a locale source: `configure({ locale })`. Errs toward yes. */
+export function configuresLocale(source: string): boolean {
+  return /\blocale\s*[:,}]/.test(source.replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, ''));
 }
 
 /** Whether a config module's source may change requests: `configure({ request })`, `header()`. Errs toward yes. */

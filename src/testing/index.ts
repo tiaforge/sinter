@@ -410,15 +410,39 @@ const PAGE = '/test/page.html';
  */
 export async function firstPaint(html: string, options: Pick<RenderOptions, 'helpers' | 'files' | 'components' | 'scripts' | 'earlyRenderers' | 'storage' | 'messages' | 'locale' | 'lazyHelpers'> & FirstPaintTestOptions = {}): Promise<{ root: HTMLElement; html: string }> {
   if (current) { current.destroy(); current = null; }
+  releaseLocale();
   const { files, components, scripts, earlyRenderers } = options;
   const helpers = withMessages(options);
-  const { parts } = compilePage(html, { helpers, ...(files ? { files } : {}), ...(components ? { components } : {}), ...(scripts ? { scripts } : {}), ...(earlyRenderers ? { earlyRenderers } : {}), ...(options.lazyHelpers ? { lazyHelpers: options.lazyHelpers } : {}), ...(options.messages ? { messages: options.messages, ...(options.locale ? { locale: options.locale } : {}) } : {}), firstPaint: true });
+  const { parts } = compilePage(html, { helpers, ...(files ? { files } : {}), ...(components ? { components } : {}), ...(scripts ? { scripts } : {}), ...(earlyRenderers ? { earlyRenderers } : {}), ...(options.lazyHelpers ? { lazyHelpers: options.lazyHelpers } : {}), ...(options.messages || options.locale !== undefined ? { ...(options.messages ? { messages: options.messages } : {}), ...(options.locale !== undefined ? { locale: options.locale } : {}) } : {}), firstPaint: true });
   writePage(parts.html, options.messages);
   const env = config.env;
   config.env = { ...env, storage: () => options.storage ?? null };
   if (options.messages) messagesLocale(options);
+  else pageLocale(parts, options.locale);
   try { await paint(parts, helpers, options.early, earlyRenderers); } finally { config.env = env; }
   return { root: document.body, html: parts.html };
+}
+
+/** the locale sources `render()` and `firstPaint()` set for a page (its messages, the test's `locale`, its `<html lang>`) */
+const ownSources = new WeakSet<object>();
+/** a new page: the last page's locale source goes; one the test configured itself (`configure({ locale })`) stays */
+function releaseLocale() {
+  if (config.locale && ownSources.has(config.locale)) config.locale = null;
+}
+/** a locale source the test configured itself: the app sets its locale (`appLocale`) */
+const testLocale = () => !!config.locale && !ownSources.has(config.locale);
+/**
+ * The page's locale source: the test's `locale` (as the app's `configure({ locale })`), else, in an app that sets no
+ * locale, the page's literal `<html lang>`, as a built page's module sets it (`$lang`)
+ */
+function pageLocale(parts: CompiledParts, locale: string | undefined) {
+  if (locale !== undefined) {
+    let l = locale;
+    ownSources.add(config.locale = { get: () => l, set: (x) => { l = x; } });
+    return;
+  }
+  const lang = parts.lang;
+  if (lang && !config.locale) ownSources.add(config.locale = { get: () => lang, set: () => {} });
 }
 
 /** the page's one language with messages: `locale`, else the base (the messages' first) */
@@ -445,6 +469,7 @@ function messagesLocale(o: Pick<RenderOptions, 'messages' | 'locale'>) {
   const lang = messagesLang(o);
   installMessages(lang, formatMessage as never);
   (globalThis as any)[Symbol.for('sinter.i18n')].dicts[lang] = messageEntries(o);
+  if (config.locale) ownSources.add(config.locale);
 }
 
 /** The early chunk: the app's early module, then the early bindings with the helpers in scope, as the page is parsed. */
@@ -551,6 +576,8 @@ function compilePage(html: string, options: RenderOptions, strict: Strict = { on
   // the messages: compiled in the page's one language, as a build compiles them
   const lang = options.messages ? messagesLang(options) : null;
   const parts = compileParts(html, {
+    // the test sets the locale (`locale`, or its own `configure({ locale })`): the page's `<html lang>` is not it
+    ...(!lang && (options.locale !== undefined || testLocale()) ? { appLocale: true } : {}),
     ...(lang ? {
       locale: { name: lang, urls: null, base: '/', prefix: false as const },
       contentNs: { m: { entries: messageEntries(options), format: '@tiaforge-ui/sinter/messages/format', formatFn: formatMessage as never, inlineFn: inlineMessage, module: '@tiaforge-ui/sinter/messages' } },
@@ -646,6 +673,7 @@ function noScriptClass(name: string, module: string, given: unknown): string {
 
 export async function render(html: string, options: RenderOptions = {}): Promise<Rendered> {
   if (current) { current.destroy(); current = null; }
+  releaseLocale();
 
   // compile with the real compiler
   const helpers = withMessages(options);
@@ -750,6 +778,7 @@ export async function render(html: string, options: RenderOptions = {}): Promise
     },
   };
   config.env = env;
+  if (!options.messages) pageLocale(parts, options.locale);
   if (options.firstPaint) {
     const fp = options.firstPaint === true ? {} : options.firstPaint;
     if (options.messages) messagesLocale(options);
@@ -759,10 +788,6 @@ export async function render(html: string, options: RenderOptions = {}): Promise
     fp.afterEarly?.();
   }
   if (options.messages) messagesLocale(options);
-  else if (options.locale !== undefined) {
-    let locale = options.locale;
-    config.locale = { get: () => locale, set: (l) => { locale = l; } };
-  }
 
   // next-page data: the other pages described as the build describes them
   const ahead: PrefetchPage[] = [];
