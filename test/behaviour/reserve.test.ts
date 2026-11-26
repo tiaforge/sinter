@@ -203,6 +203,23 @@ test('SN530: an image without a height in rows that arrive after the first paint
   expect(codes('<img class="cover" data-sn-attr="{src: p.photo}" alt="">')).toBe(0);
 });
 
+test('SN530: an image 100% of a fixed box is sized when an `@supports` rule may change the box\'s display (temper\'s avatar)', () => {
+  const avatar = ':where([data-tm-avatar]){--_av:calc(var(--tm-avatar-size, 2.5rem) * var(--_size, 1));display:inline-grid;place-items:center;inline-size:var(--_av);block-size:var(--_av);overflow:clip}'
+    + ':where([data-tm-avatar])>:where(img){inline-size:100%;block-size:100%;object-fit:cover}';
+  const page = '<!doctype html><html><head></head><body><sn-resource name="cs" src="/api/cs" key="id"></sn-resource><ul><template data-sn-for="c in cs"><li><span data-tm-avatar><template data-sn-if="c.has_photo"><img alt="" loading="lazy" decoding="async" data-sn-attr="{src: c.photo}"></template><span data-sn-text="c.name"></span></span></li></template></ul></body></html>';
+  const codes = (css: string) => compile(page, { file: '/app/index.html', root: '/app', dev: false, readFile: () => '', moduleSrc: '/page.js', helpers: { module: null, names: [], namespaces: {} }, prerender: true, styles: [{ file: 'a.css', css }], paintCss: '/p.css' }).diagnostics.filter((d) => d.code === 'SN530').length;
+  expect(codes(avatar)).toBe(0);
+  // inline-grid or inline-block: the same basis
+  expect(codes(`@layer tm { ${avatar} @supports (text-box: trim-both cap alphabetic) { :where([data-tm-avatar]) { display: inline-block } } }`)).toBe(0);
+  expect(codes(`${avatar} @supports (display: grid) { :where([data-tm-avatar]) { display: inline flow-root } }`)).toBe(0);
+  // one of them gives no basis, or one the build does not know: still reported
+  const may = (decl: string) => codes(`${avatar} @supports (text-box: trim-both cap alphabetic) { :where([data-tm-avatar]) { ${decl} } }`);
+  for (const d of ['inline', 'contents', 'table', 'inline flow', 'var(--d)']) expect(may(`display: ${d}`), d).toBe(1);
+  // a grid with tracks, a flex container with several items
+  expect(may('display: inline-block; grid-template-columns: 1fr 1fr')).toBe(1);
+  expect(may('display: inline-flex')).toBe(1);
+});
+
 test('SN530 suggests the fix for that image: its size from the API, the attribute it lacks, or an aspect-ratio rule for it', () => {
   const json = (schema: unknown) => ({ content: { 'application/json': { schema } } });
   const person = { type: 'object', properties: { id: { type: 'integer' }, name: { type: 'string' }, photo: { type: 'object', properties: { url: { type: 'string' }, width: { type: 'integer' }, height: { type: 'integer' } } }, avatar: { type: 'string' }, avatarWidth: { type: 'number' }, avatarHeight: { type: 'number' }, banner: { type: 'string' } } };
