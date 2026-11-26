@@ -5,312 +5,143 @@
   </picture>
 </h1>
 
-<a href="https://stackblitz.com/github/tiaforge/sinter/tree/main/examples/dashboard"><img src="https://developer.stackblitz.com/img/open_in_stackblitz.svg" alt="Open in StackBlitz" align="absmiddle"></a>&nbsp; a live dashboard, nothing to install
+**Write HTML. Ship a website, a web app, or both.**
 
-**HTML pages that behave like an app.** Add attributes to your HTML to bind the JSON API you already
-have and get live data, instant updates and a first paint with no flicker. Typos fail the build, not
-the page. Reusable components are plain HTML files that render in the first frame and never hydrate.
-No router or store library to write, and no app JavaScript for typical pages: a small runtime ships with
-each page that needs one (about 16 KB gzipped for a simple page), and a page with nothing to run [ships none](docs/static-pages.md).
-
-```html
-<sn-resource name="contacts" src="/api/contacts" select="contacts" key="id" order="name"></sn-resource>
-
-<sn-sync src="/api/events">
-  <sn-event name="contact_updated" resource="contacts" op="upsert" value="$event.contact"></sn-event>
-  <sn-event name="contact_removed" resource="contacts" op="remove"></sn-event>
-</sn-sync>
-
-<section data-sn-state="{ q: '' }">
-  <input type="search" data-sn-model="q">
-  <ul>
-    <template data-sn-for="c in contacts.filter(c => c.name.includes(q))">
-      <li>
-        <span data-sn-text="c.name"></span>
-        <button data-sn-delete="/api/contacts/{c.id}" data-sn-optimistic="remove(c)">Delete</button>
-      </li>
-    </template>
-  </ul>
-</section>
-```
-
-That page loads the contacts, keeps them sorted, applies updates other users make as they arrive,
-filters as you type, and removes a contact the moment you click Delete, putting it back if the
-server refuses.
-
-## The simplicity of separate pages, without the old problems
-
-Separate pages are simple, fast to open, easy to link to and hard to break. People moved to
-single-page apps because classic multi-page apps had real problems. sinter fixes those and keeps
-the pages.
-
-| The classic multi-page problem | What sinter does |
-| --- | --- |
-| Pages flash empty, then fill in | The page shows its layout and saved values in the **first frame**, [also on the very first visit](docs/first-paint.md). Your data follows after one API round trip, or is in the first frame too with the optional server layer below. |
-| Data in the first frame means rendering every page on a server, which costs CPU on every visit | Optional, off by default: a small layer writes the API's JSON into the HTML as it is sent. **Nothing is rendered on the server.** About 2 ms per page, [roughly ten times cheaper than server rendering](docs/first-paint-comparison.md). |
-| Every click is a full reload with a white flash | The next page's data is [fetched while the pointer rests on the link](docs/navigation.md) (all browsers); sinter also writes Speculation Rules so Chromium prefetches or prerenders the HTML, and one attribute wires a [list-to-detail morph](docs/navigation.md#page-transitions) (the browser's view transitions, Chromium and Safari 18.2+). |
-| Data on the page goes stale | Quick start: add `refresh="30s"` to a resource and it reloads in the background, keeping the old data on screen ([details](docs/resources.md)). For real-time, [live updates](docs/sync.md) arrive over SSE or WebSocket and are applied to the right lists. |
-| Forms wait for the server before anything happens | Changes show at once and [roll back on failure](docs/actions.md#optimistic-updates). |
-| A typo only shows up when someone clicks it | The build [checks every name and type](docs/diagnostics.md) and fails. |
-| Adding behavior means writing and wiring JavaScript | You write attributes. The compiler and a small runtime do the rest. |
-| Shared markup means copy-paste or server-side includes | [Components](docs/components.md): HTML files with props, slots, events and scoped styles, expanded at build time. |
-
-## What you get
-
-- **No UI glitching, even on first load.** Layout, language and saved values are in the first frame with a plain static
-  host. With the optional server layer (`sinter({ embed: true })`, switched at build time) real data is too. No empty states that jump, no layout shift: the
-  RealWorld example measures a layout shift (CLS) of 0 in Lighthouse.
-- **A server that stays cool, if you want one.** Pre-filling data (optional) costs a fetch and a string replacement, not a render.
-  One core serves roughly 600-1,100 pages per second as a Node script and about 2,000 with the Rust layer;
-  a server-rendering framework in the same benchmark saturates around 60-120.
-  ([measurements](docs/first-paint-comparison.md))
-- **Type checking.** Point sinter at your TypeScript types or
-  your OpenAPI spec and `article.titel` is a build error with a "did you mean `title`?". [Configure your
-  APIs](docs/apis.md) once and pages write paths (`src="/articles"`): a path or query parameter the API
-  does not have fails the build, and the editor completes them.
-- **Web performance by default.** Preloading, preconnecting, low-priority loading for data nobody
-  needs yet, self-hosted fonts, optimized images and Speculation Rules are done by the build. You do
-  not configure them. RealWorld scores **100 on mobile and on desktop** in Lighthouse, served under the same
-  conditions as the other implementations, with the least JavaScript of the apps that show articles ([comparison](docs/realworld-comparison.md#lighthouse)).
-- **Components without hydration.** A component is an HTML file, expanded where it is used, so it is in
-  the first frame with its data and costs nothing at runtime. Its props keep track of where their data
-  came from, so a favorite button inside it updates the right list with no store code.
-- **Great ergonomics.** One way to do each thing, all of it visible on the element. 670 lines for
-  the RealWorld app, against 2,210 for the official Angular one. LLM-friendly: `llms.txt` ships with the package, and the small, uniform syntax is easy for a model to get right.
-- **Small and safe.** About 16 KB of JavaScript (gzipped) for a simple page, under 35 KB for RealWorld's pages with the app's
-  own code, and none on a page with nothing to run. No `eval`, no `unsafe-eval` in your Content
-  Security Policy, and markup injected at runtime stays inert.
-
-## Browser support
-
-Everything works in current Chromium, Firefox and Safari (WebKit); the test suite runs in all three.
-Three navigation extras depend on the browser and degrade to a normal page load:
-
-| | Chromium | Safari | Firefox |
-| --- | :---: | :---: | :---: |
-| First frame, live data, optimistic updates | yes | yes | yes |
-| Next-page data on hover or press | yes | yes | yes |
-| Speculation Rules (HTML prefetch, prerender) | yes | no | no |
-| List-to-detail morph (browser view transitions) | yes | 18.2+ | no |
-| Swaps that keep marked elements (Navigation API, opt-in) | yes | 26.2+ | 147+ |
-
-## Try it
+sinter compiles plain HTML pages into fast sites. A page with nothing to run ships no JavaScript.
+A page that talks to your JSON API gets live data, instant updates and a first frame that already
+has its data, from a few attributes. It's the same tool and the same syntax in both cases, and the
+build checks every expression, so a typo fails the build and never reaches a visitor.
 
 ```sh
 npm create sinter my-app
 ```
 
-You get a small task board with live updates across tabs, optimistic changes that roll back, a
-dialog without JavaScript, page transitions and the build-time checks, with a demo API inside
-Vite ([`packages/create`](packages/create)).
-
-Or open a live dashboard in the browser, nothing to install:
 [![Open in StackBlitz](https://developer.stackblitz.com/img/open_in_stackblitz.svg)](https://stackblitz.com/github/tiaforge/sinter/tree/main/examples/dashboard)
-Four services with made-up metrics: the backend serves an OpenAPI file the pages are checked against,
-and pushes new numbers every second, which redraw the graphs ([`examples/dashboard`](examples/dashboard)).
+&nbsp;or try a live dashboard in the browser, with nothing to install.
 
-## Mistakes fail the build
+---
 
-The compiler knows every name an expression can use: the state around it, loop variables,
-resources, helpers. Misspell `q` in the filter above and the build stops:
+<table>
+<tr>
+<td align="center"><b>606 lines</b><br><sub>for the RealWorld app.<br>Angular's official one is 2,210</sub></td>
+<td align="center"><b>100 / 100</b><br><sub>Lighthouse, mobile and desktop.<br>No layout shift</sub></td>
+<td align="center"><b>0 KB</b><br><sub>of JavaScript on a static page.<br>About 16 KB on an app page</sub></td>
+<td align="center"><b>~10× cheaper</b><br><sub>than server rendering for<br>a first frame with data</sub></td>
+</tr>
+</table>
+
+<sub>Measured against implementations that pass RealWorld's official end-to-end suite: [comparison](docs/realworld-comparison.md), [first-paint benchmark](docs/first-paint-comparison.md).</sub>
+
+## From page to app, one step at a time
+
+**1. Start with a page.** A layout and components are HTML files. The build expands them, so the
+result is just HTML, with no JavaScript and nothing to hydrate.
+
+```html
+<!-- about.html -->
+<site-layout data-sn-with="{ title: 'About' }">
+  <h1>About us</h1>
+  <team-grid data-sn-with="{ people: [{ name: 'Ada' }, { name: 'Grace' }] }"></team-grid>
+</site-layout>
+```
 
 ```text
-contacts.html:11:70 error SN201 unknown-identifier: `qq` is not defined here. Did you mean `q`?
+sinter: about.html: no JavaScript
 ```
 
-The same pass rejects code that would break at runtime: writing to server data
-(`c.name = 'x'` is `SN205`, use `merge(c, {...})`) and browser APIs inside expressions
-(`localStorage` is `SN202`, use a component's script). With a `type` on the resource or your OpenAPI spec,
-`sinter check` also type-checks fields, request bodies and event payloads, so `article.titel`
-reports `Property 'titel' does not exist on type 'Article'. Did you mean 'title'?`.
-
-htmx, Datastar and Alpine read their attribute strings in the browser. Nothing checks them against
-your data before they ship, so the same typo shows up only when that code runs: as a console error,
-or as an element that stays empty.
-
-## Components
-
-A component is an HTML file in `src/components/`. Its file name is its tag:
+**2. Add data.** Point a resource at your API and bind it. You don't write fetch code or a store.
 
 ```html
-<!-- src/components/contact-card.html -->
-<template data-sn-props="{ contact: Contact; compact?: boolean }" data-sn-emits="{ pick: Contact }">
-  <article class="card" data-sn-class="{ compact }">
-    <h2 data-sn-text="contact.name"></h2>
-    <slot name="meta"></slot>
-    <button data-sn-on-click="emit('pick', contact)">Open</button>
-    <button data-sn-delete="/api/contacts/{contact.id}" data-sn-optimistic="remove(contact)">Delete</button>
-  </article>
-</template>
-<style>
-  .card { padding: 1rem; }
-  .compact h2 { font-size: 1rem; }
-</style>
+<sn-resource name="contacts" src="/api/contacts" key="id" order="name"></sn-resource>
+
+<ul>
+  <template data-sn-for="c in contacts">
+    <li data-sn-text="c.name"></li>
+  </template>
+</ul>
 ```
+
+The request starts before the page has finished parsing, and last visit's data can be on screen in
+the first frame. With the optional [server layer](docs/server.md), today's data is there too, and the
+server does no rendering.
+
+**3. Make it interactive.** Filter as you type. Delete at once, and put the row back if the server refuses.
 
 ```html
-<!-- any page -->
-<template data-sn-for="c in contacts">
-  <contact-card data-sn-with="{ contact: c }" data-sn-on-pick="open = $event.detail">
-    <small slot="meta" data-sn-text="c.email"></small>
-  </contact-card>
-</template>
+<section data-sn-state="{ q: '' }">
+  <input type="search" data-sn-model="q">
+  <template data-sn-for="c in contacts.filter(c => c.name.includes(q))">
+    <li>
+      <span data-sn-text="c.name"></span>
+      <button data-sn-delete="/api/contacts/{c.id}" data-sn-optimistic="remove(c)">Delete</button>
+    </li>
+  </template>
+</section>
 ```
 
-- **Expanded at build time.** The component's root replaces its tag, so the component is page markup:
-  it renders in the first frame like the rest of the page, and nothing hydrates it.
-- **A checked contract.** Props, events and slots are declared once, in the file; a wrong prop, event
-  or slot name fails the build, and `sinter check` types every prop and `$event.detail`.
-- **Data that knows where it came from.** `remove(contact)` names no resource: it removes the contact
-  from the list the caller got it from.
-- **Scoped styles** through native `@scope`, in the page's stylesheet: no inline styles, no CSP change.
-- **A script when needed.** `contact-card.ts` beside the file extends a base class typed from the HTML,
-  for a canvas or a library; sinter renders the markup.
-- **Trees and mixed lists.** A component can use itself (comments and their replies, at any depth), and
-  ``<sn-component use="`${b.type}-block`">`` picks one per item.
-- **Layouts.** A document in `src/layouts/` with slots in its head and body: a page is only its tag,
-  and passes its title and SEO tags in through props, head slots and head components
-  (`<template data-sn-props>`). The merge happens at build time, so the early scripts, preloads and
-  bundled scripts and fonts work on the merged head.
+**4. Make it live.** Changes other people make show up as they happen, in the right list.
 
-[Components](docs/components.md), [layouts](docs/layouts.md), [components with a script](docs/islands.md)
+```html
+<sn-sync src="/api/events">
+  <sn-event name="contact_updated" resource="contacts" op="upsert" value="$event.contact"></sn-event>
+  <sn-event name="contact_removed" resource="contacts" op="remove"></sn-event>
+</sn-sync>
+```
 
-## Features
+**5. Get it wrong, and the build tells you.** The compiler knows every name an expression can use.
+Give it your OpenAPI spec or TypeScript types, and it checks fields too.
 
-### Data
+```text
+contacts.html:5:52 error SN201 unknown-identifier: `qq` is not defined here. Did you mean `q`?
+contacts.html:7:29 error SN208 type-error: Property 'nmae' does not exist on type 'Contact'. Did you mean 'name'? (TS2339)
+```
 
-- **Resources.** `<sn-resource>` loads a JSON endpoint, caches it by key and shares the request
-  between everything that asks. Loading flags, stale responses and reloading are handled.
-  [Resources and store](docs/resources.md)
-- **Live updates.** `<sn-sync>` turns server events into list changes (upsert, merge, remove, refresh) with
-  attributes, over SSE, WebSocket or SignalR. Coming back online or from the back button reloads.
-  [Sync](docs/sync.md), [recipe](docs/recipes/sse-sync.html)
-- **Pagination.** Keyset, numbered and "load more" lists, with the page in the URL.
-  [Pagination](docs/pagination.md), [recipe](docs/recipes/pagination.html)
-- **Fan-out.** One request per item of another list (`for="a in accounts"`).
-  [Fan-out resources](docs/resources.md)
-- **Background refresh and caching.** `cache` shows last visit's data at once, then revalidates;
-  `refresh` keeps data current. [Cached list](docs/recipes/cached-list.html),
-  [Background refresh](docs/resources.md)
+Your editor shows the same errors as you type, along with completion and hover.
 
-### Changing data
+## Everything a site needs, built in
 
-- **Optimistic updates that stay correct**, also when requests overlap or a server event arrives
-  mid-request. [Optimistic updates](docs/actions.md#optimistic-updates),
-  [recipe](docs/recipes/optimistic-toggle.html)
-- **Forms and server validation.** Field errors from the server land on the right input.
-  [Server validation errors](docs/actions.md),
-  [recipe](docs/recipes/field-errors.html)
-- **Writes that survive a dropped connection.** Retries with idempotency keys, per element.
-  [Retries](docs/retry.md), [recipe](docs/recipes/offline-draft.html)
-- **Dialogs, keyboard shortcuts, suggestion lists and row selection** in markup.
-  [Form dialog](docs/recipes/form-dialog.html),
-  [Shortcuts](docs/recipes/keyboard-shortcuts.html),
-  [Suggestion lists](docs/actions.md#lists-you-move-through-with-the-keys),
-  [Row select](docs/recipes/row-select.html)
+Most of what you'd otherwise assemble from separate libraries ships with sinter. There's nothing to
+configure until you want something different.
 
-### Speed
+| | |
+| --- | --- |
+| **Pages and content** | [Layouts](docs/layouts.md) and [components](docs/components.md) with typed props, slots, events and scoped styles · [pages with no JavaScript](docs/static-pages.md) · [several languages](docs/static-pages.md#languages) from one source · [markdown](packages/sinter-markdown/docs/markdown.md) · sitemaps, canonical URLs and redirects |
+| **Data** | [Resources](docs/resources.md) with caching, background refresh and fan-out · [live updates](docs/sync.md) over SSE, WebSocket or SignalR · [pagination](docs/pagination.md) with the page in the URL |
+| **Changing data** | [Optimistic updates](docs/actions.md#optimistic-updates) that stay correct when requests overlap · [server validation errors](docs/actions.md) on the right field · [retries](docs/retry.md) that survive a dropped connection · dialogs, popovers and keyboard shortcuts in markup |
+| **Speed** | [First frame with data](docs/first-paint.md) · [next-page data on hover](docs/navigation.md), prerendering and [page transitions](docs/navigation.md#page-transitions) · [optimized images](docs/images.md) and self-hosted fonts · [heavy packages loaded on demand](docs/lazy.md) · [list rendering](docs/benchmark.md) on par with ivi and faster than Solid and Svelte on CPU |
+| **Servers** (optional) | Layers that write your API's JSON into the page as it's sent, for [Node, Bun, Deno and Workers](docs/server.md), [Rust (axum)](packages/sinter-axum) and [.NET](packages/sinter-aspnetcore) |
+| **Tooling** | [Diagnostics](docs/diagnostics.md) that suggest a fix · [type checking](docs/type-checking.md) against OpenAPI or TypeScript · [editor support](docs/editors.md) for VS Code, Neovim, Helix and Emacs · [testing](docs/testing.md) in plain Vitest · [`llms.txt`](llms.txt) for coding assistants |
+| **Safety** | Runs under a [strict CSP](docs/security.md) (`script-src 'self'`) · nothing is evaluated in the browser · markup from the network stays inert |
 
-- **First paint with data.** Build-time constants, an early script that renders as the page is
-  parsed, and, optionally, data embedded by a server layer. [First paint](docs/first-paint.md),
-  [benchmark against a server-rendering framework](docs/first-paint-comparison.md)
-- **An optional server layer that does not render.** [`sinter-axum`](packages/sinter-axum) (Rust, a `tower`
-  layer), [`Sinter.AspNetCore`](packages/sinter-aspnetcore) (.NET, middleware for minimal APIs
-  and MVC, NativeAOT-compatible) and [`@tiaforge-ui/sinter/server`](docs/server.md) (JavaScript, a fetch
-  handler for Node, Bun, Deno, Workers and Hono) stream the head first, then write each API response into
-  its placeholder. Each checks that every placeholder can be filled: at compile time in Rust and C#, as a type error in
-  TypeScript, and at startup. Other languages are easy to add: the
-  server only writes JSON into the `<script type="application/json" data-sn-resource>` placeholders in the
-  head, listed in the build's `sinter-embed.json` ([contract](docs/first-paint.md)).
-- **Instant navigation.** Next-page data (sinter, all browsers). Generated Speculation Rules and
-  CSP handling for HTML prefetch or prerender (the browser fetches; Chromium). `data-sn-transition`
-  wires a list-row-to-detail morph on top of the browser's view transitions (Chromium, Safari 18.2+).
-  Opt-in [swaps](docs/navigation.md#swaps) (`sinter({ swap: true })`) fetch the next page and swap it
-  in instead of loading it, so elements marked `data-sn-permanent` stay as they are: a player plays on,
-  a drawer stays open (the Navigation API: Chromium, Firefox 147+, Safari 26.2+).
-  [Navigation](docs/navigation.md)
-- **Preloading done for you.** Preconnect to API origins, `preload` for requests known at build
-  time, low priority for data behind dialogs, fonts bundled at build time.
-  [First paint](docs/first-paint.md)
-- **Heavy packages on demand.** `sinter({ lazy: ['openpgp'] })`: your imports stay as they are, the
-  package loads on first call; `data-sn-import` and `data-sn-preload` load it sooner where a page needs
-  it. The build fails when a page would ship it anyway, and a tab left open across a deploy gets
-  `$error.stale` instead of a broken import. [Lazy packages](docs/lazy.md)
-- **Component libraries as source.** `sinter({ libraries: ['@acme/ui'] })`: a package's components
-  compile with the app's, so they get its constants, early script, types and scoped styles; their
-  CSS sits in a cascade layer the app's own CSS wins over. [Libraries](docs/libraries.md),
-  [markdown](packages/sinter-markdown/docs/markdown.md), and one in its own repository:
-  [sinter-mail](https://github.com/tiavision/sinter-mail), email bodies without an iframe
-- **Images.** AVIF/WebP/JPEG variants, `srcset` and `sizes` written from your own markup and CSS.
-  [Images](docs/images.md)
-- **Fast rendering.** Keyed lists measured level with or ahead of ivi, Solid and Svelte on
-  js-framework-benchmark operations, and live grids that take thousands of events per second.
-  [Benchmarks](docs/benchmark.md)
+When attributes aren't enough (a canvas, a chart library, an editor), give a component
+[a script](docs/islands.md). sinter renders the markup and your code handles the rest.
 
-### Developer experience
+## Examples
 
-- **Build-time errors with fixes.** Every diagnostic has a code, a "did you mean" and a page.
-  [Diagnostics](docs/diagnostics.md)
-- **Type checking** against TypeScript types or OpenAPI. [Type checking](docs/type-checking.md),
-  [recipe](docs/recipes/typed.html)
-- **Editor support.** Hover, completion, go to definition and errors as you type, in VS Code,
-  Neovim, Helix and Emacs. [Editors](docs/editors.md)
-- **Testing.** Render a page, mock requests and streams, assert on the DOM, in plain Vitest.
-  [Testing](docs/testing.md)
-- **Translations.** Typed `m.key({ param })` messages from an inlang project, read by the
-  content module's `inlang()`; each page is built in its language. [Recipe](docs/recipes/messages.html)
-- **Components.** HTML files with props, slots, events and scoped styles, expanded at build time and
-  typed. [Components](docs/components.md)
-- **Scripts for the rest.** Canvases, editors and charts are a component's script, or plain custom
-  elements that get data in and send events out. [Components with a script](docs/islands.md)
-- **LLM-ready.** [`llms.txt`](llms.txt) has the attribute reference and the rules in 25 KB, and an index of the rest; [`llms-full.txt`](llms-full.txt) has everything, recipes included, and `npx sinter docs <topic>` prints one part of it.
+- **[Dashboard](examples/dashboard)**: four services with live metrics, checked against the backend's OpenAPI file.
+- **[RealWorld](examples/realworld)**: the full Conduit app, passing the official end-to-end suite.
+- **[Static site](examples/static-site)** and **[multilingual site](examples/multilingual-site)**: pages that ship no JavaScript, plus one page that loads data.
+- **[Recipes](docs/recipes)**: 22 small pages, each one tested: filters, dialogs, offline drafts, SignalR and more.
 
-### Safety
+## How it compares
 
-- **Strict CSP.** Pages run under `script-src 'self'`. [Security](docs/security.md),
-  [CSP and Speculation Rules](docs/navigation.md#speculation-rules-and-a-content-security-policy)
-- **Compiled, not interpreted.** No parser and no `eval` in the browser; markup from the network
-  stays inert.
+- **SPA frameworks (React, Vue, Angular)**: you get the same app with no router, store or services
+  to write. sinter apps are multi-page. Navigation is fast, and [swaps](docs/navigation.md#swaps) can
+  keep elements such as a player running across pages, but there is no client-side router.
+- **SSR frameworks (Next, Nuxt, SvelteKit)**: you get the same first frame without rendering on the
+  server, so a server core handles about ten times the traffic.
+- **htmx, Datastar**: sinter uses the JSON API you already have instead of an HTML-rendering
+  server, its updates are optimistic, and its attributes are checked at build time, not at runtime.
+- **Alpine, petite-vue**: sinter includes fetching, caching, live updates and rollback, and needs no
+  `unsafe-eval`.
 
-## Compared with
+Details and numbers: [RealWorld comparison](docs/realworld-comparison.md).
 
-**Angular, React, Vue.** If your app mostly shows and edits API data, a SPA framework makes you build
-components, services, a store and a router to get there. sinter keeps the page as HTML and moves the
-data handling into attributes. The tradeoff is that sinter apps are multi-page: each navigation is a
-page load (the shared code comes from the browser cache), or, with [swaps](docs/navigation.md#swaps) on,
-the next page's HTML swapped in, keeping the elements both pages mark.
+**When not to use sinter:** you need an app shell that stays in memory for the whole session; the app
+is mostly one canvas or editor; you can't have a build step; your backend has no JSON API; or you need
+1.0 stability (renames are listed in the [changelog](CHANGELOG.md)).
 
-**Next, Nuxt, SvelteKit, Qwik.** These render pages on the server for the first frame, which makes
-every visit cost server CPU. sinter reaches the same first frame by writing JSON into a static page.
-[Benchmark](docs/first-paint-comparison.md).
-
-**htmx, Datastar.** These expect a server that renders HTML for every page and interaction. If you
-have a JSON API, you would have to build and maintain that server. sinter uses the API you already
-have, and its mutations are optimistic where htmx waits for the server's answer. Their attributes
-are read in the browser, so a wrong name surfaces at runtime; sinter's are checked at build time.
-If your backend renders HTML anyway and you want no build step, htmx is a good choice.
-
-**Alpine, petite-vue.** These also render JSON with client-side templates, but they leave fetching,
-caching, live updates and rollback to you. Their expressions are compiled in the browser with
-`new Function`, so they need `unsafe-eval` in the CSP (Alpine has a restricted CSP build), and
-nothing checks the names or fields they use until the code runs.
-
-Measurements and sources: [`docs/realworld-comparison.md`](docs/realworld-comparison.md).
-
-## When not to use sinter
-
-- You need client-side routing or one app shell that stays in memory for the whole session.
-  [Swaps](docs/navigation.md#swaps) keep marked elements (a player, a drawer, scroll positions) across pages,
-  but the server still serves each page as its own HTML document, and swaps need a recent browser
-  (Chromium 135+, Firefox 147+, Safari 26.2+; others load the page).
-- The app is mostly one imperative surface (a rich editor, a canvas). sinter leaves that to the
-  [scripts of components](docs/islands.md), which do the browser work around markup sinter renders.
-- You can't have a build step. Attributes are compiled into a page module and removed from the HTML;
-  the browser never sees them.
-- Your backend only renders HTML and has no JSON API.
-- You need stability guarantees. sinter is pre-1.0, and renames are listed in the [changelog](CHANGELOG.md).
-
-## Setup
+## Add it to an existing project
 
 ```sh
 npm install @tiaforge-ui/sinter
@@ -322,24 +153,9 @@ import sinter from '@tiaforge-ui/sinter/vite';
 export default { plugins: [sinter()] };
 ```
 
-The broad concepts:
-
-- **[Resources](docs/resources.md)** (`<sn-resource>`) load and cache server data by name. Templates read them.
-- **[Bindings](docs/attributes.md#show-data)** (`data-sn-text`, `data-sn-for`, `data-sn-if`, ...) render data. Expressions are checked at build time.
-- **[Actions](docs/actions.md)** (`data-sn-post`, `data-sn-delete`, ...) send changes; [`data-sn-optimistic`](docs/actions.md#optimistic-updates) shows them at once.
-- **[Sync](docs/sync.md)** (`<sn-sync>`) applies server events to resources.
-- **[Components](docs/components.md)** are HTML files in `src/components/`, expanded at build time: props,
-  slots, events and scoped styles, in the first frame with no hydration.
-- **[Components with a script](docs/islands.md)** do what attributes can't (a canvas, a library); plain
-  custom elements work too.
-
-Every attribute is in the [reference](docs/attributes.md). Optional files in `src/`:
-
-- [`sinter.config.js`](docs/configuration.md): auth headers, error handling, transports, retries.
-- [`sinter.helpers.js`](docs/expressions.md#helpers): functions your expressions can call.
-- `sinter.types.ts`, or `sinter({ apis: { main: { openapi: 'openapi.yml' } } })`: types for [`sinter check`](docs/type-checking.md).
-
-`npx sinter check` type-checks every expression, and `npx sinter lsp --stdio` gives editors errors as you type ([editors](docs/editors.md)). [Strict mode](docs/strict.md) makes warnings fail like errors; [expressions](docs/expressions.md) says what belongs in markup and what in a helper; [messages](docs/messages.md) from an inlang project are a content namespace (`inlang()`); builds [minify](docs/minify.md) each page's HTML. Loading, first paint and navigation need no configuration; their options are in the [first paint](docs/first-paint.md) and [navigation](docs/navigation.md) docs.
+Then read the [attribute reference](docs/attributes.md), or start with [resources](docs/resources.md)
+and [components](docs/components.md). It works in current Chromium, Firefox and Safari. A few navigation
+extras depend on the browser and fall back to a normal page load ([navigation](docs/navigation.md)).
 
 ## Contributing and license
 
