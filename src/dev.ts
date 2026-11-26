@@ -34,6 +34,7 @@ const MESSAGES: Record<number, string> = {
   28: 'event `%` could not be applied: %',
   29: 'event `%` payload is missing key field(s) % for `%`',
   30: "page(%, 'last') needs a known total",
+  35: "the build formatted this page's dates and numbers in its `<html lang>` (`%`), but the app's locale is `%`: the build found no `configure({ locale })` in the config or early module or what they import. Put it there (a `locale` key in `src/sinter.config.js`), so the build leaves formatting to the browser",
   34: 'a second copy of sinter looked for the app this page mounted and found none: a library linked with `file:` or `npm link` brought its own sinter. The sinter Vite plugin dedupes it (`resolve.dedupe`); with another bundler or test setup, dedupe `@tiaforge-ui/sinter` yourself',
   33: '`%` of resource `%`, which has no `key` and holds a list, changes the whole list, not one item (SN542): add `key` with the field that identifies an item',
   31: 'anchor `<!--%-->` has no end comment `<!--/sn-->` after it: one was added. A minifier or CDN that strips HTML comments breaks lists and branches: turn comment stripping off for sinter pages',
@@ -176,6 +177,9 @@ const dev: Feature = {
     app.req.log = (m) => console.info(`sinter: retry ${m}`);
     app.req.resent = (url) => app.warn(32, url);
     for (const a of app.ir.actions) if (a.retry && !config.retry?.has(a.retry)) app.warn(23, a.retry);
+    // text formatted at build in `<html lang>` while the app's own locale source says another (it was out of the build's sight)
+    const lf = app.ir.lf, now = lf && config.locale?.get();
+    if (lf && now && now != lf) app.warn(35, lf, now);
     // the Speculation Rules are inline: a CSP from a response header (the build cannot see it) blocks
     // them while the page is parsed, before this runs; a buffered observer still gets that report
     const doc = app.root && (app.root.ownerDocument ?? (app.root as Document)), RO = (globalThis as any).ReportingObserver;
