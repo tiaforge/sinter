@@ -388,6 +388,11 @@ export interface IR {
   urlArrays?: string[];
   /** same-page links (query-links.ts): the `$url` parameters the page reads by name; a click that changes another loads its URL */
   urlReads?: string[];
+  /**
+   * dev builds: the build formatted text in the page's `<html lang>` (an app that sets no locale, as far as the build
+   * could see): the dev module warns (35) when the app's own locale source is another
+   */
+  lf?: string;
   /** the path table (page module only); without it, paths are strings */
   ps?: PathTable;
   /**

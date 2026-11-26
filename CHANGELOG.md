@@ -15,6 +15,15 @@ How to write an entry (from 0.21.0 on; older sections keep their own form):
 
 ## Unreleased
 
+### Breaking
+
+- In an app that sets no locale (no `languages()`, `localePrefix` or `configure({ locale })`), the page's literal
+  `<html lang>` is now the locale of `date()`, `number()`, `bytes()`, `relative()` and `$locale`, at build time and in
+  the browser; before, each visitor's browser locale was used and `$locale` was `undefined`. With `<html lang="en">`
+  everyone now sees English formats; to keep the visitor's, add
+  `configure({ locale: { get: () => navigator.language, set() {} } })` to `src/sinter.config.js`
+  ([docs/expressions.md](docs/expressions.md#built-in-formatters)).
+
 ### Added
 
 - The store handle `instance(root).resource(name)` has `src` and `order`: the URL the resource loads now (its `src` resolved in its scope, an API's `base` included, without pagination parameters or a POST body; `null` while `when` is false and for `call`, `for` and `file:` resources) and its `order` attribute as written (`-rank`). A custom element can save to the resource's API without being told the URL again ([docs/islands.md](docs/islands.md#instance-api)).

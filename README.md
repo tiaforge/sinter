@@ -29,7 +29,7 @@ npm create sinter my-app
 </tr>
 </table>
 
-<sub>Each implementation passes RealWorld's official end-to-end suite and was measured on the same machine under the same conditions: [comparison](docs/realworld-comparison.md), [first-paint benchmark](docs/first-paint-comparison.md). The Lighthouse score depends on the data and the styles: when the largest element on the screen is filled from the API, the largest paint waits for that response. The [server layer](docs/first-paint.md#embedded-data) avoids this by putting the data in the first frame.</sub>
+<sub>Each implementation passes RealWorld's official end-to-end suite and was measured on the same machine under the same conditions: [comparison](docs/realworld-comparison.md), [first-paint benchmark](docs/first-paint-comparison.md). The Lighthouse score depends on the data and the styles: when the largest element on the screen is filled from the API, the largest paint waits for that response. The [server layer](docs/first-paint.md#embedded-data) avoids this by putting the data in the first frame. The [running copy](https://realworld.tiaforge.dev) is served that way, and [PageSpeed Insights](https://pagespeed.web.dev/analysis?url=https%3A%2F%2Frealworld.tiaforge.dev%2F) gives it a performance score of 100 (2026-11-26).</sub>
 
 ## From page to app, one step at a time
 
@@ -118,7 +118,7 @@ When attributes aren't enough (a canvas, a chart library, an editor), give a com
 ## Examples
 
 - **[Dashboard](examples/dashboard)**: four services with live metrics, checked against the backend's OpenAPI file.
-- **[RealWorld](examples/realworld)**: the full Conduit app, passing the official end-to-end suite. [Running copy](https://realworld.tiaforge.dev).
+- **[RealWorld](examples/realworld)**: the full Conduit app, passing the official end-to-end suite. [Running copy](https://realworld.tiaforge.dev) (PageSpeed Insights: 100).
 - **[Static site](examples/static-site)** and **[multilingual site](examples/multilingual-site)**: pages that ship no JavaScript, plus one page that loads data.
 - **[Recipes](docs/recipes)**: 22 small pages, each one tested: filters, dialogs, offline drafts, SignalR and more.
 

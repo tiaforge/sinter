@@ -3,7 +3,7 @@
 The [RealWorld](https://github.com/gothinkster/realworld) "Conduit" frontend as a multi-page sinter
 app, talking to the public API at `https://api.realworld.show/api`.
 
-A running copy: **https://realworld.tiaforge.dev** (the [server image](#the-server-as-an-image) below, with each page's data in its HTML).
+A running copy: **https://realworld.tiaforge.dev** (the [server image](#the-server-as-an-image) below, with each page's data in its HTML). [PageSpeed Insights](https://pagespeed.web.dev/analysis?url=https%3A%2F%2Frealworld.tiaforge.dev%2F) gives it a performance score of 100 (2026-11-26).
 
 ```sh
 npm install            # in the repo root first: npm run build

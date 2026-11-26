@@ -3,7 +3,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join, relative, resolve, sep } from 'node:path';
-import { readHelperManifest, type CompileOptions, type Diagnostic, type HelperManifest } from './compiler/index.js';
+import { parseModule, readHelperManifest, type CompileOptions, type Diagnostic, type HelperManifest } from './compiler/index.js';
 import { lazyHelpers } from './lazy-build.js';
 import { strictOf, type Strict } from './compiler/diagnostics.js';
 import type { OpenApiSpec } from './compiler/openapi.js';
@@ -14,7 +14,7 @@ import { componentHtml, findComponents } from './component-files.js';
 import { inlineScripts } from './compiler/components.js';
 import { typeExports } from './check/index.js';
 import { librariesOf, libraries as findLibraries, libraryOf, modulesDir, ownLibrary, type Library } from './libraries.js';
-import { isSelfReference, resolveImport, setAppAliases } from './fold-check.js';
+import { appModule, isSelfReference, resolveImport, setAppAliases } from './fold-check.js';
 
 export interface ProjectOptions {
   /** content module: collections for `<sn-resource src="content:…">` (`src/sinter.content.ts`, or `.js`); `false`: none */
@@ -117,6 +117,11 @@ export interface Project {
    * `<link rel="preload">`, whose response the browser gives a later fetch whatever headers it adds
    */
   changesRequests: boolean;
+  /**
+   * the config or early module, or an app module they import, may set a locale source (`configure({ locale })`): the
+   * app sets the locale itself, so the page's `<html lang>` is not its locale (docs/expressions.md#built-in-formatters)
+   */
+  configuresLocale: boolean;
   /** root-relative URL of the early module (`/src/sinter.early.ts`), or null */
   early: string | null;
   /** the generated `src/sinter.components.d.ts` (written when a component has a script), or null */
@@ -300,6 +305,7 @@ export function project(root: string, options: ProjectOptions = {}): Project {
     componentsTypes: writeComponentTypes(root, readFile, libs.libraries),
     config: configRel ? url(configRel) : null,
     changesRequests: configRel ? changesRequests(configSource(configRel, readFile(resolve(root, configRel)))) : false,
+    configuresLocale: [configRel, earlyRel].some((rel) => !!rel && configuresLocale(resolve(root, rel), root, readFile)),
     early: earlyRel ? url(earlyRel) : null,
     types: typesRel ? resolve(root, typesRel) : null,
   };
@@ -327,6 +333,8 @@ export function compileOptionsOf(p: Project, file?: string) {
     ...(p.lazy.length ? { lazyModule: lazyReachOf(p).reach } : {}),
     ...(file !== undefined && p.isStatic(file) ? { static: true, prerender: true } : {}),
     ...(file !== undefined && p.swap ? { swap: true } : {}),
+    // the app sets its locale itself (`configure({ locale })`): the page's `<html lang>` is not its locale
+    ...(p.configuresLocale ? { appLocale: true } : {}),
   } satisfies Partial<CompileOptions>;
 }
 
@@ -471,6 +479,47 @@ export function retiredExport(source: string): string | null {
   if (/['"]@tiaforge-ui\/sinter\/components['"]/.test(source)) return '`@tiaforge-ui/sinter/components` is gone: a component\'s script extends its base from its own HTML (`import { TaskRingComponent } from \'./task-ring.html\'`), which imports `@tiaforge-ui/sinter/runtime/components` as compiled pages do';
   if (!/\bclearPersisted\b/.test(source) || !/['"]@tiaforge-ui\/sinter['"]/.test(source)) return null;
   return '`clearPersisted()` is renamed to `clearStored()`: it removes the page-load cache and the next-page data as well as the `data-sn-persist` values';
+}
+
+/**
+ * Whether the module `file`, or an app module it imports (relative, root-absolute or through the app's aliases; not a
+ * package), may set a locale source (`configure({ locale })`). Errs toward yes: a `locale` key in any object literal
+ * (quoted or not), an assignment to a `.locale`, a `configure()` whose options are not an object literal of plain keys
+ * (a spread, a computed key, a variable), and a module that cannot be read or parsed all count.
+ */
+export function configuresLocale(file: string, root: string, read: (file: string) => string = (f) => readFileSync(f, 'utf8'), seen = new Set<string>()): boolean {
+  if (seen.has(file)) return false;
+  seen.add(file);
+  let ast: unknown;
+  try { ast = parseModule(read(file), file); } catch { return true; }
+  const imports: string[] = [], configures = new Set(['configure']);
+  const keyName = (k: any) => (k?.type === 'Identifier' ? k.name : k?.type === 'Literal' ? String(k.value) : null);
+  const plain = (o: any) => o?.type === 'ObjectExpression' && o.properties.every((p: any) => p.type === 'Property' && !p.computed);
+  const sets = (n: any): boolean => {
+    if (!n || typeof n !== 'object') return false;
+    if (Array.isArray(n)) return n.some(sets);
+    switch (n.type) {
+      case 'Property': if (!n.computed && keyName(n.key) === 'locale') return true; break;
+      case 'AssignmentExpression': if (n.left?.type === 'MemberExpression' && (n.left.computed ? keyName(n.left.property) : n.left.property?.name) === 'locale') return true; break;
+      case 'CallExpression': {
+        const c = n.callee, name = c?.type === 'Identifier' ? c.name : c?.type === 'MemberExpression' && !c.computed ? c.property?.name : null;
+        if (name && configures.has(name) && !n.arguments.every(plain)) return true;
+        break;
+      }
+      case 'ImportDeclaration': case 'ExportAllDeclaration': case 'ExportNamedDeclaration': case 'ImportExpression':
+        if (typeof n.source?.value === 'string' && n.importKind !== 'type' && n.exportKind !== 'type') imports.push(n.source.value);
+        // `import { configure as setup } from '@tiaforge-ui/sinter'`
+        for (const s of n.specifiers ?? []) if (keyName(s.imported) === 'configure') configures.add(s.local.name);
+        break;
+    }
+    for (const k in n) if (k !== 'type' && k !== 'start' && k !== 'end' && k !== 'loc' && sets(n[k])) return true;
+    return false;
+  };
+  if (sets(ast)) return true;
+  return imports.some((spec) => {
+    const target = appModule(spec, file, root);
+    return !!target && !target.includes(`${sep}node_modules${sep}`) && configuresLocale(target, root, read, seen);
+  });
 }
 
 /** Whether a config module's source may change requests: `configure({ request })`, `header()`. Errs toward yes. */

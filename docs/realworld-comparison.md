@@ -8,9 +8,10 @@ sinter has the fewest source lines, the best Lighthouse scores (100 on mobile an
 in its first frame and no layout shift) and, with the first article, the least JavaScript but Backtick's
 (an SSR app that ships almost none, at a cost: its largest paint waits for the server).
 
-Sinter's app runs at https://realworld.tiaforge.dev ([the server image](../examples/realworld/README.md#the-server-as-an-image)). The Lighthouse
-scores below are the same-conditions measurements, not a score of that site: the public API's data, the visitor's network and the site's
-host all change a score.
+Sinter's app runs at https://realworld.tiaforge.dev ([the server image](../examples/realworld/README.md#the-server-as-an-image)), and
+[PageSpeed Insights](https://pagespeed.web.dev/analysis?url=https%3A%2F%2Frealworld.tiaforge.dev%2F) gives it a performance score of 100 (2026-11-26). The Lighthouse scores below are the same-conditions
+measurements, not scores of that site: a score follows the machine that measures it (the same page scored 95 in a DevTools run on a
+loaded desktop, whose CPU benchmark was 1,650 against 3,500 in the runs here), and the public API's data and the network change it too.
 
 | implementation | e2e, spa / ssr mode | source lines (gz KB) | JS, home + article (gz KB) | Lighthouse mobile / desktop |
 | --- | --- | ---: | ---: | ---: |
