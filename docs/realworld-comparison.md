@@ -102,7 +102,11 @@ Desktop:
 | Angular | 76 (76-76) | 406 ms | 673 ms | 0.767 |
 | Vue 3 (official) | 76 (76-76) | 408 ms | 817 ms | 0.794 |
 
-JS is what was transferred (brotli). sinter's largest paint is in its first frame; Backtick renders the feed on its
+JS is what was transferred (brotli). sinter's largest paint is in its first frame here because the largest element is
+the home page's banner heading. That depends on the data and the styles: with longer titles, such as the public API's
+("Introduction to Machine Learning for Developers"), the first title wraps to two lines on a phone and becomes the
+largest element. It arrives with the API response, and mobile drops to about 96-98 with this harness's 150 ms API and
+to 92-96 at 800 ms. The [server layer](first-paint.md#embedded-data) puts that data in the first frame. Of the others, Backtick renders the feed on its
 server, so it has no shift, but its largest paint waits for its server's fetch of the API. The client-rendered apps
 shift when the feed arrives (Angular, Vue 3). Backtick requests a Vercel-only script (`/_vercel/insights/script.js`),
 a 404 off Vercel, once per audit; its Solid files were served locally (above).

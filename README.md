@@ -29,7 +29,7 @@ npm create sinter my-app
 </tr>
 </table>
 
-<sub>Each implementation passes RealWorld's official end-to-end suite and was measured on the same machine under the same conditions: [comparison](docs/realworld-comparison.md), [first-paint benchmark](docs/first-paint-comparison.md).</sub>
+<sub>Each implementation passes RealWorld's official end-to-end suite and was measured on the same machine under the same conditions: [comparison](docs/realworld-comparison.md), [first-paint benchmark](docs/first-paint-comparison.md). The Lighthouse score depends on the data and the styles: when the largest element on the screen is filled from the API, the largest paint waits for that response. The [server layer](docs/first-paint.md#embedded-data) avoids this by putting the data in the first frame.</sub>
 
 ## From page to app, one step at a time
 
