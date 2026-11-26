@@ -770,12 +770,15 @@ export class Layout {
     const parent = this.parentOf(el);
     if (!parent) return null;
     const pd = this.declsOf(parent);
-    const display = this.cascaded(parent, ['display']);
-    if (display.ambiguous) return null;
-    const d = (display.value ?? (BLOCK.has(parent.tagName) ? 'block' : 'inline')).toLowerCase().trim();
-    if (d === 'inline' || d === 'contents' || d === 'none') return null;
-    if (/flex/.test(d) && parent.childNodes.filter(isEl).length > 1) return null;
-    if (/grid/.test(d)) for (const prop of pd.keys()) if (GRID_TRACKS.test(prop)) return null;
+    // every display that may win (an `@supports` one over a plain one) must give the percentage the same basis
+    const displays = this.candidates(parent, ['display']);
+    if (!displays) return null;
+    for (const value of displays) {
+      const d = (value ?? (BLOCK.has(parent.tagName) ? 'block' : 'inline')).toLowerCase().trim();
+      if (d === 'inline' || d === 'contents' || d === 'none') return null;
+      if (/flex/.test(d) && parent.childNodes.filter(isEl).length > 1) return null;
+      if (/grid/.test(d)) for (const prop of pd.keys()) if (GRID_TRACKS.test(prop)) return null;
+    }
     const size = this.size(parent, axis);
     if (size === null) return null;
     // a percentage refers to the content box: with border-box sizing, the width less its padding and borders
