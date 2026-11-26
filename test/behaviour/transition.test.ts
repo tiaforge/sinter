@@ -147,3 +147,22 @@ test('a swap holds its reveal REVEAL_MAX at most, and not at all with the elemen
   expect(morphHeld(none.app)).toBeUndefined();
   expect(morphHeld(undefined)).toBeUndefined();
 });
+
+test('a transition aborted while it runs (the page navigates away) leaves no unhandled rejection', async () => {
+  // Chromium rejects ready and updateCallbackDone of an aborted transition, and reports them as unhandled once a
+  // script holds the transition (sinter-alloy's CI: "Transition was aborted because of invalid state")
+  const unhandled: unknown[] = [];
+  const on = (e: unknown) => unhandled.push(e);
+  process.on('unhandledRejection', on);
+  try {
+    const r = await render(LIST, { session: memoryStorage(), requests: mockRequests({ 'GET /api/articles': { articles: [{ slug: 'one', title: 'One' }] } }) });
+    await r.settle();
+    r.root.querySelectorAll('a')[0]!.click();
+    const aborted = () => Promise.reject(new DOMException('Transition was aborted because of invalid state', 'InvalidStateError'));
+    await fire(r, 'pageswap', { viewTransition: { finished: Promise.resolve(), ready: aborted(), updateCallbackDone: aborted() }, activation: { entry: { url: 'http://localhost/article/one' }, navigationType: 'push' } });
+    await new Promise((res) => setTimeout(res, 20));
+    expect(unhandled).toEqual([]);
+  } finally {
+    process.off('unhandledRejection', on);
+  }
+});
