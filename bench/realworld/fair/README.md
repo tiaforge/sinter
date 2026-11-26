@@ -18,10 +18,10 @@ against the same local API and the same copies of the third-party files.
 | audit | Lighthouse 13.6.0 (this directory's `../package.json`), mobile and desktop presets, a new Chrome with an empty profile per audit, runs interleaved across implementations, the median of `--runs` |
 
 sinter's own app makes three choices about the third-party files; none is in the harness, and Ionicons' CSS and font are
-the CDN's, unchanged. It serves Source Sans Pro, the one family its CSS uses, from its own
-origin (`@fontsource/source-sans-pro`, the 300, 400, 600 and 700 weights the theme's Google Fonts link asked for, normal and
-italic) instead of from Google, as any app may: the same family and weights, one connection fewer, and the longest
-chain of requests from 214 ms to the document's own. It preloads three of the faces (400, 300, 600:
+the CDN's, unchanged. It serves the two families the spec names for the theme (Source Sans Pro 300, 400, 600 and 700; Lora 400 and 700: the weights
+of the spec's Google Fonts link) from its own origin (`@fontsource`) instead of from Google, as any app may: the same families
+and weights, one connection fewer, and the longest chain of requests from 214 ms to the document's own. (Until 2026-11-26 it
+loaded no Lora, as the older template's link had none: the logo and the article's text were in a generic serif.) It preloads three of the faces (400, 300, 600:
 `fonts.preload` in `examples/realworld/vite.config.js`), so the files are there before the first paint and the cards do
 not move when they arrive (on the public Google Fonts files: CLS 0.087 without, 0.000 with). And the Ionicons stylesheet
 is linked `media="print"` in the layout's head and applied from `islands.js` on the page's mount, so it does not hold
