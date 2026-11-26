@@ -243,7 +243,7 @@ export const DOM_EVENTS = new Set([
  * `data-sn-state`, …) belongs inside the component.
  */
 export function callerAttribute(name: string): boolean {
-  return /^data-sn-(with|model|persist|early|class|attr|href|style|show|transition|post|put|patch|delete|call|body|trigger|debounce|concurrency|optimistic|then|catch|confirm|encoding|write-through|retry)$/.test(name)
+  return /^data-sn-(with|model|persist|early|class|attr|href|style|show|transition|post|put|patch|delete|call|body|trigger|debounce|concurrency|optimistic|then|catch|confirm|when|encoding|write-through|retry)$/.test(name)
     || name.startsWith('data-sn-on-') || name.startsWith('data-sn-debounce-');
 }
 

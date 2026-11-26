@@ -7868,7 +7868,7 @@ class Compiler {
     const body = fnOf('body', { mode: 'value', magic: ['$event'] }, typed?.request != null ? { returns: { kind: 'openapi', spec: typed.spec, schema: typed.request } } : undefined);
     reads.push(...(body.r?.reads ?? []));
     if (body.r) this.encodedBody(el, 'data-sn-body', body.r.ast);
-    const optimistic = fnOf('optimistic', { mode: 'optimistic' });
+    const optimistic = fnOf('optimistic', { mode: 'optimistic', magic: ['$event'] });
     if (optimistic.f !== null) this.features.add('optimistic');
     const then = fnOf('then', { mode: 'handler', magic: ['$event', '$result'] },
       typed?.body != null ? { resultType: { kind: 'openapi', spec: typed.spec, schema: typed.body } }

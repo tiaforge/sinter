@@ -414,7 +414,7 @@ A model on `$url` (added 2026-11-13): `data-sn-model="$url.q"` binds a query par
 | `data-sn-model-debounce` | duration (`300`, `300ms`, `2s`) | delays the element's `data-sn-model` write (added 2026-11-19 as `data-sn-debounce` on a field without an action; its own name since 2026-11-20, so adding an action does not move the delay): the field shows the keystrokes at once; the write is no keystroke, so a resource over it loads at once and a model on `$url` pushes one entry, with no second pause; a text field's `change` writes at once, synchronously; not on a component's tag (`SN102`) |
 | `data-sn-debounce-<event>` | duration (`300`, `300ms`, `2s`) | delays the `data-sn-on-<event>` handler (it runs with the last event; `data-sn-model` still updates at once), e.g. `data-sn-debounce-input="200"` next to an immediate `data-sn-on-blur` |
 | `data-sn-concurrency` | `block`, `queue` or `latest` | what a trigger does while the action runs; default `block` for forms, `queue` otherwise |
-| `data-sn-optimistic` | handler expression | store changes applied before the request |
+| `data-sn-optimistic` | handler expression | store changes applied before the request; sees `$event` as the body does (added 2026-11-26: was `SN201`), so an action on a component's tag reads the triggering event's `$event.detail` |
 | `data-sn-then` | handler expression | runs after a 2xx response, `$result` = parsed body |
 | `data-sn-catch` | handler expression | runs after an error, `$error` = error object |
 | `data-sn-confirm` | value expression | a question asked before the action runs; no request when the answer is no, no question when the value is falsy |
@@ -485,7 +485,7 @@ The page module calls `$apis([{ n, b, c?, h? }])` when an API has `credentials` 
 
 | Name | Available in | Value |
 | --- | --- | --- |
-| `$event` | `on-*`, `then`, `catch`, `data-sn-body`, `data-sn-call` arguments | the DOM event (for an action, the one that triggered it; `null` when `run('id')` started it, except for a form) |
+| `$event` | `on-*`, `then`, `catch`, `data-sn-body`, `data-sn-call` arguments, `data-sn-optimistic`, `data-sn-confirm` | the DOM event (for an action, the one that triggered it; `null` when `run('id')` started it, except for a form) |
 | `$el` | everywhere | the current element |
 | `$url` | everywhere | reactive view of `location.search` params plus the path parameters of `data-sn-path`; assigning to `$url.x` writes the URL, with a history entry when a user's event caused it (see The URL; path parameters are read-only, `SN203`) |
 | `$now` | everywhere | current time as a `Date`, refreshed every 60 s; the timer runs only on pages that use it |

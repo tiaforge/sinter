@@ -179,6 +179,16 @@ declare global {
     one(page(`<div data-sn-state="{ n: 0 }"><note-field data-sn-model="n"></note-field></div>`), /Type 'string' is not assignable to type 'number'/, 'n"></note-field>', field);
   });
 
+  test('an action on a component\'s tag: `$event.detail` in its body and optimistic change is the triggering event\'s detail', () => {
+    const sort = { 'src/components/contact-sort.html': `<template data-sn-props="{ items: Contact[] }" data-sn-emits="{ move: { id: number; to: number } }">
+  <ul><template data-sn-for="c in items" data-sn-key="c.id"><li><button data-sn-on-click="emit('move', { id: c.id, to: 0 })" data-sn-text="c.name"></button></li></template></ul>
+</template>` };
+    const use = (opt: string) => page(`<contact-sort data-sn-with="{ items: contacts }" data-sn-put="/api/contacts/order" data-sn-trigger="move"
+  data-sn-body="{ id: $event.detail.id, to: $event.detail.to }" data-sn-optimistic="${opt}"></contact-sort>`);
+    expect(run(use('merge(contacts.find((c) => c.id === $event.detail.id), { id: $event.detail.to })'), sort).diagnostics).toEqual([]);
+    one(use('merge(contacts.find((c) => c.id === $event.detail.id), { name: $event.detail.to })'), /Type 'number' is not assignable to type 'string'/, 'name: $event', sort);
+  });
+
   test('head components: props typed by data-sn-props at the call site and inside', () => {
     const seo = { 'src/components/seo-tags.html': `<template data-sn-props="{ contact: Contact; count?: number }">
   <title data-sn-text="contact.name"></title>
