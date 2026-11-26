@@ -16,8 +16,7 @@ build checks every expression, so a typo fails the build and never reaches a vis
 npm create sinter my-app
 ```
 
-[![Open in StackBlitz](https://developer.stackblitz.com/img/open_in_stackblitz.svg)](https://stackblitz.com/github/tiaforge/sinter/tree/main/examples/dashboard)
-&nbsp;or try a live dashboard in the browser, with nothing to install.
+<a href="https://stackblitz.com/github/tiaforge/sinter/tree/main/examples/dashboard"><img src="https://developer.stackblitz.com/img/open_in_stackblitz.svg" alt="Open in StackBlitz" align="absmiddle"></a>&nbsp; or try a live dashboard in the browser, with nothing to install.
 
 ---
 
