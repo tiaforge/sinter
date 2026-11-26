@@ -1138,12 +1138,12 @@ export function mount(root: Document | Element, o: MountOptions): App {
     }
   }
 
-  /** Evaluates and writes one binding if needed; false while it waits in a closed dialog. */
+  /** Evaluates and writes one binding if needed; false while it waits in a closed dialog (a ref, `r`, never waits). */
   function process(rb: RB, level: number): boolean {
     const force = level >= 2 || (level == 1 && !!rb.b.i);
     if (!force && !(deferred.size && deferred.has(rb)) && !(rb.b.d && hit(rb.b.d, rb.s))) return true;
     // (an anchor's start comment is in its parent element, which a dialog's check reads)
-    if (F.DIALOG && rb.c && waits(rb.el.nodeType == 1 ? rb.el as Element : rb.el.parentElement)) { deferred.add(rb); return false; }
+    if (F.DIALOG && rb.c && !rb.b.r && waits(rb.el.nodeType == 1 ? rb.el as Element : rb.el.parentElement)) { deferred.add(rb); return false; }
     if (deferred.size) deferred.delete(rb);
     const v = evaluate(rb), k = rb.b.k;
     if (F.LIST && k == 'for') reconcile(rb, v);

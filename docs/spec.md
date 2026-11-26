@@ -1015,7 +1015,7 @@ A handler cannot call an action function (`SN203`), because an action's lifecycl
 | disabled (`:disabled`: its own `disabled`, or a disabled `<fieldset>` around it) | nothing happens, no warning, as a click on a disabled button: disabling a button also turns off its shortcut |
 | `inert`, itself or an ancestor (the attribute) | nothing happens, no warning, as HTML means by inert |
 | `hidden`, `data-sn-show` false, off-screen | runs: a hidden carrier is the intended pattern |
-| inside a closed `<dialog>` | runs: actions are bound at mount; only value bindings wait for the dialog to open |
+| inside a closed `<dialog>` | runs: actions are bound at mount (refs are set then too); only value bindings wait for the dialog to open |
 | not on the page (a `data-sn-if` branch that is not rendered, removed by a custom element) | nothing happens; dev builds warn |
 | a `block` action with a request pending | the run is ignored, as a second click would be |
 
@@ -1215,7 +1215,7 @@ sinter updates the DOM fine-grained, without a virtual DOM: every binding knows 
 - All changes in one task are collected; one microtask flush evaluates dirty bindings and writes.
 - Changes from server events (`<sn-sync>`: the store changes and state writes of `<sn-event>` mappings and their `then`) are applied when the event arrives, and rendered before the next frame is painted (`requestAnimationFrame`) instead of in a microtask, so a burst of events renders once per frame. Any other change (a handler, a response, a timer) still flushes in a microtask and renders the waiting server changes with it. A hidden page has no frames: there, server events flush in a microtask as before. Custom elements' `app.on()` listeners run when the event arrives, before that render. (Added 2026-11-10, from bench/live: at 4× CPU slowdown a dashboard kept up with 200 events/s when each one rendered, and with 5,000/s at 51 fps rendering once per frame.)
 - The core never reads layout (`offsetHeight`, `getBoundingClientRect`), so a flush cannot force reflow.
-- Bindings inside a closed `<dialog>` are kept dirty and evaluated on its `toggle` to open.
+- Bindings inside a closed `<dialog>` are kept dirty and evaluated on its `toggle` to open. A component script's refs (`data-sn-ref`, binding flag `r`) do not wait: they are set at mount (changed 2026-11-26, requested by sinter-alloy as S14).
 
 ### Events
 - A delegated listener walks from the target up to the first element that handles the event: one with a handler or action for that type that ran; for keys, a matching filter, an action, a debounced handler, or a plain handler that prevented the key (see Which handlers run).

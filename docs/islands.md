@@ -59,7 +59,9 @@ export class TaskRing extends TaskRingComponent {
   type error in the script.
 - **`data-sn-ref="name"`** gives the script an element of its own markup as `this.refs.name`, typed by
   its tag. A ref inside a `data-sn-for` or `data-sn-if` template is `undefined` while it is not
-  rendered, and its type says so. Elements of nested components and of slot content are not refs.
+  rendered, and its type says so. A ref inside a closed `<dialog>` (the dialog itself included) is set
+  at mount, as any other, though the dialog's bindings render when it opens. Elements of nested
+  components and of slot content are not refs.
 - **`this.root`** is the instance's root element; `this.emit(name, detail)` dispatches a declared event
   from it (bubbling, cancelable). `this` is not an element: it is an object sinter creates per instance.
 - **`this.early`** is `true` when the component's [early renderer](components.md#early-renderers) filled the root

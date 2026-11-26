@@ -7240,7 +7240,8 @@ class Compiler {
     }
     if (!IDENT.test(name)) { this.report(el, 'data-sn-ref', 'SN401', '`data-sn-ref` takes a name, as the script reads it: `this.refs.canvas`', 0); return; }
     if (use.sid === undefined || !this.componentFiles.get(use.name)?.script) return;
-    node.b.push(this.binding({ k: 'cmp', f: this.fn(`($) => [$.$s${use.sid}, ${JSON.stringify(name)}]`, { el, attr: 'data-sn-ref', shift: 0 }) }));
+    // `r`: set at mount, also inside a closed dialog (the element is there already)
+    node.b.push(this.binding({ k: 'cmp', f: this.fn(`($) => [$.$s${use.sid}, ${JSON.stringify(name)}]`, { el, attr: 'data-sn-ref', shift: 0 }), r: 1 }));
   }
 
   /** the lazy packages an attribute names (`openpgp, marked`), each one of `sinter({ lazy })` (SN324) */
@@ -13958,7 +13959,7 @@ const usesEl = (r: ExprResult): Pick<Binding, 'e' | 'i'> => ({ ...(r.usesEl ? { 
 
 function binding(b: Binding): Binding {
   const out: Binding = { k: b.k };
-  for (const key of ['f', 'd', 'n', 'q', 'm', 'x', 'a', 'y', 'z', 'c', 'w', 'p', 'e', 'i', 'ms', 's', 'g'] as const) {
+  for (const key of ['f', 'd', 'n', 'q', 'm', 'x', 'a', 'y', 'z', 'c', 'w', 'p', 'e', 'i', 'ms', 's', 'g', 'r'] as const) {
     const v = b[key];
     if (v === undefined || (Array.isArray(v) && v.length === 0 && key !== 'd')) continue;
     (out as unknown as Record<string, unknown>)[key] = v;

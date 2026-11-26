@@ -120,6 +120,7 @@ How to write an entry (from 0.21.0 on; older sections keep their own form):
 - A component whose root is an if/else chain passes its tag's attributes (an `id`) to a branch that is another component's tag.
 - Back and Forward across swaps restore a scroll position the page reaches only once its data is in (a long list); it landed near the top.
 - `data-sn-transition` morphs on a swap to a page whose element renders from its first response: the old page now stays on screen until the element is there, the page's responses are in, or 500 ms pass. A page load is unchanged ([docs/navigation.md](docs/navigation.md#page-transitions)).
+- A component script's refs (`data-sn-ref`) inside a closed `<dialog>`, the dialog itself included, are set at mount, so `connected()` can reach them before the dialog opens; they were `undefined` until it opened. The dialog's other bindings and the components inside it still render when it opens ([docs/islands.md](docs/islands.md)).
 
 ### Performance
 
