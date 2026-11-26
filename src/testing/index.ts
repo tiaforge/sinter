@@ -416,9 +416,23 @@ export async function firstPaint(html: string, options: Pick<RenderOptions, 'hel
   writePage(parts.html, options.messages);
   const env = config.env;
   config.env = { ...env, storage: () => options.storage ?? null };
+  pageLocale(parts);
   if (options.messages) messagesLocale(options);
   try { await paint(parts, helpers, options.early, earlyRenderers); } finally { config.env = env; }
   return { root: document.body, html: parts.html };
+}
+
+/** the locale source `pageLocale` set for the last page, which the next page's leaves out */
+let langSource: typeof config.locale = null;
+/**
+ * An app without languages: the page's literal `<html lang>` as the locale of the formatters and `$locale`, as a built
+ * page's module sets it (`$lang`: unless a locale source is configured, as by the test's `locale`)
+ */
+function pageLocale(parts: CompiledParts) {
+  if (config.locale && config.locale === langSource) config.locale = null;
+  langSource = null;
+  const lang = parts.lang;
+  if (lang && !config.locale) config.locale = langSource = { get: () => lang, set: () => {} };
 }
 
 /** the page's one language with messages: `locale`, else the base (the messages' first) */
@@ -750,6 +764,7 @@ export async function render(html: string, options: RenderOptions = {}): Promise
     },
   };
   config.env = env;
+  pageLocale(parts);
   if (options.firstPaint) {
     const fp = options.firstPaint === true ? {} : options.firstPaint;
     if (options.messages) messagesLocale(options);

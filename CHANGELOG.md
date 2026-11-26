@@ -26,6 +26,14 @@ How to write an entry (from 0.21.0 on; older sections keep their own form):
 
 ### Changed
 
+- In an app without languages (no `languages()`, no `localePrefix`), the page's literal `<html lang>` (or its
+  layout's) is now the locale of `date()`, `number()`, `bytes()` and `relative()`, and the value of `$locale`. This
+  applies in the first paint and in the browser, so they agree. Before, the formatters used the browser's default
+  locale and `$locale` was `undefined`. A page with `<html lang="de">` now shows `1.234,5` to every visitor. To keep
+  the visitor's locale, connect your own source with `configure({ locale })`, which wins over `lang` in the browser (calls over build-time
+  constants are still written in the page's language). A page with no
+  `lang`, a bound one (`data-sn-attr`), or one `Intl` does not take is unchanged
+  ([docs/expressions.md](docs/expressions.md#built-in-formatters)).
 - With `images.widths`, the largest width is the widest file: a fluid `<img>` no longer adds a file at the source's
   own width above it, and a sized CSS background's 2x file is at most that width (1x half of it). A 6000 px hero
   with `widths: [480, …, 3840]` ships no 6000 px files. Without `widths` nothing changes
