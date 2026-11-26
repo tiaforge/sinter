@@ -48,6 +48,7 @@ How to write an entry (from 0.21.0 on; older sections keep their own form):
 
 ### Fixed
 
+- A page with `data-sn-transition` that navigates while a cross-document view transition runs no longer leaves an uncaught `Transition was aborted because of invalid state` in Chromium: the transition's `ready` and `updateCallbackDone` rejections are handled as `finished` already was ([docs/navigation.md](docs/navigation.md#page-transitions)).
 - An app whose `node_modules/@tiaforge-ui/sinter` links to a sinter checkout (`npm link`, `file:`) builds: the plugin took sinter's own files, outside `node_modules` by their real path, for the app's modules and failed on them (`clearPersisted()` is renamed to `clearStored()`). They are now a package wherever they are, to every check and rewrite of the app's modules ([docs/libraries.md](docs/libraries.md#using-one)).
 - A component script's refs (`data-sn-ref`) inside a closed `<dialog>`, the dialog itself included, are set at mount, so `connected()` can reach them before the dialog opens; they were `undefined` until it opened. The dialog's other bindings and the components inside it still render when it opens ([docs/islands.md](docs/islands.md)).
 - Docs: a `data-sn-style` value rendered into the first frame is a `style` attribute, which `style-src 'self'` alone
