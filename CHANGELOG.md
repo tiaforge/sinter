@@ -36,6 +36,11 @@ How to write an entry (from 0.21.0 on; older sections keep their own form):
 
 ### Fixed
 
+- A component library linked from outside the app (`file:`, `npm link`) no longer brings its own copy of sinter:
+  the Vite plugin adds `@tiaforge-ui/sinter` to `resolve.dedupe`, so the library's scripts import the app's copy.
+  Before, the library's copy's `instance()` knew none of the app's mounts (caley: a self-saving sortable saved
+  nothing). A copy that did not mount a page now says so: `instance()` throws `sinter: mounted by another copy of
+  sinter` and logs it once ([docs/libraries.md](docs/libraries.md#using-one)).
 - A stylesheet with `@import 'virtual:…'` (a plugin's CSS, such as temper's `virtual:temper-icons.css`) is read for
   image sizes again: the import is left out and the rest of the stylesheet counts. It used to fail whole (`SN527`),
   and its images fell back to `sizes="auto, 100vw"`. An `SN527` for an `@import` that cannot be opened now names the

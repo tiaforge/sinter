@@ -260,6 +260,8 @@ const EARLY = `${PREFIX}early/`;
  */
 const RT_KEY = 'sinter.early.rt';
 const RT_ID = '\0sinter:early-rt';
+/** this package, as apps and libraries import it */
+const SELF = '@tiaforge-ui/sinter';
 const EARLY_PKG = '@tiaforge-ui/sinter/runtime/early';
 /** the runtime's exports a page's early module imports (the compiler names each it calls) */
 const runtimeNames = (code: string) => /import \{([^}]*)\} from '@tiaforge-ui\/sinter\/runtime\/early'/.exec(code)?.[1]!.split(',').map((x) => x.trim()).filter(Boolean) ?? [];
@@ -1750,7 +1752,9 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       const deps = lazyPkgs.length || libs.length ? { optimizeDeps: { ...(lazyPkgs.length ? { include: lazyPkgs } : {}), ...(libs.length ? { exclude: libs } : {}) } } : {};
       const mp = user.build?.modulePreload;
       const polyfill = mp === false || (typeof mp === 'object' && mp.polyfill !== undefined) ? {} : { modulePreload: { polyfill: false } };
-      return { ...deps, ...mpa, build: { ...mpa.build, ...polyfill } };
+      // one sinter for the app and its libraries: a library linked from outside the root (`file:`, `npm link`) would
+      // import its own copy, whose `instance()` knows none of the app's mounts (Vite merges this with the app's list)
+      return { ...deps, ...mpa, build: { ...mpa.build, ...polyfill }, resolve: { dedupe: [SELF] } };
     },
 
     async configResolved(config) {

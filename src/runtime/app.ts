@@ -423,6 +423,13 @@ interface ActState {
 
 const instances = new WeakMap<object, App>();
 /**
+ * Every copy of this module loaded in the page, by its `instances`: a library linked with `file:` or `npm link`
+ * can bring a sinter of its own, whose `instance()` knows none of the app's mounts (docs/libraries.md#using-one).
+ */
+const copies: Array<WeakMap<object, App>> = ((globalThis as any)[Symbol.for('sinter.copies')] ??= []);
+copies.push(instances);
+let twoCopies = false;
+/**
  * A marked path: a node of the page's path table (-1: one nothing reads) and the values its `{name}`
  * segments took from the writer's scope, in order.
  */
@@ -510,8 +517,14 @@ export function signOut(): void {
 /** The instance mount() created on `root`; throws if none. */
 export function instance(root: Document | Element): App {
   const app = instances.get(root);
-  if (!app) throw Error('sinter: not mounted');
-  return app;
+  if (app) return app;
+  if (copies.some((m) => m !== instances && m.has(root))) {
+    const msg = 'sinter: mounted by another copy of sinter (a library linked with file: or npm link?): add it to resolve.dedupe';
+    // once, and also logged: a caller looking for its mount root through the ancestors catches the error
+    if (!twoCopies) { twoCopies = true; console.error(msg); }
+    throw Error(msg);
+  }
+  throw Error('sinter: not mounted');
 }
 
 export function mount(root: Document | Element, o: MountOptions): App {

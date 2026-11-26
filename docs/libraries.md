@@ -85,6 +85,12 @@ events and fills as for the app's own:
   link`) is read where it really is, outside the project root. In dev it is left out of Vite's
   dependency pre-bundling, served through the link and watched: a change to one of its components
   reloads the pages that use it.
+- **One copy of sinter.** A linked library has a `node_modules` of its own, usually with its
+  own sinter (its dev dependency). The plugin adds sinter to Vite's `resolve.dedupe`, so the library's
+  `import … from '@tiaforge-ui/sinter'` gets the app's copy: a second copy's `instance()` knows none of the app's
+  mounts. Without the plugin (a bundler of its own, a test setup), dedupe it yourself. When two copies are loaded
+  anyway, `instance()` of the copy that did not mount the page throws `sinter: mounted by another copy of sinter`
+  and logs it once, so code that catches the error still leaves a trace.
 - **Versions.** A library lists the sinter versions it supports in `peerDependencies`; the app's
   sinter warns when its own version is outside the range, or when a library lists none (`SN537`).
 
