@@ -84,6 +84,8 @@ function needOf(parts: csstree.CssNode[]): Need {
 /** the properties this reads (and their aliases), and what a declaration of any of them on a parent means */
 const SIZE = { width: ['width', 'inline-size'], height: ['height', 'block-size'], 'min-width': ['min-width', 'min-inline-size'], 'max-width': ['max-width', 'max-inline-size'], 'min-height': ['min-height', 'min-block-size'], 'max-height': ['max-height', 'max-block-size'] } as const;
 const GRID_TRACKS = /^(grid|grid-template(-columns|-areas)?|grid-auto-columns)$/;
+/** displays whose box gives a child's percentage size a basis when one of several may win (`basis`), with their two-value forms */
+const BASIS_DISPLAYS = new Set(['block', 'block flow', 'flow-root', 'block flow-root', 'list-item', 'block list-item', 'block flow list-item', 'list-item block', 'inline-block', 'inline flow-root', 'grid', 'block grid', 'inline-grid', 'inline grid', 'flex', 'block flex', 'inline-flex', 'inline flex']);
 const TABLE = new Set(['table', 'thead', 'tbody', 'tfoot', 'tr', 'td', 'th', 'caption']);
 const TABLE_DISPLAY: Record<string, string> = { table: 'table', thead: 'table-header-group', tbody: 'table-row-group', tfoot: 'table-footer-group', tr: 'table-row', td: 'table-cell', th: 'table-cell', caption: 'table-caption' };
 const BLOCK = new Set(['html', 'body', 'div', 'p', 'section', 'article', 'header', 'footer', 'main', 'nav', 'aside', 'figure', 'figcaption', 'li', 'ul', 'ol', 'form', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote', 'dl', 'dd', 'dt', 'fieldset', 'details', 'summary', 'dialog', 'address', 'hgroup', 'menu', 'search', 'pre', 'hr']);
@@ -770,12 +772,14 @@ export class Layout {
     const parent = this.parentOf(el);
     if (!parent) return null;
     const pd = this.declsOf(parent);
-    // every display that may win (an `@supports` one over a plain one) must give the percentage the same basis
+    // every display that may win (an `@supports` one over a plain one) must give the percentage the same basis;
+    // with more than one, only the known block-level and inline-level boxes do
     const displays = this.candidates(parent, ['display']);
     if (!displays) return null;
     for (const value of displays) {
-      const d = (value ?? (BLOCK.has(parent.tagName) ? 'block' : 'inline')).toLowerCase().trim();
+      const d = (value ?? (BLOCK.has(parent.tagName) ? 'block' : 'inline')).toLowerCase().trim().replace(/\s+/g, ' ');
       if (d === 'inline' || d === 'contents' || d === 'none') return null;
+      if (displays.length > 1 && !BASIS_DISPLAYS.has(d)) return null;
       if (/flex/.test(d) && parent.childNodes.filter(isEl).length > 1) return null;
       if (/grid/.test(d)) for (const prop of pd.keys()) if (GRID_TRACKS.test(prop)) return null;
     }

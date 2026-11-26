@@ -211,8 +211,13 @@ test('SN530: an image 100% of a fixed box is sized when an `@supports` rule may 
   expect(codes(avatar)).toBe(0);
   // inline-grid or inline-block: the same basis
   expect(codes(`@layer tm { ${avatar} @supports (text-box: trim-both cap alphabetic) { :where([data-tm-avatar]) { display: inline-block } } }`)).toBe(0);
-  // one of them inline: no basis
-  expect(codes(`${avatar} @supports (text-box: trim-both cap alphabetic) { :where([data-tm-avatar]) { display: inline } }`)).toBe(1);
+  expect(codes(`${avatar} @supports (display: grid) { :where([data-tm-avatar]) { display: inline flow-root } }`)).toBe(0);
+  // one of them gives no basis, or one the build does not know: still reported
+  const may = (decl: string) => codes(`${avatar} @supports (text-box: trim-both cap alphabetic) { :where([data-tm-avatar]) { ${decl} } }`);
+  for (const d of ['inline', 'contents', 'table', 'inline flow', 'var(--d)']) expect(may(`display: ${d}`), d).toBe(1);
+  // a grid with tracks, a flex container with several items
+  expect(may('display: inline-block; grid-template-columns: 1fr 1fr')).toBe(1);
+  expect(may('display: inline-flex')).toBe(1);
 });
 
 test('SN530 suggests the fix for that image: its size from the API, the attribute it lacks, or an aspect-ratio rule for it', () => {
