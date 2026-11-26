@@ -160,9 +160,11 @@ const entries = {
 // returning-reader note and the 2 s cap: about 230 B gzip), which takes the profile page's Lighthouse score from 99 to 100
 // Raised on 2026-11-22 to 57.125 KB (58,467 B): a list whose focused row goes moves the focus to the row now in its place
 // instead of leaving it on <body> (accessibility; 229 B gzip in the page runtime)
+// Raised on 2026-11-26 to 57.25 KB (58,624 B): the app's `islands.js` applies the Ionicons stylesheet, which the layout links with
+// `media="print"` so it does not hold the first paint (examples/realworld, bench/realworld/fair/README.md): 41 B gzip in every page
 const BUDGET = {
   'multilingual de/status': 12.625 * 1024, 'multilingual de/status, html': 0.875 * 1024,
-  minimal: 11 * 1024, 'minimal, swaps': 12.875 * 1024, 'realworld article': 57.125 * 1024,
+  minimal: 11 * 1024, 'minimal, swaps': 12.875 * 1024, 'realworld article': 57.25 * 1024,
   'minimal, link': 11.125 * 1024, 'minimal, token': 12 * 1024, 'minimal, token, early': 1.875 * 1024, 'realworld early, shared': 3.375 * 1024,
 };
 let failed = false;
