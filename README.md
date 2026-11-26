@@ -29,7 +29,7 @@ npm create sinter my-app
 </tr>
 </table>
 
-<sub>Measured against implementations that pass RealWorld's official end-to-end suite: [comparison](docs/realworld-comparison.md), [first-paint benchmark](docs/first-paint-comparison.md).</sub>
+<sub>Each implementation passes RealWorld's official end-to-end suite and was measured on the same machine under the same conditions: [comparison](docs/realworld-comparison.md), [first-paint benchmark](docs/first-paint-comparison.md).</sub>
 
 ## From page to app, one step at a time
 

@@ -3,6 +3,8 @@
 The [RealWorld](https://github.com/gothinkster/realworld) "Conduit" frontend as a multi-page sinter
 app, talking to the public API at `https://api.realworld.show/api`.
 
+**Live: <https://sinter-ct5.pages.dev/>** (Cloudflare Pages, against the same public API).
+
 ```sh
 npm install            # in the repo root first: npm run build
 npm run dev            # http://localhost:5173
