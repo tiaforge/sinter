@@ -131,6 +131,11 @@ skipped by the suite. The failures were assumptions in the suite, not app behavi
   That line now shows only while there is nothing to show (with cached articles, loading means
   updating them), so a reload into the cached feed counts 10. It needs a backend with 10 or more
   articles, which the suite leaves behind. Not run since this change.
+- **Navigation and Filtering, "should display popular tags" (public API only):** it creates an article tagged `popular` and
+  `trending` and expects both in the sidebar. The public API's `/tags` is a fixed list of 15 tags (`ai`, `api`, … `webdev`) that
+  articles from other accounts never add to: the app's request got that list in the failing run's trace, right after the API had
+  answered the article's `POST` with those two tags, and the same list came back to a request with the test account's token
+  and one without (2026-11-26). No implementation can pass it against that API; against a local backend it passes.
 
 With the mocked API (no backend), `error-handling` and `user-fetch-errors` pass except "should handle
 403 when deleting another users comment", where the trash icon is not visible, probably because the
