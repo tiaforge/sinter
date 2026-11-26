@@ -23,6 +23,7 @@ export default defineConfig({
       firstPaint: { budget: 40 * 1024 },
       embed: !!process.env.SINTER_EMBED,
       strict: true,
+      fonts: { preload: ['Source Sans Pro', { family: 'Source Sans Pro', weight: 300 }, { family: 'Source Sans Pro', weight: 600 }] },
     }),
   ],
   // sinter-markdown is linked from packages/ (file:): its imports of sinter resolve to the app's

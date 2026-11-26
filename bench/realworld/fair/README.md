@@ -17,6 +17,12 @@ against the same local API and the same copies of the third-party files.
 | browser | Chrome mapped to the local servers (`--host-resolver-rules`, no proxy); it trusts only the local certificate (`--ignore-certificate-errors-spki-list`) |
 | audit | Lighthouse 13.6.0 (this directory's `../package.json`), mobile and desktop presets, a new Chrome with an empty profile per audit, runs interleaved across implementations, the median of `--runs` |
 
+sinter's own build preloads three Source Sans Pro faces (400, 300, 600: `fonts.preload` in `examples/realworld/vite.config.js`),
+so the files are there before the first paint and the cards do not move when they arrive (on the public Google Fonts
+files: CLS 0.087 without, 0.000 with). It is a choice in sinter's app, not in the harness: the same files are
+loaded, and any implementation can add the same `<link rel="preload">`. The others' commits are unchanged. A preload of
+the Ionicons font file was tried and changed nothing (the stylesheet that names it blocks the first paint, not the file).
+
 Each audit is checked: a failed request, or a client-rendered app that never requested the article list, is printed
 and counted in the table. `check.mjs` also loads every home page once and checks it shows the API's 10 articles.
 

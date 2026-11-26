@@ -3,9 +3,10 @@
 // median performance score counts. Prints a Markdown table of the scores and the raw metrics behind
 // them, and writes every report to `--out`.
 //
-//   CHROME=… node lighthouse.mjs [--runs 5] [--out reports] [--sinter] <name>=<url> ...
+//   CHROME=… node lighthouse.mjs [--runs 5] [--out reports] [--sinter [--h2]] <name>=<url> ...
 //
-// --sinter also audits examples/realworld's production build (serve.mjs; build it first).
+// --sinter also audits examples/realworld's production build (serve.mjs; build it first); with --h2 it
+// is served over HTTP/2 + TLS (self-signed; Chrome runs with --ignore-certificate-errors).
 // Lighthouse simulates the network from the requests it observed (Lantern), so a page served from
 // localhost and one served from a CDN are both replayed at the same simulated RTT and bandwidth;
 // server response times still count as observed.
@@ -18,21 +19,21 @@ import { serve } from './serve.mjs';
 
 const { values: opt, positionals } = parseArgs({
   allowPositionals: true,
-  options: { runs: { type: 'string', default: '5' }, out: { type: 'string', default: 'reports' }, sinter: { type: 'boolean' } },
+  options: { runs: { type: 'string', default: '5' }, out: { type: 'string', default: 'reports' }, sinter: { type: 'boolean' }, h2: { type: 'boolean' } },
 });
 const targets = positionals.map((a) => a.split(/=(.*)/).slice(0, 2));
 const runs = Math.max(1, Number(opt.runs));
 const out = resolve(opt.out);
 mkdirSync(out, { recursive: true });
 
-const server = opt.sinter ? await serve() : null;
+const server = opt.sinter ? await serve({ h2: opt.h2 }) : null;
 if (server) targets.unshift(['sinter', server.url + '/']);
 
 /** One audit in a new Chrome with a new profile: nothing cached from an earlier run or another implementation. */
 async function audit(url, config) {
   const chrome = await chromeLauncher.launch({
     chromePath: process.env.CHROME || undefined,
-    chromeFlags: ['--headless=new', '--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage'],
+    chromeFlags: ['--headless=new', '--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage', ...(opt.h2 ? ['--ignore-certificate-errors'] : [])],
   });
   try { return await lighthouse(url, { port: chrome.port, output: 'json', logLevel: 'error' }, config); } finally { await chrome.kill(); }
 }
