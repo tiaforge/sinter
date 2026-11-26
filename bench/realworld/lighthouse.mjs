@@ -19,7 +19,7 @@ import { serve } from './serve.mjs';
 
 const { values: opt, positionals } = parseArgs({
   allowPositionals: true,
-  options: { runs: { type: 'string', default: '5' }, out: { type: 'string', default: 'reports' }, sinter: { type: 'boolean' }, h2: { type: 'boolean' } },
+  options: { runs: { type: 'string', default: '5' }, out: { type: 'string', default: 'reports' }, sinter: { type: 'boolean' }, h2: { type: 'boolean' }, forms: { type: 'string', default: 'mobile,desktop' } },
 });
 const targets = positionals.map((a) => a.split(/=(.*)/).slice(0, 2));
 const runs = Math.max(1, Number(opt.runs));
@@ -40,7 +40,7 @@ async function audit(url, config) {
 
 const rows = [];
 try {
-  for (const [form, config] of [['mobile', undefined], ['desktop', desktopConfig]]) {
+  for (const [form, config] of [['mobile', undefined], ['desktop', desktopConfig]].filter(([f]) => opt.forms.split(',').includes(f))) {
     for (const [name, url] of targets) {
       const results = [];
       for (let i = 0; i < runs; i++) {
@@ -53,6 +53,7 @@ try {
       const { lhr, report } = results[Math.floor(results.length / 2)];
       writeFileSync(join(out, `${name}-${form}.json`), report);
       const perfs = results.map((r) => Math.round(r.lhr.categories.performance.score * 100));
+      if (process.env.VERBOSE) console.error(results.map((r) => `${Math.round(r.lhr.categories.performance.score * 100)}/CLS ${r.lhr.audits['cumulative-layout-shift'].numericValue.toFixed(3)}/LCP ${Math.round(r.lhr.audits['largest-contentful-paint'].numericValue)}`).join('  '));
       rows.push({ name, form, lhr, perfRange: `${Math.min(...perfs)}–${Math.max(...perfs)}` });
       const c = lhr.categories, a = lhr.audits;
       console.error(`${name} ${form}: perf ${Math.round(c.performance.score * 100)} (${Math.min(...perfs)}–${Math.max(...perfs)}), a11y ${Math.round(c.accessibility.score * 100)}, seo ${Math.round(c.seo.score * 100)}, LCP ${a['largest-contentful-paint'].displayValue}, CLS ${a['cumulative-layout-shift'].displayValue}`);
@@ -64,7 +65,7 @@ try {
 
 const kb = (n) => (n / 1024).toFixed(1);
 const ms = (n) => (n >= 1000 ? `${(n / 1000).toFixed(2)} s` : `${Math.round(n)} ms`);
-for (const form of ['mobile', 'desktop']) {
+for (const form of ['mobile', 'desktop'].filter((f) => opt.forms.split(',').includes(f))) {
   console.log(`\n### ${form === 'mobile' ? 'Mobile (simulated slow 4G, 4x CPU slowdown)' : 'Desktop'}, median of ${runs}\n`);
   console.log('| implementation | perf | (range) | a11y | best pr. | SEO | FCP | LCP | TBT | CLS | Speed Index | JS (KB) | total (KB) | requests | main thread |');
   console.log('| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |');
