@@ -17,8 +17,11 @@ against the same local API and the same copies of the third-party files.
 | browser | Chrome mapped to the local servers (`--host-resolver-rules`, no proxy); it trusts only the local certificate (`--ignore-certificate-errors-spki-list`) |
 | audit | Lighthouse 13.6.0 (this directory's `../package.json`), mobile and desktop presets, a new Chrome with an empty profile per audit, runs interleaved across implementations, the median of `--runs` |
 
-sinter's own app makes two choices about the third-party files; neither is in the harness, and the files loaded are the
-same ones (Ionicons' CSS is the CDN's, unchanged). Its build preloads three Source Sans Pro faces (400, 300, 600:
+sinter's own app makes three choices about the third-party files; none is in the harness, and Ionicons' CSS and font are
+the CDN's, unchanged. It serves Source Sans Pro, the one family its CSS uses, from its own
+origin (`@fontsource/source-sans-pro`, the 300, 400, 600 and 700 weights the theme's Google Fonts link asked for, normal and
+italic) instead of from Google, as any app may: the same family and weights, one connection fewer, and the longest
+chain of requests from 214 ms to the document's own. It preloads three of the faces (400, 300, 600:
 `fonts.preload` in `examples/realworld/vite.config.js`), so the files are there before the first paint and the cards do
 not move when they arrive (on the public Google Fonts files: CLS 0.087 without, 0.000 with). And the Ionicons stylesheet
 is linked `media="print"` in the layout's head and applied from `islands.js` on the page's mount, so it does not hold
