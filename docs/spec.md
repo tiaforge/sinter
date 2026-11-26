@@ -414,7 +414,7 @@ A model on `$url` (added 2026-11-13): `data-sn-model="$url.q"` binds a query par
 | `data-sn-model-debounce` | duration (`300`, `300ms`, `2s`) | delays the element's `data-sn-model` write (added 2026-11-19 as `data-sn-debounce` on a field without an action; its own name since 2026-11-20, so adding an action does not move the delay): the field shows the keystrokes at once; the write is no keystroke, so a resource over it loads at once and a model on `$url` pushes one entry, with no second pause; a text field's `change` writes at once, synchronously; not on a component's tag (`SN102`) |
 | `data-sn-debounce-<event>` | duration (`300`, `300ms`, `2s`) | delays the `data-sn-on-<event>` handler (it runs with the last event; `data-sn-model` still updates at once), e.g. `data-sn-debounce-input="200"` next to an immediate `data-sn-on-blur` |
 | `data-sn-concurrency` | `block`, `queue` or `latest` | what a trigger does while the action runs; default `block` for forms, `queue` otherwise |
-| `data-sn-optimistic` | handler expression | store changes applied before the request |
+| `data-sn-optimistic` | handler expression | store changes applied before the request; sees `$event` as the body does (added 2026-11-26: was `SN201`), so an action on a component's tag reads the triggering event's `$event.detail` |
 | `data-sn-then` | handler expression | runs after a 2xx response, `$result` = parsed body |
 | `data-sn-catch` | handler expression | runs after an error, `$error` = error object |
 | `data-sn-confirm` | value expression | a question asked before the action runs; no request when the answer is no, no question when the value is falsy |
@@ -485,7 +485,7 @@ The page module calls `$apis([{ n, b, c?, h? }])` when an API has `credentials` 
 
 | Name | Available in | Value |
 | --- | --- | --- |
-| `$event` | `on-*`, `then`, `catch`, `data-sn-body`, `data-sn-call` arguments | the DOM event (for an action, the one that triggered it; `null` when `run('id')` started it, except for a form) |
+| `$event` | `on-*`, `then`, `catch`, `data-sn-body`, `data-sn-call` arguments, `data-sn-optimistic`, `data-sn-confirm`, `data-sn-when` | the DOM event (for an action, the one that triggered it; `null` when `run('id')` started it, except for a form) |
 | `$el` | everywhere | the current element |
 | `$url` | everywhere | reactive view of `location.search` params plus the path parameters of `data-sn-path`; assigning to `$url.x` writes the URL, with a history entry when a user's event caused it (see The URL; path parameters are read-only, `SN203`) |
 | `$now` | everywhere | current time as a `Date`, refreshed every 60 s; the timer runs only on pages that use it |
@@ -1006,7 +1006,7 @@ A handler cannot call an action function (`SN203`), because an action's lifecycl
 - **Not a form:** `run()` enters where the trigger event would, so everything after the event happens as for a click: `data-sn-debounce`, `data-sn-confirm` (no means nothing happens), the concurrency policy, `data-sn-optimistic`, `aria-busy`, the request or call, `then`/`catch` and the unhandled-error path. No DOM event is dispatched: the target's own `data-sn-on-*` handlers do not run, nothing bubbles, and no default action happens (a link does not navigate, a checkbox does not toggle).
 - **A form** is submitted with `requestSubmit()`, as Enter in a field does: constraint validation runs (an invalid form shows the browser's messages and is not sent), a real `submit` event fires, and sinter handles it as any submit, the form's `data-sn-on-submit` handler included.
 - **Scope.** The target's expressions see the target's own scope (its `data-sn-state`, `data-sn-let` names, `$el` = the target), not the caller's. `run()` takes no arguments: what the action needs is state the caller sets first, `open = m; run('mark-read')`. It starts synchronously at the call, so the URL, body and call arguments see state assigned earlier in the same handler (debounce and an asynchronous `confirm` delay the start, as for a click).
-- **`$event`** in the target's trigger-time expressions (URL, `data-sn-body`, `data-sn-call` arguments, `data-sn-confirm`) is `null` for a non-form target, and the `SubmitEvent` of `requestSubmit()` for a form (`submitter` null). `sinter check` types it as `RunEvent<…>` in every element `run()` names (not a form): `$event.shiftKey` there is `SN208` ("Property 'shiftKey' does not exist on type 'RunEvent<PointerEvent>'"), `$event && $event.shiftKey` is not. (Checking runs without `strictNullChecks` unless the app's tsconfig turns it on, and there `Event | null` would be just `Event`, so the missing event is typed `void`, and `$event?.shiftKey` is reported too.) A button can then serve a click and a shortcut alike.
+- **`$event`** in the target's trigger-time expressions (URL, `data-sn-body`, `data-sn-call` arguments, `data-sn-confirm`, `data-sn-optimistic`, `data-sn-when`) is `null` for a non-form target, and the `SubmitEvent` of `requestSubmit()` for a form (`submitter` null). `sinter check` types it as `RunEvent<…>` in every element `run()` names (not a form): `$event.shiftKey` there is `SN208` ("Property 'shiftKey' does not exist on type 'RunEvent<PointerEvent>'"), `$event && $event.shiftKey` is not. (Checking runs without `strictNullChecks` unless the app's tsconfig turns it on, and there `Event | null` would be just `Event`, so the missing event is typed `void`, and `$event?.shiftKey` is reported too.) A button can then serve a click and a shortcut alike.
 - **Ids are checked at build time** (`SN309 unknown-element-id`): the argument must be a string literal naming an element that carries an action; it must not sit in a `data-sn-for` row (every row would have the id: put one action outside the list and pass the row through state), and no other element may have the same id. A target inside a `data-sn-if`/`data-sn-else` branch is allowed.
 - **When the target cannot run:**
 
@@ -1015,7 +1015,7 @@ A handler cannot call an action function (`SN203`), because an action's lifecycl
 | disabled (`:disabled`: its own `disabled`, or a disabled `<fieldset>` around it) | nothing happens, no warning, as a click on a disabled button: disabling a button also turns off its shortcut |
 | `inert`, itself or an ancestor (the attribute) | nothing happens, no warning, as HTML means by inert |
 | `hidden`, `data-sn-show` false, off-screen | runs: a hidden carrier is the intended pattern |
-| inside a closed `<dialog>` | runs: actions are bound at mount; only value bindings wait for the dialog to open |
+| inside a closed `<dialog>` | runs: actions are bound at mount (refs are set then too); only value bindings wait for the dialog to open |
 | not on the page (a `data-sn-if` branch that is not rendered, removed by a custom element) | nothing happens; dev builds warn |
 | a `block` action with a request pending | the run is ignored, as a second click would be |
 
@@ -1215,7 +1215,7 @@ sinter updates the DOM fine-grained, without a virtual DOM: every binding knows 
 - All changes in one task are collected; one microtask flush evaluates dirty bindings and writes.
 - Changes from server events (`<sn-sync>`: the store changes and state writes of `<sn-event>` mappings and their `then`) are applied when the event arrives, and rendered before the next frame is painted (`requestAnimationFrame`) instead of in a microtask, so a burst of events renders once per frame. Any other change (a handler, a response, a timer) still flushes in a microtask and renders the waiting server changes with it. A hidden page has no frames: there, server events flush in a microtask as before. Custom elements' `app.on()` listeners run when the event arrives, before that render. (Added 2026-11-10, from bench/live: at 4× CPU slowdown a dashboard kept up with 200 events/s when each one rendered, and with 5,000/s at 51 fps rendering once per frame.)
 - The core never reads layout (`offsetHeight`, `getBoundingClientRect`), so a flush cannot force reflow.
-- Bindings inside a closed `<dialog>` are kept dirty and evaluated on its `toggle` to open.
+- Bindings inside a closed `<dialog>` are kept dirty and evaluated on its `toggle` to open. A component script's refs (`data-sn-ref`, binding flag `r`) do not wait: they are set at mount (changed 2026-11-26, requested by sinter-alloy as S14).
 
 ### Events
 - A delegated listener walks from the target up to the first element that handles the event: one with a handler or action for that type that ran; for keys, a matching filter, an action, a debounced handler, or a plain handler that prevented the key (see Which handlers run).

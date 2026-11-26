@@ -139,6 +139,8 @@ export interface ResourceLoader {
   changed(typing?: boolean): void;
   /** the resolved URL of the current load (null: `when` is false, or not resolved yet) */
   url(): string | null;
+  /** the resource's `src` (store.ts `Resource.src`): `url()` without a POST's body; null for `call` and `file:` (and `for`, whose `url()` stays null) */
+  src(): string | null;
   /** `quiet`: a background reload (`refresh`): `$meta.loading` stays false, and a failure while already failing is not reported again */
   load(move?: unknown, quiet?: boolean): Promise<void>;
   refresh(hint?: object, quiet?: boolean): Promise<void>;
@@ -423,6 +425,12 @@ interface ActState {
 
 const instances = new WeakMap<object, App>();
 /**
+ * Every copy of this module loaded in the page, by its `instances`: a library linked with `file:` or `npm link`
+ * can bring a sinter of its own, whose `instance()` knows none of the app's mounts (docs/libraries.md#using-one).
+ */
+const copies: Array<WeakMap<object, App>> = ((globalThis as any)[Symbol.for('sinter.copies')] ??= []);
+copies.push(instances);
+/**
  * A marked path: a node of the page's path table (-1: one nothing reads) and the values its `{name}`
  * segments took from the writer's scope, in order.
  */
@@ -510,8 +518,12 @@ export function signOut(): void {
 /** The instance mount() created on `root`; throws if none. */
 export function instance(root: Document | Element): App {
   const app = instances.get(root);
-  if (!app) throw Error('sinter: not mounted');
-  return app;
+  if (app) return app;
+  // mounted by another copy (a linked library's own sinter): its app says so, in dev (warning 34), as a caller that
+  // looks for its mount root through the ancestors catches the error
+  const other = copies.find((m) => m.has(root))?.get(root);
+  other?.warn(34);
+  throw Error(other ? 'sinter: mounted by another copy' : 'sinter: not mounted');
 }
 
 export function mount(root: Document | Element, o: MountOptions): App {
@@ -1123,12 +1135,12 @@ export function mount(root: Document | Element, o: MountOptions): App {
     }
   }
 
-  /** Evaluates and writes one binding if needed; false while it waits in a closed dialog. */
+  /** Evaluates and writes one binding if needed; false while it waits in a closed dialog (a ref, `r`, never waits). */
   function process(rb: RB, level: number): boolean {
     const force = level >= 2 || (level == 1 && !!rb.b.i);
     if (!force && !(deferred.size && deferred.has(rb)) && !(rb.b.d && hit(rb.b.d, rb.s))) return true;
     // (an anchor's start comment is in its parent element, which a dialog's check reads)
-    if (F.DIALOG && rb.c && waits(rb.el.nodeType == 1 ? rb.el as Element : rb.el.parentElement)) { deferred.add(rb); return false; }
+    if (F.DIALOG && rb.c && !rb.b.r && waits(rb.el.nodeType == 1 ? rb.el as Element : rb.el.parentElement)) { deferred.add(rb); return false; }
     if (deferred.size) deferred.delete(rb);
     const v = evaluate(rb), k = rb.b.k;
     if (F.LIST && k == 'for') reconcile(rb, v);
@@ -1756,7 +1768,9 @@ export function mount(root: Document | Element, o: MountOptions): App {
     // a question first (confirm.ts): the action runs only when the user agrees
     a.confirm != null ? app.ext.confirm!(fns[a.confirm]!(s), go) : go();
     function go() {
-    const drop = a.optimistic != null ? app.ext.optimistic!.begin(a.optimistic, s) : () => {};
+    let drop: (ok?: boolean) => void = () => {};
+    // the optimistic change reads the trigger's `$event` too (null when run() starts it): a throw is the page's error
+    try { if (a.optimistic != null) drop = app.ext.optimistic!.begin(a.optimistic, s); } catch (err) { return unhandled(toError(err), rb.el); }
     const run = () => void send(rb, a, st, url, body, drop, u);
     if (!st.n) run();
     else if (a.concurrency == 'latest') { st.w ? st.w.drop() : app.busy++; st.w = { run, drop }; st.r?.abort(); }
@@ -1878,6 +1892,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
       def, res: r, app, pager: null as Pager | null, settled: [],
       settle(ok) { for (const f of l.settled) f(ok); },
       scope, got: loadShared, get: (u, signal, lo) => loadShared(u, signal, lo).then((g) => g.body()), failed: fail, loading, url: () => url,
+      src: () => (def.call || def.fx || url == null ? null : url.split('\0')[0]!),
       inflight: () => c != null,
       // no user event causes a load's `then`: its `$url` writes replace
       done: (v) => def.then != null && as(null, () => app.exec(def.then!, child(scope(), { $result: v }), def.w)),

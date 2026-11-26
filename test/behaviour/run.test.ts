@@ -289,6 +289,36 @@ describe('run() in sinter check', () => {
     expect(d.map((x) => [x.code, x.line, x.message])).toEqual([['SN208', 2, expect.stringMatching(/Property 'shiftKey' does not exist on type 'RunEvent<PointerEvent>'/)]]);
   });
 
+  test('the optimistic change and data-sn-when of a run() target see RunEvent<…> too', async () => {
+    const { checkPage } = await import('../../src/check/index.js');
+    const page = (attr: string, x: string) => `${attr === 'data-sn-optimistic' ? '<sn-resource name="items" src="/api/items" key="id" type="{ id: number; on: boolean }[]"></sn-resource>' : ''}
+<div data-sn-on-keydown-x="run('x')">
+  <button id="x" data-sn-post="/api/x" ${attr}="${x}"></button>
+</div>`;
+    for (const [attr, bad, ok] of [
+      ['data-sn-optimistic', 'merge(items[0], { on: $event.shiftKey })', 'merge(items[0], { on: !!($event && $event.shiftKey) })'],
+      ['data-sn-when', '$event.shiftKey', '$event && $event.shiftKey'],
+    ] as const) {
+      expect(checkPage(page(attr, ok)), attr).toEqual([]);
+      expect(checkPage(page(attr, bad)).map((x) => [x.code, x.message]), attr)
+        .toEqual([['SN208', expect.stringMatching(/Property 'shiftKey' does not exist on type 'RunEvent<PointerEvent>'/)]]);
+    }
+  });
+
+  test('an optimistic change that throws is the page\'s error, not an uncaught one', async () => {
+    const requests = mockRequests({ 'GET /api/items': [{ id: 1, on: false }], 'POST /api/x': {} });
+    const r = await render(`<sn-resource name="items" src="/api/items" key="id"></sn-resource>
+<div data-sn-state="{ failed: '' }" data-sn-on-keydown-x="run('x')" data-sn-on-sn-error="failed = $event.detail.error.message; $event.preventDefault()">
+  <p data-sn-text="failed"></p>
+  <button id="x" data-sn-post="/api/x" data-sn-optimistic="merge(items[0], { on: $event.shiftKey })"></button>
+</div>`, { requests });
+    await r.settle();
+    (r.root.querySelector('div') as HTMLElement).dispatchEvent(new KeyboardEvent('keydown', { key: 'x', bubbles: true }));
+    await r.settle();
+    expect(requests.calls.filter((c) => c.method === 'POST')).toEqual([]);
+    expect(r.root.querySelector('p')!.textContent).toMatch(/shiftKey/);
+  });
+
   test('SN509 is reported on every check', async () => {
     const { checkPage } = await import('../../src/check/index.js');
     const html = `<button id="a" data-sn-post="/a" data-sn-catch="run('a')"></button>`;

@@ -636,7 +636,7 @@ const RETIRED: Record<string, string> = {
 /** `<sn-resource items>` (docs/proposals/vocabulary.md, step 20): reported on every kind of resource (fetched, `file:`, `content:`) */
 const ITEMS_RENAMED = '`items` is renamed to `select`: the path in the response where the data is, a list or one object: `<sn-resource name="people" src="/api/people" select="people" key="id">`';
 /** an action's expressions evaluated when it triggers, so they see `$event` */
-const TRIGGER_TIME = new Set(['data-sn-post', 'data-sn-put', 'data-sn-patch', 'data-sn-delete', 'data-sn-call', 'data-sn-body', 'data-sn-confirm']);
+const TRIGGER_TIME = new Set(['data-sn-post', 'data-sn-put', 'data-sn-patch', 'data-sn-delete', 'data-sn-call', 'data-sn-body', 'data-sn-confirm', 'data-sn-optimistic', 'data-sn-when']);
 /** attributes sinter writes on the page for CSS to style (docs/attributes.md), never written in markup */
 export const SET_BY_SINTER: Record<string, string> = {
   'data-sn-marked': 'on the option a `data-sn-options` list marks',
@@ -7240,7 +7240,8 @@ class Compiler {
     }
     if (!IDENT.test(name)) { this.report(el, 'data-sn-ref', 'SN401', '`data-sn-ref` takes a name, as the script reads it: `this.refs.canvas`', 0); return; }
     if (use.sid === undefined || !this.componentFiles.get(use.name)?.script) return;
-    node.b.push(this.binding({ k: 'cmp', f: this.fn(`($) => [$.$s${use.sid}, ${JSON.stringify(name)}]`, { el, attr: 'data-sn-ref', shift: 0 }) }));
+    // `r`: set at mount, also inside a closed dialog (the element is there already)
+    node.b.push(this.binding({ k: 'cmp', f: this.fn(`($) => [$.$s${use.sid}, ${JSON.stringify(name)}]`, { el, attr: 'data-sn-ref', shift: 0 }), r: 1 }));
   }
 
   /** the lazy packages an attribute names (`openpgp, marked`), each one of `sinter({ lazy })` (SN324) */
@@ -7868,7 +7869,7 @@ class Compiler {
     const body = fnOf('body', { mode: 'value', magic: ['$event'] }, typed?.request != null ? { returns: { kind: 'openapi', spec: typed.spec, schema: typed.request } } : undefined);
     reads.push(...(body.r?.reads ?? []));
     if (body.r) this.encodedBody(el, 'data-sn-body', body.r.ast);
-    const optimistic = fnOf('optimistic', { mode: 'optimistic' });
+    const optimistic = fnOf('optimistic', { mode: 'optimistic', magic: ['$event'] });
     if (optimistic.f !== null) this.features.add('optimistic');
     const then = fnOf('then', { mode: 'handler', magic: ['$event', '$result'] },
       typed?.body != null ? { resultType: { kind: 'openapi', spec: typed.spec, schema: typed.body } }
@@ -13958,7 +13959,7 @@ const usesEl = (r: ExprResult): Pick<Binding, 'e' | 'i'> => ({ ...(r.usesEl ? { 
 
 function binding(b: Binding): Binding {
   const out: Binding = { k: b.k };
-  for (const key of ['f', 'd', 'n', 'q', 'm', 'x', 'a', 'y', 'z', 'c', 'w', 'p', 'e', 'i', 'ms', 's', 'g'] as const) {
+  for (const key of ['f', 'd', 'n', 'q', 'm', 'x', 'a', 'y', 'z', 'c', 'w', 'p', 'e', 'i', 'ms', 's', 'g', 'r'] as const) {
     const v = b[key];
     if (v === undefined || (Array.isArray(v) && v.length === 0 && key !== 'd')) continue;
     (out as unknown as Record<string, unknown>)[key] = v;

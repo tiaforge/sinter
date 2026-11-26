@@ -103,3 +103,47 @@ test('a component in a folder of its own (`files`): its script runs as one besid
   expect(root.querySelector('figcaption')!.textContent).toBe('2 / 3 (0)');
   expect(log).toEqual(['connected 2/1']);
 });
+
+test('refs inside a closed dialog, the dialog itself included, are set at mount; its other bindings and components wait', async () => {
+  // sinter-alloy's palette (S14): its script reaches its dialog and field through refs, before the dialog opens
+  const log: string[] = [];
+  class XPalette extends Component<{ label: string }, Record<string, never>, { dialog: HTMLDialogElement; field: HTMLInputElement }> {
+    connected() { log.push(`connected ${this.refs.dialog?.tagName} ${String(this.refs.dialog?.open)} ${this.refs.field?.tagName}`); }
+  }
+  class XHint extends Component { connected() { log.push('hint'); } }
+  const PALETTE = `<template data-sn-props="{ label: string }">
+    <section data-sn-state="{ q: '' }">
+      <dialog data-sn-ref="dialog">
+        <h2 data-sn-text="label + ':' + q"></h2>
+        <input data-sn-ref="field" data-sn-model="q">
+        <x-hint></x-hint>
+      </dialog>
+    </section>
+  </template>`;
+  const { root, flush } = await render(`
+    <div data-sn-state="{ rows: [1] }">
+      <x-palette data-sn-with="{ label: 'Go to' }"></x-palette>
+      <template data-sn-for="r in rows" data-sn-key="r"><x-palette data-sn-with="{ label: 'Row ' + r }"></x-palette></template>
+    </div>`, {
+    components: { 'x-palette': PALETTE, 'x-hint': '<template data-sn-props="{}"><i></i></template>' },
+    scripts: { 'x-palette': { XPalette }, 'x-hint': { XHint } },
+  });
+  // both refs are set in connected(), on the page and in a row; the component inside the dialogs has not started
+  expect(log).toEqual(['connected DIALOG false INPUT', 'connected DIALOG false INPUT']);
+  const [dialog, rowDialog] = [...root.querySelectorAll('dialog')], [h2, rowH2] = [...root.querySelectorAll('h2')];
+  // the row's dialog was cloned: its text waits for it to open
+  expect(rowH2!.textContent).toBe('');
+  log.length = 0;
+  // a change while the dialog is closed waits too
+  const field = dialog!.querySelector('input')!;
+  field.value = 'x';
+  field.dispatchEvent(new Event('input', { bubbles: true }));
+  await flush();
+  expect(h2!.textContent).not.toBe('Go to:x');
+  expect(log).toEqual([]);
+  dialog!.showModal();
+  dialog!.dispatchEvent(new Event('toggle'));
+  await flush();
+  expect(h2!.textContent).toBe('Go to:x');
+  expect(rowDialog!.open).toBe(false);
+});

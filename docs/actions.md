@@ -205,6 +205,17 @@ succeeds, and undoes exactly that change if it fails.
 The expression may only call `merge`, `upsert` and `remove` (anything else is a build error, since
 local state and side effects cannot be rolled back).
 
+Like the body, it is evaluated when the action triggers and sees `$event` (`null` when `run('id')`
+started it). So an action on a component's tag, triggered by the component's event, sends and shows
+that event's detail with no state in between ([components](components.md#events)):
+
+```html
+<task-sort data-sn-with="{ items: tasks }"
+           data-sn-put="/api/tasks/order" data-sn-trigger="move"
+           data-sn-body="{ id: $event.detail.id, rank: $event.detail.rank }"
+           data-sn-optimistic="merge(tasks.find((t) => t.id === $event.detail.id), { rank: $event.detail.rank })"></task-sort>
+```
+
 **Focus.** When a row goes while the focus is in it (its Delete button was pressed, or another user's
 change removed it), the focus moves to the same control in the row now in its place, the next one, or
 the new last row. With no row left it goes to the list's parent, which sinter makes focusable with

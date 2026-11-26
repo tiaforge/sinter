@@ -348,6 +348,11 @@ through the root, where the caller's `data-sn-on-select` sits. Its name must be 
 declares (`SN315`), and so must the event of a `data-sn-on-<event>` on the tag, unless it is a DOM
 event such as `click`. `sinter check` types `$event.detail` from the declaration.
 
+An action on the tag can be triggered by the component's event: `data-sn-trigger="move"` with
+`data-sn-put`, and `$event.detail` in its guard (`data-sn-when`), body, optimistic change, `confirm`,
+`then` and `catch` ([actions](actions.md#optimistic-updates)). The page needs no state or hidden `run()` target to carry
+the detail across.
+
 ## Leaving a component out of the early script
 
 Every component renders in the first frame by default: the early script renders its bindings as the

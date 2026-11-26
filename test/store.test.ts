@@ -78,3 +78,11 @@ test('a locale change re-sorts strings, and later writes patch the new order', (
   r.upsert({ id: 4, n: 'b' });
   expect(r.all().map((x) => x.id)).toEqual([3, 4, 1, 2]);
 });
+
+test('src and order: a store without a loader has no src; order as written', () => {
+  const r = createResource<{ id: number }>('c', { key: ['id'], order: '-rank' });
+  expect([r.src, r.order]).toEqual([null, '-rank']);
+  r.loader = { refresh: async () => {}, src: () => '/api/c' };
+  expect(r.src).toBe('/api/c');
+  expect(createResource('d', { key: null, order: null }).order).toBeNull();
+});

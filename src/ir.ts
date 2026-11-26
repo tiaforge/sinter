@@ -189,6 +189,8 @@ export interface Binding {
    * entries this way after the build-time passes, which see one binding per property (`groupStyles`).
    */
   g?: number;
+  /** a ref (`cmp`, `data-sn-ref`): set at mount, also inside a closed dialog, where the other bindings wait */
+  r?: 1;
 }
 
 export interface NodeDef {
@@ -205,7 +207,7 @@ export interface NodeDef {
   sid?: number;
   /** persist key for the whole state object */
   persist?: string;
-  /** the element is a `<dialog>` or inside one of its block, so its bindings wait while that dialog is closed */
+  /** the element is a `<dialog>` or inside one of its block, so its bindings wait while that dialog is closed (refs, `Binding.r`, do not) */
   dl?: 1;
   /** the element has a `class` attribute in the source (a class binding's first write on a clone must remove the class), set when it has class bindings */
   cl?: 1;

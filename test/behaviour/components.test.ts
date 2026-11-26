@@ -113,6 +113,68 @@ describe('markup-only components', () => {
   });
 });
 
+describe('an action on a component\'s tag, triggered by its event', () => {
+  // a sortable's `move`: the action on the tag sends it, its body and optimistic change read `$event.detail`
+  const SORT = `<template data-sn-props="{ items: { id: number; title: string; rank: number }[] }" data-sn-emits="{ move: { id: number; rank: number } }">
+  <ul><template data-sn-for="t in items" data-sn-key="t.id"><li><span data-sn-text="t.title"></span><button data-sn-on-click="emit('move', { id: t.id, rank: -t.rank })">top</button></li></template></ul>
+</template>`;
+  const TASKS = [{ id: 1, title: 'a', rank: 1 }, { id: 2, title: 'b', rank: 2 }];
+
+  async function move(status: number) {
+    const requests = mockRequests({ 'GET /api/tasks': TASKS, 'PUT /api/tasks/order': status === 200 ? {} : { status } });
+    const r = await render(`
+      <sn-resource name="tasks" src="/api/tasks" key="id" order="rank"></sn-resource>
+      <div data-sn-state="{ failed: false }">
+        <x-sort data-sn-with="{ items: tasks }" data-sn-put="/api/tasks/order" data-sn-trigger="move"
+                data-sn-body="{ id: $event.detail.id, rank: $event.detail.rank }"
+                data-sn-optimistic="merge(tasks.find((t) => t.id === $event.detail.id), { rank: $event.detail.rank })"
+                data-sn-write-through="off" data-sn-catch="failed = true"></x-sort>
+        <p data-sn-show="failed">failed</p>
+      </div>`, { requests, components: { 'x-sort': SORT } });
+    await r.settle();
+    const order = () => [...r.root.querySelectorAll('li span')].map((s) => s.textContent).join('');
+    expect(order()).toBe('ab');
+    r.root.querySelectorAll('button')[1]!.click();
+    await r.flush();
+    return { ...r, requests, order };
+  }
+
+  test('the change shows before the answer, and is kept on success', async () => {
+    const p = await move(200);
+    expect(p.order()).toBe('ba');
+    expect(p.requests.calls.at(-1)).toMatchObject({ method: 'PUT', path: '/api/tasks/order', body: { id: 2, rank: -2 } });
+    await p.settle();
+    expect(p.order()).toBe('ba');
+    expect((p.root.querySelector('p') as HTMLElement).hidden).toBe(true);
+  });
+
+  test('a failure rolls the change back', async () => {
+    const p = await move(500);
+    expect(p.order()).toBe('ba');
+    await p.settle().catch(() => {});
+    expect(p.order()).toBe('ab');
+    expect((p.root.querySelector('p') as HTMLElement).hidden).toBe(false);
+  });
+
+  test('data-sn-when on the tag guards the action, reading the event', async () => {
+    const requests = mockRequests({ 'GET /api/tasks': TASKS, 'PUT /api/tasks/order': {} });
+    const r = await render(`
+      <sn-resource name="tasks" src="/api/tasks" key="id" order="rank"></sn-resource>
+      <x-sort data-sn-with="{ items: tasks }" data-sn-put="/api/tasks/order" data-sn-trigger="move"
+              data-sn-when="$event.detail.id !== 1" data-sn-body="{ id: $event.detail.id }"
+              data-sn-optimistic="merge(tasks.find((t) => t.id === $event.detail.id), { rank: $event.detail.rank })"></x-sort>`, { requests, components: { 'x-sort': SORT } });
+    await r.settle();
+    const puts = () => requests.calls.filter((c) => c.method === 'PUT').length;
+    r.root.querySelectorAll('button')[0]!.click();
+    await r.settle();
+    expect(puts()).toBe(0);
+    r.root.querySelectorAll('button')[1]!.click();
+    await r.settle();
+    expect(puts()).toBe(1);
+  });
+
+});
+
 describe('component diagnostics', () => {
   const C = { 'x-card': '<template data-sn-props="{ title: string; n?: number }" data-sn-emits="{ pick: number }"><div><h1 data-sn-text="title"></h1><slot name="foot"></slot></div></template>' };
   const codes = (html: string, c: Record<string, string> = C) => compileErrors(html, c).map((d) => `${d.code} ${d.message}`);
@@ -142,6 +204,8 @@ describe('component diagnostics', () => {
       .toEqual([expect.stringMatching(/^SN315 `<x-e>` does not declare the event `b`/)]);
     expect(codes('<x-two></x-two>', { 'x-two': '<template data-sn-props=""><p></p><p></p></template>' })).toEqual([expect.stringMatching(/^SN312 a component's root renders at most one element; `<x-two>` has 2 elements/)]);
     expect(codes('<x-card data-sn-with="{ title: \'a\' }" data-sn-text="1"></x-card>')).toEqual([expect.stringMatching(/^SN102 `data-sn-text` cannot be on a component's tag/)]);
+    // an action's guard goes on the tag with the action, in the caller's scope (sinter-alloy S2)
+    expect(codes('<x-card data-sn-with="{ title: \'a\' }" data-sn-post="/x" data-sn-trigger="pick" data-sn-when="$event.detail > 0"></x-card>')).toEqual([]);
     expect(codes('<x-id></x-id><x-id></x-id>', { 'x-id': '<template data-sn-props=""><dialog id="edit"></dialog></template>' }))
       .toEqual([expect.stringMatching(/^SN209 `<x-id>` is used 2 times on this page, and its markup has `id="edit"`/)]);
   });
