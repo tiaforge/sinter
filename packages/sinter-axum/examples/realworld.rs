@@ -10,12 +10,13 @@
 // sets 0.0.0.0: examples/realworld/Dockerfile).
 use axum::{
     Router,
-    http::{HeaderValue, header},
+    extract::State,
+    http::{HeaderValue, Uri, header},
     middleware::{self, Next},
     response::Response,
 };
 use sinter_axum::{Embed, Param, to_page};
-use std::time::Duration;
+use std::{path::PathBuf, sync::Arc, time::Duration};
 use tower_http::{compression::CompressionLayer, services::ServeDir};
 
 #[tokio::main]
@@ -47,8 +48,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         })
         .build()?;
-    let app =
-        Router::new().fallback_service(ServeDir::new(&dir)).layer(middleware::from_fn(cache)).layer(embed).layer(CompressionLayer::new());
+    let app = Router::new()
+        .fallback_service(ServeDir::new(&dir))
+        .layer(middleware::from_fn(cache))
+        .layer(middleware::from_fn_with_state(Arc::new(PathBuf::from(&dir)), pretty))
+        .layer(embed)
+        .layer(CompressionLayer::new());
     let l = tokio::net::TcpListener::bind(format!("{host}:{port}")).await?;
     // the head and the rest of the page are two writes: without TCP_NODELAY, the second can wait
     // for the client's delayed ACK (about 40 ms)
@@ -59,6 +64,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("http://{host}:{port}");
     axum::serve(l, app).with_graceful_shutdown(stop()).await?;
     Ok(())
+}
+
+/// `/login` is `login.html`: a page with no data in it (login, register, settings) is not the layer's, and files are
+/// served by their names. A static host does this itself (Cloudflare Pages)
+async fn pretty(State(dir): State<Arc<PathBuf>>, mut req: axum::extract::Request, next: Next) -> Response {
+    let name = req.uri().path().trim_matches('/').to_owned();
+    if !name.is_empty() && !name.contains(['/', '.']) && dir.join(format!("{name}.html")).is_file() {
+        let query = req.uri().query().map(|q| format!("?{q}")).unwrap_or_default();
+        if let Ok(uri) = Uri::try_from(format!("/{name}.html{query}")) {
+            *req.uri_mut() = uri;
+        }
+    }
+    next.run(req).await
 }
 
 /// hashed assets cached for good, everything else revalidated
