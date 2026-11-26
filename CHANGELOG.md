@@ -26,6 +26,7 @@ How to write an entry (from 0.21.0 on; older sections keep their own form):
 
 ### Added
 
+- An app can install an unreleased sinter from a git commit: `npm install github:tiaforge/sinter#<commit>` builds the package (`dist/`) as it installs, through a `prepare` script. `npm ci` in a checkout builds it too.
 - The store handle `instance(root).resource(name)` has `src` and `order`: the URL the resource loads now (its `src` resolved in its scope, an API's `base` included, without pagination parameters or a POST body; `null` while `when` is false and for `call`, `for` and `file:` resources) and its `order` attribute as written (`-rank`). A custom element can save to the resource's API without being told the URL again ([docs/islands.md](docs/islands.md#instance-api)).
 - `data-sn-optimistic` sees `$event`, as `data-sn-body`, `data-sn-confirm`, `then` and `catch` do (it was SN201). An action on a component's tag triggered by the component's event (`data-sn-put="/api/tasks/order" data-sn-trigger="move"`) reads `$event.detail` in its optimistic change as in its body, typed by `data-sn-emits`, so a page needs no state and hidden `run()` target to carry it. `data-sn-when` goes on a component's tag with the action, as the other action attributes do (it was SN102) ([docs/actions.md](docs/actions.md#optimistic-updates)).
 - `closePopover()` and `closePopover('id')` in handlers: hide the `popover` around the element, or the one with that
@@ -47,6 +48,7 @@ How to write an entry (from 0.21.0 on; older sections keep their own form):
 
 ### Fixed
 
+- An app whose `node_modules/@tiaforge-ui/sinter` links to a sinter checkout (`npm link`, `file:`) builds: the plugin took sinter's own files, outside `node_modules` by their real path, for the app's modules and failed on them (`clearPersisted()` is renamed to `clearStored()`). They are now a package wherever they are, to every check and rewrite of the app's modules ([docs/libraries.md](docs/libraries.md#using-one)).
 - A component script's refs (`data-sn-ref`) inside a closed `<dialog>`, the dialog itself included, are set at mount, so `connected()` can reach them before the dialog opens; they were `undefined` until it opened. The dialog's other bindings and the components inside it still render when it opens ([docs/islands.md](docs/islands.md)).
 - Docs: a `data-sn-style` value rendered into the first frame is a `style` attribute, which `style-src 'self'` alone
   blocks; [docs/security.md](docs/security.md#csp-and-trusted-types) said that policy was enough. Allow

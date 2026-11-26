@@ -7,6 +7,7 @@
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { libraryOf, type Library } from './libraries.js';
+import { sinterFile } from './own-files.js';
 import { componentOfFile, readModuleSource } from './component-files.js';
 import { inlineScriptHtml } from './compiler/components.js';
 import { appModule, isSelfReference, resolveImport } from './fold-check.js';
@@ -282,7 +283,7 @@ export function reachLazy(start: string, pkgs: readonly string[], root: string, 
   while (queue.length) {
     const f = queue.shift()!;
     // packages are not the app's modules, except the component libraries, whose source the app compiles
-    if (f.includes(`${sep}node_modules${sep}`) && !libraryOf(libs, f)) continue;
+    if ((f.includes(`${sep}node_modules${sep}`) || sinterFile(f)) && !libraryOf(libs, f)) continue;
     const s = scanOf(f);
     if (!s) continue;
     // `own`: what the start module's own functions need, so not what it only re-exports (a barrel: the helpers module)
@@ -338,7 +339,7 @@ export function lazyDiagnostics(root: string, pkgs: readonly string[], starts: A
   const cache = new Map<string, LazyScan | null>();
   const seen = new Set<string>();
   const visit = (f: string) => {
-    if (seen.has(f) || (f.includes(`${sep}node_modules${sep}`) && !libraryOf(libs, f))) return;
+    if (seen.has(f) || ((f.includes(`${sep}node_modules${sep}`) || sinterFile(f)) && !libraryOf(libs, f))) return;
     // a module of a lazy package (a component library listed in `lazy`) is the package: it loads whole with it
     const lib = libraryOf(libs, f);
     if (lib && lazyPackage(lib.name, pkgs)) return;

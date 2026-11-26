@@ -92,6 +92,8 @@ events and fills as for the app's own:
   anyway, `instance()` of the copy that did not mount the page throws `sinter: mounted by another copy`, and in
   dev the app's copy warns with the cause, so code that catches the error still leaves a trace. A library that
   pins another sinter version gets the app's copy too: its `peerDependencies` range is what `SN537` checks.
+  sinter itself can be linked the same way (`npm link`, `file:` to a checkout): its own files are a package to
+  the plugin wherever they really are, never checked or rewritten as the app's modules.
 - **Versions.** A library lists the sinter versions it supports in `peerDependencies`; the app's
   sinter warns when its own version is outside the range, or when a library lists none (`SN537`).
 
