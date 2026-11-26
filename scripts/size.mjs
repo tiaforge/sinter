@@ -160,8 +160,9 @@ const entries = {
 // returning-reader note and the 2 s cap: about 230 B gzip), which takes the profile page's Lighthouse score from 99 to 100
 // Raised on 2026-11-22 to 57.125 KB (58,467 B): a list whose focused row goes moves the focus to the row now in its place
 // instead of leaving it on <body> (accessibility; 229 B gzip in the page runtime)
-// Raised on 2026-11-26 to 57.25 KB (58,624 B): the app's `islands.js` applies the Ionicons stylesheet, which the layout links with
-// `media="print"` so it does not hold the first paint (examples/realworld, bench/realworld/fair/README.md): 41 B gzip in every page
+// Raised on 2026-11-26 to 57.25 KB (58,624 B): the app's config module resends a GET that the API answered 401 without its token
+// (`publicReads`, examples/realworld/src/sinter.config.js: the official Nitro backend refuses a bad token on public reads, and
+// sinter signs the reader out on any 401): 91 B gzip in every page
 // Raised on 2026-11-26 a step each (minimal to 11.125 KB, with swaps to 13 KB, with a token to 12.125 KB, the article to
 // 57.375 KB) for the component-library requests: an optimistic change's throw reported as the page's error, the resource
 // handle's `src` and `order`, refs set inside a closed dialog, and the runtime telling a second copy of sinter apart

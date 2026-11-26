@@ -150,6 +150,12 @@ when run alone and failed the same way on the build from before that day's chang
 profile's or the author's list, with no recorded answer while the others were answered in under 100 ms, which the section's
 warning about the public API under load fits; they pass on a local backend.
 
+Against the official backend (realworld-apps/nitro-prisma-zod-realworld-example-app, Bun and SQLite, in a container, a fresh database) the
+suite passes 140 of 140 too. It found one thing the Django backend hid: Nitro answers 401 to a bad token even on public reads, and
+sinter signs the reader out on any 401, so five `user-fetch-errors` tests (a server error on `/api/user` must keep the token) failed. The
+config module's `publicReads` now sends such a GET again without the token. Nitro's `/tags` lists only the 10 most used tags, so
+"popular tags" fails on a database that earlier runs filled with other tags: reset it between full runs.
+
 ## Against a local backend
 
 ```sh
