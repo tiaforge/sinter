@@ -1,0 +1,23 @@
+# The RealWorld server on its own: sinter-axum's example (packages/sinter-axum/examples/realworld.rs) as a binary, with only
+# the dependencies it runs on. `cargo build --example` compiles the crate's dev-dependencies too (trybuild, flate2 on zlib-ng
+# with cmake): the container build (examples/realworld/Dockerfile) is this crate instead.
+[package]
+name = "sinter-realworld-server"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[[bin]]
+name = "realworld"
+path = "../../../packages/sinter-axum/examples/realworld.rs"
+
+[dependencies]
+sinter-axum = { path = "../../../packages/sinter-axum", default-features = false, features = ["upstream"] }
+axum = { version = "0.8", default-features = false, features = ["tokio", "http1"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "signal", "time"] }
+tower-http = { version = "0.7", default-features = false, features = ["fs", "compression-gzip"] }
+bytes = "1"
+reqwest = { version = "0.13", default-features = false, features = ["rustls"] }
+
+# not a member of packages/sinter-axum's workspace
+[workspace]

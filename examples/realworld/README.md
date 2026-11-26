@@ -3,6 +3,8 @@
 The [RealWorld](https://github.com/gothinkster/realworld) "Conduit" frontend as a multi-page sinter
 app, talking to the public API at `https://api.realworld.show/api`.
 
+A running copy: **https://realworld.tiaforge.dev** (the [server image](#the-server-as-an-image) below, with each page's data in its HTML).
+
 ```sh
 npm install            # in the repo root first: npm run build
 npm run dev            # http://localhost:5173
@@ -129,12 +131,24 @@ skipped by the suite. The failures were assumptions in the suite, not app behavi
   That line now shows only while there is nothing to show (with cached articles, loading means
   updating them), so a reload into the cached feed counts 10. It needs a backend with 10 or more
   articles, which the suite leaves behind. Not run since this change.
+- **Navigation and Filtering, "should display popular tags" (public API only):** it creates an article tagged `popular` and
+  `trending` and expects both in the sidebar. The public API's `/tags` is a fixed list of 15 tags (`ai`, `api`, … `webdev`) that
+  articles from other accounts never add to: the app's request got that list in the failing run's trace, right after the API had
+  answered the article's `POST` with those two tags, and the same list came back to a request with the test account's token
+  and one without (2026-11-26). No implementation can pass it against that API; against a local backend it passes.
 
 With the mocked API (no backend), `error-handling` and `user-fetch-errors` pass except "should handle
 403 when deleting another users comment", where the trash icon is not visible, probably because the
 ionicons stylesheet from `code.ionicframework.com` cannot load without network access to it.
 
 In a full run, a test or two can time out in `page.goto` (10 s) under load and pass when run alone.
+
+2026-11-26: against realworld-django-ninja on a local port (SQLite, `e2e-local.sh`) the suite passes 140 of 140 on the static build, and 140 of
+140 on the embedded build behind sinter-axum's realworld server (the container image's). Against the public API the same code
+failed 3 to 6 tests per run (134 to 137 passed): "popular tags" every time (above), and a few others that changed from run to run, passed
+when run alone and failed the same way on the build from before that day's changes. Their traces show the app's last request, the
+profile's or the author's list, with no recorded answer while the others were answered in under 100 ms, which the section's
+warning about the public API under load fits; they pass on a local backend.
 
 ## Against a local backend
 
@@ -155,3 +169,25 @@ handler that turns jwt_ninja's `APIError` into its 401 (unhandled, it is a 500).
 
 The public API (`npm run e2e`) is slower and intermittently answers without CORS headers under
 load, so runs against it vary by a few tests.
+
+## The server as an image
+
+The app with its data in the page (built with `SINTER_EMBED=1`), served by sinter-axum's example server
+(`packages/sinter-axum/examples/realworld.rs`), is published as an 8 MB image: one static binary, the app's files
+and the CA certificates, on `scratch`, running as a non-root user.
+
+```sh
+docker run --rm -p 8080:8080 ghcr.io/tiaforge/sinter-realworld     # http://localhost:8080
+```
+
+It fetches each page's data from the public API (`api.realworld.show`) and writes it into the HTML, so the first
+frame has the articles (the static build fetches them after the page loads: Lighthouse mobile LCP 1.9 s against
+0.9 s). `PORT` (8080), `HOST` (0.0.0.0) and `API` (the origin the build names) set where it listens and what it
+fetches from. It serves plain HTTP: put the host's TLS or a CDN in front (the server compresses with gzip). It embeds
+the signed-out view only, so it is for the public demo and for measuring.
+
+Build it from the repository's root: `docker build -f examples/realworld/Dockerfile -t sinter-realworld .`
+(the `Dockerfile` builds sinter, the app and the server itself). The *RealWorld image* workflow
+(`.github/workflows/realworld-image.yml`) publishes `latest` and the commit's short sha for amd64 and arm64
+when the app, sinter or the server change on `main`; the package is private until it is made public in its
+settings on GitHub.
