@@ -6,7 +6,8 @@ Attribute names, function names and diagnostic codes are public API. Before
 How to write an entry (from 0.21.0 on; older sections keep their own form):
 
 - Put it under `## Unreleased`, in one of these subsections, in this order: `### Breaking`, `### Added`,
-  `### Changed`, `### Fixed`, `### Performance`. Leave out the ones a release does not need.
+  `### Changed`, `### Fixed`,- A page with `data-sn-transition` that navigates while a cross-document view transition runs no longer leaves an uncaught `Transition was aborted because of invalid state` in Chromium: the transition's `ready` and `updateCallbackDone` rejections are handled as `finished` already was ([docs/navigation.md](docs/navigation.md)).
+ `### Performance`. Leave out the ones a release does not need.
 - One bullet per change, for someone upgrading: a sentence or two on what changed and what to do, with the
   option, attribute, default or diagnostic code it concerns, and a link to the doc that has the details.
 - A Breaking bullet says how to migrate (`npx sinter migrate --write` where it writes the change).

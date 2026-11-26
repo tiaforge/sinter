@@ -37,8 +37,9 @@ const ofRow = (a: Element, els: HTMLElement[]) => {
   return undefined;
 };
 
+const none = () => {};
 interface SwapEvent extends Event { viewTransition: ViewTransitionLike | null; activation?: { entry?: { url?: string }; navigationType?: string } | null }
-interface ViewTransitionLike { finished: Promise<unknown> }
+interface ViewTransitionLike { finished: Promise<unknown>; ready?: Promise<unknown>; updateCallbackDone?: Promise<unknown> }
 
 const transition: Feature = {
   name: 'transition',
@@ -53,6 +54,10 @@ const transition: Feature = {
       el.style.setProperty('view-transition-class', 'sn-transition');
       const off = () => { el.style.viewTransitionName = ''; el.style.removeProperty('view-transition-class'); };
       vt.finished.then(off, off);
+      // a transition skipped or aborted (the page navigates away while it runs) rejects these too: once a script holds
+      // the transition, Chromium reports such a rejection as unhandled
+      vt.ready?.catch(none);
+      vt.updateCallbackDone?.catch(none);
     };
     // what started a navigation that goes ahead (a link, the element of a `navigate()` handler): noted,
     // never decided on, so the handlers and the browser go on as without it
