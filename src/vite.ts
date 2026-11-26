@@ -13,6 +13,7 @@ import { flagsModule } from './core-parts.js';
 import { loadEnv, type InlineConfig, type Plugin, type ResolvedConfig, type ViteDevServer } from 'vite';
 import { collectionsIn, loadContent, writeNamespaceTypes, writeSnapshot, type LoadedContent } from './content-node.js';
 import { applyStrict, CODES, compile, describedPrefetch, moduleWith, pageHead, CONTENT_NS, formatDiagnostic, formatWarning, strictPromotes, suggest, type Code, type CheckUnit, type Diagnostic, type CompileResult, type SourceMap } from './compiler/index.js';
+import { sinterFile } from './own-files.js';
 import { buildInput, checkOptionsOf, compileOptionsOf, htmlInputs, lazyOf, lazyReachOf, project, retiredExport, retiredOptions, staticPages, strictOf, type PluginApi, type ProjectOptions } from './project.js';
 import { CHUNK_MARK, chainText, componentOfHtml, isComponentScript, LAZY, lazyPackage, type LazyScan, lineCol, loaderModule, mentions, parseLazyId, reachLazy, rewriteLazy, scanLazy, stubModule } from './lazy-build.js';
 import { moduleKeys } from './i18n-build.js';
@@ -431,7 +432,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
               // a content namespace the early modules call through its module: its ids (`ns \0 id`), written into the page,
               // and the formatter for one that is not plain text (`withFormatter`)
               let fmt: { code: string; map: null } | undefined;
-              if (content?.namespaces.size && !id.includes('/node_modules/') && /\.[cm]?[jt]sx?$/.test(id)) {
+              if (content?.namespaces.size && !id.includes('/node_modules/') && !sinterFile(id) && /\.[cm]?[jt]sx?$/.test(id)) {
                 const by = new Map<string, string[]>();
                 for (const d of content.namespaces.values()) if (d.module) {
                   const ks = moduleKeys(src, id, d.module, d.name, true).keys;
@@ -814,7 +815,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   /** a content namespace's ids each app module calls through the namespace's `module` (`m.inbox.title()`), by module */
   const moduleNs = new Map<string, Map<string, string[]>>();
   const collectNs = (ctx: { error(m: string): never }, code: string, id: string) => {
-    if (!content?.namespaces.size || id.includes('/node_modules/') || !/\.[cm]?[jt]sx?(\?|$)/.test(id)) return;
+    if (!content?.namespaces.size || id.includes('/node_modules/') || sinterFile(id) || !/\.[cm]?[jt]sx?(\?|$)/.test(id)) return;
     const file = id.replace(/\?.*$/, ''), by = new Map<string, string[]>();
     for (const d of content.namespaces.values()) {
       if (!d.module) continue;
@@ -1704,7 +1705,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     const file = id.replace(/[?#].*$/, '');
     // packages are not the app's modules, except the component libraries
     const libs = options.libraries?.length ? proj().libraries : [];
-    if (id.includes('/node_modules/') && !libraryOf(libs, file)) return null;
+    if ((id.includes('/node_modules/') || sinterFile(file)) && !libraryOf(libs, file)) return null;
     // a module of a lazy package (a component library listed in `lazy`) is the package: it loads whole with it
     const lib = libraryOf(libs, file);
     if (lib && lazyPackage(lib.name, lazyPkgs)) return null;
@@ -2170,7 +2171,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
 
     transform(code, id) {
       // the app's own modules: a renamed export of the main entry fails naming the new one
-      if (!id.includes('/node_modules/') && /\.[cm]?[jt]sx?(\?|$)/.test(id)) { const gone = retiredExport(code); if (gone) this.error(`${relative(root, id.replace(/[?#].*$/, ''))}: ${gone}`); }
+      if (!id.includes('/node_modules/') && !sinterFile(id) && /\.[cm]?[jt]sx?(\?|$)/.test(id)) { const gone = retiredExport(code); if (gone) this.error(`${relative(root, id.replace(/[?#].*$/, ''))}: ${gone}`); }
       // (an app module that calls a message that is not plain text gets the formatter: `withFormatter`)
       const f = collect(this, code, id);
       return lazyTransform(this, f?.code ?? code, id) ?? f ?? null;
@@ -2418,7 +2419,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     name: 'sinter:css-images',
     apply: 'serve',
     async transform(code, id) {
-      if (!images || !STYLE_ID.test(id) || /[?&](inline|url|raw)\b/.test(id) || id.includes('/node_modules/')) return null;
+      if (!images || !STYLE_ID.test(id) || /[?&](inline|url|raw)\b/.test(id) || id.includes('/node_modules/') || sinterFile(id)) return null;
       const base = resolved?.base ?? '/', img = images;
       const host: CssImageHost = {
         source: (url) => {
@@ -2744,7 +2745,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
           errors.push(`SN325 ${name(page)}: the page bundle contains ${pkg}, which \`sinter({ lazy })\` loads lazily: ${shown(chain(id))}. A package imports it: add that package to \`lazy\` too, or load it with \`import()\``);
           continue;
         }
-        if (id.startsWith('\0') || id.includes('/node_modules/')) continue;
+        if (id.startsWith('\0') || id.includes('/node_modules/') || sinterFile(id)) continue;
         const by = infoOf(id)?.dynamicImporters.find((d) => prev.has(d));
         if (by) errors.push(`SN325 ${name(page)}: ${name(id)} is loaded with \`import()\` by ${name(by)}, and imported statically by the page too (${shown(chain(id))}), so the split does nothing for it. Import it only with \`import()\`, or not lazily at all`);
       }

@@ -9,6 +9,7 @@
 import { readFileSync, statSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { componentHtml } from './component-files.js';
+import { sinterFile } from './own-files.js';
 import * as parse5 from 'parse5';
 import type { DefaultTreeAdapterMap } from 'parse5';
 import type { StyleSheet } from './compiler/layout.js';
@@ -108,7 +109,7 @@ export async function pageStyles(html: string, file: string, ctx: StyleContext):
       if (!target) return;
       target = target.replace(/[?#].*$/, '');
       if (isStyle(target)) return addCss(target, null);
-      if (!SCRIPT.test(target) || target.includes('/node_modules/') || seenModules.has(target)) return;
+      if (!SCRIPT.test(target) || target.includes('/node_modules/') || sinterFile(target) || seenModules.has(target)) return;
       seenModules.add(target);
       code = read(target) ?? '';
     }
