@@ -2,6 +2,7 @@
 // in the browser, in the first paint (the early file) and in the page module alike; without one, the engine's default.
 // (A real build's head scripts: test/vite/page-lang.test.ts.)
 import { expect, test } from 'vitest';
+import { configure } from '../../src/index.js';
 import { firstPaint, render } from '../../src/testing/index.js';
 
 const page = (html: string) => `<!doctype html>${html}<head><script type="application/json" data-sn-resource="a">{"a":{"at":"2026-01-26T10:00:00Z","n":1234.5}}</script></head><body>
@@ -42,4 +43,33 @@ test('a locale source the app configures wins over <html lang>, and does not car
   await next.settle();
   expect(text('d')).toBe(long(undefined));
   expect(text('l')).toBe('');
+});
+
+test('dev warning 35: text formatted in <html lang> at build while the app\'s locale source says another', async () => {
+  const fixed = page('<html lang="de">').replace('<p id="l"', '<p id="c" data-sn-state="{ day: \'2026-11-11\' }" data-sn-text="date(day, \'long\')"></p><p id="l"');
+  // the app's source, set after the build looked (as one in a module out of its sight)
+  const { settle, warnings } = await render(fixed, { strict: false, firstPaint: { afterEarly: () => configure({ locale: { get: () => 'fr', set() {} } }) } });
+  await settle();
+  try {
+    expect(text('c')).toBe('11. November 2026');
+    expect(warnings().map((w) => w.message).join('\n')).toContain("in its `<html lang>` (`de`), but the app's locale is `fr`");
+  } finally { configure({ locale: null }); }
+  // the build saw the app's source: nothing formatted at build, no warning
+  configure({ locale: { get: () => 'fr', set() {} } });
+  try {
+    const again = await render(fixed, { strict: false });
+    await again.settle();
+    expect(text('c')).toBe('11 novembre 2026');
+    expect(again.warnings().some((w) => w.message.includes('`<html lang>`'))).toBe(false);
+  } finally { configure({ locale: null }); }
+});
+
+test('a test\'s own locale source survives a render with messages (render() drops only what it set)', async () => {
+  configure({ locale: { get: () => 'fr', set() {} } });
+  try {
+    await render('<!doctype html><html><body><p id="m" data-sn-text="m.hi()"></p></body></html>', { messages: { de: { hi: 'Hallo' } } });
+    const { settle } = await render(page('<html lang="de">'));
+    await settle();
+    expect(text('l')).toBe('fr');
+  } finally { configure({ locale: null }); }
 });

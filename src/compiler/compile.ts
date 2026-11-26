@@ -3019,6 +3019,8 @@ class Compiler {
     // `navigate()` may go to this page with another query too: the build cannot see where, so it loads the module
     const navigates = this.fns.some((c) => c.includes('$f.navigate('));
     if (reads && !hasBase(doc) && (navigates || this.seesSameLink(own))) { ir.urlReads = reads; this.features.add('query-links'); this.features.add('location'); }
+    // dev builds: text formatted in `<html lang>`, which the dev module checks against the app's locale (warning 35)
+    if (this.opts.dev && this.langFolded && this.ownLang()) ir.lf = this.ownLang();
     this.fileJson(early);
     // builds: the last pass over the tables, after every pass that leaves a template or a function unused
     if (!this.opts.dev) this.compactTables(ir, early);
@@ -8593,6 +8595,8 @@ class Compiler {
   private htmlLocale: string | undefined;
   /** a layout's tag has a `data-sn-attr` that may set `lang` (it binds the layout's `<html>`) */
   private tagBindsLang = false;
+  /** a built-in formatter ran at build time in the page's `<html lang>` (`IR.lf`) */
+  private langFolded = false;
 
   /**
    * The page's one locale: its language with `localePrefix` or `languages()`; in an app that sets no locale itself
@@ -9236,7 +9240,12 @@ class Compiler {
     const lang = this.pageLocale();
     if (lang) {
       // the browser's own formatters, with the page's language as the locale for the call
-      const inLang = <T>(f: () => T): T => { const was = config.locale; config.locale = { get: () => lang, set: () => {} }; try { return f(); } finally { config.locale = was; } };
+      const inLang = <T>(f: () => T): T => {
+        const was = config.locale;
+        config.locale = { get: () => lang, set: () => {} };
+        // (in the page's `<html lang>`: dev builds check the app's locale against it, `IR.lf`)
+        try { const v = f(); if (!this.opts.locale) this.langFolded = true; return v; } finally { config.locale = was; }
+      };
       params.set('number', (v: unknown, o?: Intl.NumberFormatOptions) => inLang(() => number(v, o)));
       params.set('bytes', (v: unknown) => inLang(() => bytes(v)));
       params.set('date', (v: unknown, style?: 'full' | 'long' | 'medium' | 'short') => { if (!isCalendarDate(v)) throw NOT; return inLang(() => date(v, style)); });

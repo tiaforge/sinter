@@ -172,6 +172,7 @@ export const LINK_FIELDS: Record<string, { kinds: string[]; how: 'table' | 'weak
   pageLang: { kinds: ['empty', 'string'], how: 'fixed' },
   htmlLocale: { kinds: ['empty', 'string'], how: 'fixed' },
   tagBindsLang: { kinds: ['boolean'], how: 'fixed' },
+  langFolded: { kinds: ['boolean'], how: 'fixed' },
   pageModels: { kinds: ['Array'], how: 'table' },
   pagesDecl: { kinds: ['empty', 'object'], how: 'fixed' },
   axisDecls: { kinds: ['Array'], how: 'fixed' },

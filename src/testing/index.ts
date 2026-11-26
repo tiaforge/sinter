@@ -425,9 +425,20 @@ export async function firstPaint(html: string, options: Pick<RenderOptions, 'hel
 
 /** the locale sources `render()` and `firstPaint()` set for a page (its messages, the test's `locale`, its `<html lang>`) */
 const ownSources = new WeakSet<object>();
-/** a new page: the last page's locale source goes; one the test configured itself (`configure({ locale })`) stays */
+/** a locale source the test configured itself that a render replaced (its messages, its `locale`): back at the next */
+let testSource: typeof config.locale = null;
+/** before a render replaces the locale source: one the test configured itself is kept for the next render */
+function keepTestLocale() {
+  if (testLocale()) testSource = config.locale;
+}
+/** the locale source as the last render left it (undefined: none set one) */
+let lastSet: typeof config.locale | undefined;
+/** a new page: the last page's locale source goes; one the test configured itself (`configure({ locale })`) stays, or comes back */
 function releaseLocale() {
-  if (config.locale && ownSources.has(config.locale)) config.locale = null;
+  if (testSource && config.locale === lastSet) config.locale = testSource;
+  else if (config.locale && ownSources.has(config.locale)) config.locale = null;
+  testSource = null;
+  lastSet = undefined;
 }
 /** a locale source the test configured itself: the app sets its locale (`appLocale`) */
 const testLocale = () => !!config.locale && !ownSources.has(config.locale);
@@ -437,12 +448,15 @@ const testLocale = () => !!config.locale && !ownSources.has(config.locale);
  */
 function pageLocale(parts: CompiledParts, locale: string | undefined) {
   if (locale !== undefined) {
+    keepTestLocale();
     let l = locale;
     ownSources.add(config.locale = { get: () => l, set: (x) => { l = x; } });
+    lastSet = config.locale;
     return;
   }
   const lang = parts.lang;
   if (lang && !config.locale) ownSources.add(config.locale = { get: () => lang, set: () => {} });
+  lastSet = config.locale;
 }
 
 /** the page's one language with messages: `locale`, else the base (the messages' first) */
@@ -465,11 +479,13 @@ function withMessages(o: Pick<RenderOptions, 'helpers' | 'messages' | 'locale' |
 /** the messages module, as a built page's module installs it: the page's language (the locale source) and its entries */
 function messagesLocale(o: Pick<RenderOptions, 'messages' | 'locale'>) {
   (globalThis as any)[Symbol.for('sinter.i18n')] = undefined;
+  keepTestLocale();
   config.locale = null;
   const lang = messagesLang(o);
   installMessages(lang, formatMessage as never);
   (globalThis as any)[Symbol.for('sinter.i18n')].dicts[lang] = messageEntries(o);
   if (config.locale) ownSources.add(config.locale);
+  lastSet = config.locale;
 }
 
 /** The early chunk: the app's early module, then the early bindings with the helpers in scope, as the page is parsed. */

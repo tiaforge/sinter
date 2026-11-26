@@ -17,15 +17,11 @@ How to write an entry (from 0.21.0 on; older sections keep their own form):
 
 ### Breaking
 
-- In an app that sets no locale (no `languages()`, no `localePrefix`, no `configure({ locale })`), the page's literal
-  `<html lang>` (or its layout's) is now the locale of `date()`, `number()`, `bytes()` and `relative()` and the value
-  of `$locale`, at build time, in the first paint and in the browser. Before, the formatters used each visitor's
-  browser locale and `$locale` was `undefined`. Most apps have `<html lang="en">`: their dates and numbers are now
-  English for every visitor (one whose browser is in German sees `January 26, 2026` and `1,234.5` where it saw
-  `26. Januar 2026` and `1.234,5`), and `$locale` is `'en'`. To keep formatting by the visitor's locale, set a source in `src/sinter.config.js`:
-  `configure({ locale: { get: () => navigator.language, set() {} } })`. Any `locale` key in the config or early module
-  opts out completely, build-time formatting included. A page with no `lang`, a bound one (`data-sn-attr`, also on a
-  layout's tag), or one `Intl` does not take (`en_US`) is unchanged
+- In an app that sets no locale (no `languages()`, `localePrefix` or `configure({ locale })`), the page's literal
+  `<html lang>` is now the locale of `date()`, `number()`, `bytes()`, `relative()` and `$locale`, at build time and in
+  the browser; before, each visitor's browser locale was used and `$locale` was `undefined`. With `<html lang="en">`
+  everyone now sees English formats; to keep the visitor's, add
+  `configure({ locale: { get: () => navigator.language, set() {} } })` to `src/sinter.config.js`
   ([docs/expressions.md](docs/expressions.md#built-in-formatters)).
 
 ### Added

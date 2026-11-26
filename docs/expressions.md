@@ -98,15 +98,23 @@ Always available, no import. They read the current locale, so a locale switch up
 The locale, and `$locale`, is one of these, the first that applies:
 
 1. The app's own source, `configure({ locale })` ([docs/configuration.md](configuration.md)): its locale, in the
-   browser only. The build looks for it in the config and early modules (`src/sinter.config.*`, `src/sinter.early.*`):
-   when either source has a `locale` key, nothing is formatted at build time and `<html lang>` is not used.
+   browser only. The build looks for it in the config and early modules (`src/sinter.config.*`, `src/sinter.early.*`)
+   and the app modules they import: a `locale` key, an assignment to a `.locale`, or a `configure()` whose options it
+   cannot read (a spread, a variable). With one, nothing is formatted at build time and `<html lang>` is not used. A
+   source set elsewhere (a component's script) is out of its sight: dev builds then warn (35) on a page whose HTML
+   has text formatted in `<html lang>`.
 2. The page's language with [`languages()`](static-pages.md#languages).
 3. The page's `<html lang>` (or its layout's) as written: at build time, in the first paint and in the browser alike
    (`<html lang="de">`: `number(1234.5)` is `1.234,5` for every visitor). A page sets it when it formats something
-   (a built-in formatter, `$locale`, a component's script); an app helper that calls sinter's `date()` itself gets it
-   on those pages only.
+   (a built-in formatter, `$locale`, a component's script); an app helper, an action or a custom element that calls
+   sinter's `date()` itself gets it on those pages only, or on a page a swap reached from one of them (within one
+   language, the locale stays).
 4. Otherwise the browser's default locale, and `$locale` is `undefined`: with no `lang`, one a binding sets
    (`data-sn-attr="{ lang: … }"` on `<html>` or a layout's tag), or one `Intl` does not take (`en_US`).
+
+To format by the visitor's browser locale in an app with `<html lang>`, give it as the source:
+`configure({ locale: { get: () => navigator.language, set() {} } })`. `$locale` is then the browser's language, not
+`undefined`, and `$locale = 'x'` in a handler changes nothing.
 
 | Helper | Example | Result in `en` |
 | --- | --- | --- |
