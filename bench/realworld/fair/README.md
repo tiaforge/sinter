@@ -13,22 +13,21 @@ against the same local API and the same copies of the third-party files.
 | static hosting | one Node server (`world.mjs` `serveStatic`): HTTP/1.1, brotli, `immutable` for hashed file names, `no-cache` for the rest, the SPA's `index.html` for unknown paths (sinter: its page per path) |
 | server rendering | SvelteKit on its Node adapter (`adapter-node` 5.5.8), its server-side fetches to the same API over plain HTTP |
 | API | `api.realworld.show` answered locally: 25 fixed articles (10 per page), 6 tags, signed out; every answer after the same delay (`--delay`, default 150 ms) |
-| third-party files | Ionicons, the Google Fonts stylesheets and font files: recorded once (`--record`), then served locally like a CDN copy, with their sha256 in `work/fixtures/manifest.json`; sinter's app serves its one font itself and links Ionicons' stylesheet so it does not hold the first paint (below) |
+| third-party files | Ionicons, the Google Fonts stylesheets and font files: recorded once (`--record`), then served locally like a CDN copy, with their sha256 in `work/fixtures/manifest.json`; sinter's app serves its fonts and Ionicons itself (below) |
 | browser | Chrome mapped to the local servers (`--host-resolver-rules`, no proxy); it trusts only the local certificate (`--ignore-certificate-errors-spki-list`) |
 | audit | Lighthouse 13.6.0 (this directory's `../package.json`), mobile and desktop presets, a new Chrome with an empty profile per audit, runs interleaved across implementations, the median of `--runs` |
 
-sinter's own app makes three choices about the third-party files; none is in the harness, and Ionicons' CSS and font are
-the CDN's, unchanged. It serves the two families the spec names for the theme (Source Sans Pro 300, 400, 600 and 700; Lora 400 and 700: the weights
-of the spec's Google Fonts link) from its own origin (`@fontsource`) instead of from Google, as any app may: the same families
-and weights, one connection fewer, and the longest chain of requests from 214 ms to the document's own. (Until 2026-11-26 it
-loaded no Lora, as the older template's link had none: the logo and the article's text were in a generic serif.) It preloads three of the faces (400, 300, 600:
-`fonts.preload` in `examples/realworld/vite.config.js`), so the files are there before the first paint and the cards do
-not move when they arrive (on the public Google Fonts files: CLS 0.087 without, 0.000 with). And the Ionicons stylesheet
-is linked `media="print"` in the layout's head and applied from `islands.js` on the page's mount, so it does not hold
-the first paint (the others link it as a plain stylesheet in the head, as the RealWorld template does): on the public
-files, mobile FCP and LCP 1.55 s to 0.91 s and the score 99 to 100, 10 runs of 10, CLS 0.000. The icons then appear after the page loads, not with its first paint: Lighthouse does not count that, a reader may. Any implementation can
-do the same; the others' commits are unchanged. The table below predates these three choices. A preload of the Ionicons font file was tried and changed nothing (the
-stylesheet that names it blocked the first paint, not the file).
+sinter's own app serves the fonts and the icon font the spec names itself. That is its choice, not the harness's, and the spec allows it
+(Styles: fonts "however you prefer", icons "an icon stylesheet that provides them"). Source Sans Pro (300, 400, 600 and 700) and Lora
+(400 and 700), the weights of the spec's Google Fonts link, come from `@fontsource`; Ionicons 2.0.1 from the `ionicons` package, whose CSS
+and font files are byte for byte the ones on code.ionicframework.com (compared by sha256). The same families, weights and files, with no
+connection to another origin: the longest chain of requests goes from 214 ms to the document's own. (Until 2026-11-26 it loaded no
+Lora, as the older template's link had none: the logo and the article's text were in a generic serif.) It also preloads three of the
+faces (400, 300, 600: `fonts.preload` in `examples/realworld/vite.config.js`), so the files are there before the first paint and the
+cards do not move when they arrive (CLS 0.087 without, 0.000 with). The other implementations keep the template's links to the CDNs, and
+their commits are unchanged. Here every third-party file is served from the same machine anyway, so these choices matter on the public
+site and not in the table below, which predates them. On the public site, through the container's server: mobile FCP and LCP 1.10 s with
+Ionicons from the CDN, 0.95 s with it served by the app; 100 either way.
 
 Each audit is checked: a failed request, or a client-rendered app that never requested the article list, is printed
 and counted in the table. `check.mjs` also loads every home page once and checks it shows the API's 10 articles.

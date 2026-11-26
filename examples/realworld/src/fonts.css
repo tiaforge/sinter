@@ -1,4 +1,4 @@
-/* The fonts the RealWorld theme uses (docs.realworld.show, Styles), served with the app (Fontsource) in the weights the spec's
+/* The fonts and the icon font the RealWorld theme uses (docs.realworld.show, Styles), served with the app (Fontsource) in the weights the spec's
    Google Fonts link names: Source Sans Pro 300, 400, 600 and 700 (body), Lora 400 and 700 (headings and the article's text).
    The files come from this origin, over the connection the page is already on. */
 @import '@fontsource/source-sans-pro/300.css';
@@ -7,3 +7,5 @@
 @import '@fontsource/source-sans-pro/700.css';
 @import '@fontsource/lora/400.css';
 @import '@fontsource/lora/700.css';
+/* Ionicons 2.0.1 (the theme's ion-* icons), the package's own files: the same bytes as code.ionicframework.com's. */
+@import 'ionicons/css/ionicons.min.css';

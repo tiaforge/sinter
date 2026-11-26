@@ -139,7 +139,7 @@ skipped by the suite. The failures were assumptions in the suite, not app behavi
 
 With the mocked API (no backend), `error-handling` and `user-fetch-errors` pass except "should handle
 403 when deleting another users comment", where the trash icon is not visible, probably because the
-ionicons stylesheet from `code.ionicframework.com` cannot load without network access to it.
+ionicons stylesheet from `code.ionicframework.com` cannot load without network access to it (written before the app served Ionicons itself, 2026-11-26).
 
 In a full run, a test or two can time out in `page.goto` (10 s) under load and pass when run alone.
 
