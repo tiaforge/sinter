@@ -20,8 +20,8 @@ const feature: Feature = {
     const segs = (app.ir.path ?? []).flatMap((p) => p.split('/'));
     /** parameters written since the last write to the history */
     const changed = new Set<string>();
-    /** the strongest kind this flush pass asked for; whether this flush follows Back or Forward */
-    let kind = 0, back = false;
+    /** the strongest kind this flush pass asked for; whether this flush follows Back or Forward; the URL a same-page link went to */
+    let kind = 0, back = false, at = '';
 
     /** A value as the URL holds it: a string, or null for none (`false`, `null`, `''`; an object, with a dev warning). */
     const one = (v: unknown, name: string): string | null => {
@@ -76,13 +76,14 @@ const feature: Feature = {
       get kind() { return kind; },
       commit: write,
       push,
-      arrive() {
+      arrive(href) {
         changed.clear();
         kind = 0;
         back = true;
-        // `$url` was read again (a same-page link): its array parameters are lists from now on, for what is
-        // evaluated before the next render too (a resource's `then` navigating during the mount)
-        lists(app.env.href(), arrays, $url);
+        // `$url` was read again (a same-page link, from its URL: the address bar may not show it yet): its array
+        // parameters are lists from now on, for what is evaluated before the next render too (a resource's
+        // `then` navigating during the mount)
+        lists(at = href, arrays, $url);
       },
       set(name, value, k) {
         value == null ? delete $url[name] : ($url[name] = value);
@@ -91,7 +92,7 @@ const feature: Feature = {
       },
     };
     // after Back or Forward, the core has read `$url` again: array parameters as lists, before the render
-    app.beforeFlush.push(() => { if (back) lists(app.env.href(), arrays, $url); });
+    app.beforeFlush.push(() => { if (back) lists(at || app.env.href(), arrays, $url); });
     app.afterFlush.push(() => {
       const k = kind, t = app.ext.typing;
       kind = 0;
@@ -111,6 +112,7 @@ const feature: Feature = {
       changed.clear();
       kind = 0;
       back = true;
+      at = '';
     }));
   },
 };

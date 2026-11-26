@@ -41,12 +41,15 @@ const feature: Feature = {
       arrive(to);
       return true;
     };
-    /** the new entry is there (written, or the browser's): `$url` read again, the flush as after Back */
+    /**
+     * the new entry is there (written, or the browser's): `$url` read again, the flush as after Back. Read from
+     * `to`: WebKit may run an intercepted navigation's handler before the address bar shows its URL
+     */
     const arrive = (to: URL) => {
       const u = app.page.$url;
       for (const k in u) delete u[k];
-      Object.assign(u, readUrl(app.env.href(), app.ir.path));
-      app.ext.location!.arrive();
+      Object.assign(u, readUrl(to.href, app.ir.path));
+      app.ext.location!.arrive(to.href);
       app.mark('$url');
       // a native fragment navigation in the new entry: `:target`, `scroll-margin` and focus as in any page
       if (to.hash) (app.env.fragment ?? ((h) => location.replace(h)))(to.hash);

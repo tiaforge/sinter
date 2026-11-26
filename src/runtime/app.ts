@@ -227,8 +227,8 @@ export interface App {
       readonly back: boolean;
       /** `model` (paginate) (paginate.ts): sets a parameter (null deletes it) and writes it with `kind` */
       set(name: string, value: string | null, kind: number): void;
-      /** a same-page link was followed (query-links.ts): its entry is pushed, `$url` read again; the flush is as after Back */
-      arrive(): void;
+      /** a same-page link was followed to `href` (query-links.ts): its entry is pushed, `$url` read again; the flush is as after Back */
+      arrive(href: string): void;
       /** a new history entry (`Env.pushState`, else `history.pushState`) */
       push(url: string): void;
     };
