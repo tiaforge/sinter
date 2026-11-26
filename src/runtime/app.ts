@@ -430,7 +430,6 @@ const instances = new WeakMap<object, App>();
  */
 const copies: Array<WeakMap<object, App>> = ((globalThis as any)[Symbol.for('sinter.copies')] ??= []);
 copies.push(instances);
-let twoCopies = false;
 /**
  * A marked path: a node of the page's path table (-1: one nothing reads) and the values its `{name}`
  * segments took from the writer's scope, in order.
@@ -520,13 +519,11 @@ export function signOut(): void {
 export function instance(root: Document | Element): App {
   const app = instances.get(root);
   if (app) return app;
-  if (copies.some((m) => m !== instances && m.has(root))) {
-    const msg = 'sinter: mounted by another copy of sinter (a library linked with file: or npm link?): add it to resolve.dedupe';
-    // once, and also logged: a caller looking for its mount root through the ancestors catches the error
-    if (!twoCopies) { twoCopies = true; console.error(msg); }
-    throw Error(msg);
-  }
-  throw Error('sinter: not mounted');
+  // mounted by another copy (a linked library's own sinter): its app says so, in dev (warning 34), as a caller that
+  // looks for its mount root through the ancestors catches the error
+  const other = copies.find((m) => m.has(root))?.get(root);
+  other?.warn(34);
+  throw Error(other ? 'sinter: mounted by another copy' : 'sinter: not mounted');
 }
 
 export function mount(root: Document | Element, o: MountOptions): App {
@@ -1771,7 +1768,9 @@ export function mount(root: Document | Element, o: MountOptions): App {
     // a question first (confirm.ts): the action runs only when the user agrees
     a.confirm != null ? app.ext.confirm!(fns[a.confirm]!(s), go) : go();
     function go() {
-    const drop = a.optimistic != null ? app.ext.optimistic!.begin(a.optimistic, s) : () => {};
+    let drop: (ok?: boolean) => void = () => {};
+    // the optimistic change reads the trigger's `$event` too (null when run() starts it): a throw is the page's error
+    try { if (a.optimistic != null) drop = app.ext.optimistic!.begin(a.optimistic, s); } catch (err) { return unhandled(toError(err), rb.el); }
     const run = () => void send(rb, a, st, url, body, drop, u);
     if (!st.n) run();
     else if (a.concurrency == 'latest') { st.w ? st.w.drop() : app.busy++; st.w = { run, drop }; st.r?.abort(); }

@@ -428,7 +428,8 @@ export function shadow(o: ShadowOptions): Shadow {
       // an `<sn-event>` handler's `$event` is its payload, declared above
       if (e.payload?.as === '$event') { /* the payload */ }
       else if (e.detail) tagged('type', { ...e.detail, text: `CustomEvent<${e.detail.kind === 'ts' ? e.detail.text : 'any'}>` } as TypeRef, ' const $event = $any;');
-      else line(`/** @type {${decl(`Ev<${JSON.stringify(e.event ?? '')}, ${JSON.stringify(e.tag)}>`)}} */ const $event = $any;`);
+      // an optimistic change is a handler taken when the trigger fires: run('id') gives it no event either
+      else line(`/** @type {${decl(e.run ? `RunEvent<${decl(`Ev<${JSON.stringify(e.event ?? '')}, ${JSON.stringify(e.tag)}>`)}>` : `Ev<${JSON.stringify(e.event ?? '')}, ${JSON.stringify(e.tag)}>`)}} */ const $event = $any;`);
       if (e.result) {
         if (e.resultType) tagged('type', e.resultType, ' const $result = $any;');
         else line('/** @type {any} */ const $result = $any;');

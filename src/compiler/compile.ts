@@ -636,7 +636,7 @@ const RETIRED: Record<string, string> = {
 /** `<sn-resource items>` (docs/proposals/vocabulary.md, step 20): reported on every kind of resource (fetched, `file:`, `content:`) */
 const ITEMS_RENAMED = '`items` is renamed to `select`: the path in the response where the data is, a list or one object: `<sn-resource name="people" src="/api/people" select="people" key="id">`';
 /** an action's expressions evaluated when it triggers, so they see `$event` */
-const TRIGGER_TIME = new Set(['data-sn-post', 'data-sn-put', 'data-sn-patch', 'data-sn-delete', 'data-sn-call', 'data-sn-body', 'data-sn-confirm']);
+const TRIGGER_TIME = new Set(['data-sn-post', 'data-sn-put', 'data-sn-patch', 'data-sn-delete', 'data-sn-call', 'data-sn-body', 'data-sn-confirm', 'data-sn-optimistic', 'data-sn-when']);
 /** attributes sinter writes on the page for CSS to style (docs/attributes.md), never written in markup */
 export const SET_BY_SINTER: Record<string, string> = {
   'data-sn-marked': 'on the option a `data-sn-options` list marks',

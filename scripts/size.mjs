@@ -162,10 +162,14 @@ const entries = {
 // instead of leaving it on <body> (accessibility; 229 B gzip in the page runtime)
 // Raised on 2026-11-26 to 57.25 KB (58,624 B): the app's `islands.js` applies the Ionicons stylesheet, which the layout links with
 // `media="print"` so it does not hold the first paint (examples/realworld, bench/realworld/fair/README.md): 41 B gzip in every page
+// Raised on 2026-11-26 a step each (minimal to 11.125 KB, with swaps to 13 KB, with a token to 12.125 KB, the article to
+// 57.375 KB) for the component-library requests: an optimistic change's throw reported as the page's error, the resource
+// handle's `src` and `order`, refs set inside a closed dialog, and the runtime telling a second copy of sinter apart
+// (60–100 B gzip in the core; the minimal page had 1 B left)
 const BUDGET = {
   'multilingual de/status': 12.625 * 1024, 'multilingual de/status, html': 0.875 * 1024,
-  minimal: 11 * 1024, 'minimal, swaps': 12.875 * 1024, 'realworld article': 57.25 * 1024,
-  'minimal, link': 11.125 * 1024, 'minimal, token': 12 * 1024, 'minimal, token, early': 1.875 * 1024, 'realworld early, shared': 3.375 * 1024,
+  minimal: 11.125 * 1024, 'minimal, swaps': 13 * 1024, 'realworld article': 57.375 * 1024,
+  'minimal, link': 11.125 * 1024, 'minimal, token': 12.125 * 1024, 'minimal, token, early': 1.875 * 1024, 'realworld early, shared': 3.375 * 1024,
 };
 let failed = false;
 const gz = (b) => gzipSync(b, { level: 9 }).length;

@@ -89,8 +89,9 @@ events and fills as for the app's own:
   own sinter (its dev dependency). The plugin adds sinter to Vite's `resolve.dedupe`, so the library's
   `import … from '@tiaforge-ui/sinter'` gets the app's copy: a second copy's `instance()` knows none of the app's
   mounts. Without the plugin (a bundler of its own, a test setup), dedupe it yourself. When two copies are loaded
-  anyway, `instance()` of the copy that did not mount the page throws `sinter: mounted by another copy of sinter`
-  and logs it once, so code that catches the error still leaves a trace.
+  anyway, `instance()` of the copy that did not mount the page throws `sinter: mounted by another copy`, and in
+  dev the app's copy warns with the cause, so code that catches the error still leaves a trace. A library that
+  pins another sinter version gets the app's copy too: its `peerDependencies` range is what `SN537` checks.
 - **Versions.** A library lists the sinter versions it supports in `peerDependencies`; the app's
   sinter warns when its own version is outside the range, or when a library lists none (`SN537`).
 

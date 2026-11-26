@@ -17,6 +17,8 @@ How to write an entry (from 0.21.0 on; older sections keep their own form):
 
 ### Added
 
+- The store handle `instance(root).resource(name)` has `src` and `order`: the URL the resource loads now (its `src` resolved in its scope, an API's `base` included, without pagination parameters or a POST body; `null` while `when` is false and for `call`, `for` and `file:` resources) and its `order` attribute as written (`-rank`). A custom element can save to the resource's API without being told the URL again ([docs/islands.md](docs/islands.md#instance-api)).
+- `data-sn-optimistic` sees `$event`, as `data-sn-body`, `data-sn-confirm`, `then` and `catch` do (it was SN201). An action on a component's tag triggered by the component's event (`data-sn-put="/api/tasks/order" data-sn-trigger="move"`) reads `$event.detail` in its optimistic change as in its body, typed by `data-sn-emits`, so a page needs no state and hidden `run()` target to carry it. `data-sn-when` goes on a component's tag with the action, as the other action attributes do (it was SN102) ([docs/actions.md](docs/actions.md#optimistic-updates)).
 - `closePopover()` and `closePopover('id')` in handlers: hide the `popover` around the element, or the one with that
   id (a literal naming an element with `popover`, `SN309`), as `closeDialog()` does for dialogs. A same-page link in a
   menu popover closes it: `<a href="#services" data-sn-on-click="closePopover()">` ([docs/actions.md](docs/actions.md)).
@@ -36,14 +38,15 @@ How to write an entry (from 0.21.0 on; older sections keep their own form):
 
 ### Fixed
 
+- A component script's refs (`data-sn-ref`) inside a closed `<dialog>`, the dialog itself included, are set at mount, so `connected()` can reach them before the dialog opens; they were `undefined` until it opened. The dialog's other bindings and the components inside it still render when it opens ([docs/islands.md](docs/islands.md)).
 - Docs: a `data-sn-style` value rendered into the first frame is a `style` attribute, which `style-src 'self'` alone
   blocks; [docs/security.md](docs/security.md#csp-and-trusted-types) said that policy was enough. Allow
   `style-src-attr 'unsafe-inline'` for a right first frame.
 - A component library linked from outside the app (`file:`, `npm link`) no longer brings its own copy of sinter:
   the Vite plugin adds `@tiaforge-ui/sinter` to `resolve.dedupe`, so the library's scripts import the app's copy.
   Before, the library's copy's `instance()` knew none of the app's mounts (caley: a self-saving sortable saved
-  nothing). A copy that did not mount a page now says so: `instance()` throws `sinter: mounted by another copy of
-  sinter` and logs it once ([docs/libraries.md](docs/libraries.md#using-one)).
+  nothing). A copy that did not mount a page now says so: `instance()` throws `sinter: mounted by another copy`, and in dev
+  the app's copy warns with the cause ([docs/libraries.md](docs/libraries.md#using-one)).
 - A stylesheet with `@import 'virtual:…'` (a plugin's CSS, such as temper's `virtual:temper-icons.css`) is read for
   image sizes again: the import is left out and the rest of the stylesheet counts. It used to fail whole (`SN527`),
   and its images fell back to `sizes="auto, 100vw"`. An `SN527` for an `@import` that cannot be opened now names the
@@ -81,12 +84,10 @@ How to write an entry (from 0.21.0 on; older sections keep their own form):
 - A component can live in a folder of its own, `src/components/task-ring/task-ring.html`, with its script, early renderer and modules beside it; a library's `components/` and `components/internal/` take the same form. New error SN349 (`component-location`): a component in both places, another HTML file in a component's folder, or HTML in a folder not named after a component in it ([docs/components.md](docs/components.md#where-its-files-go)).
 - Early renderers: `<name>.early.ts` beside a component's script, whose default export `(root, props)` fills the root in the early script, before the first paint, where the use's props are known early (constants, the URL, embedded data). The instance sees `this.early`. New warning SN543 (`filled-at-mount`) for a component with a script and an empty root, used where its props are known early, that has none; not for a root that is `hidden`, which shows nothing, nor for a script that writes no content (no DOM-writing call, its root passed to no function) ([docs/components.md](docs/components.md#early-renderers)).
 - `$build` and `$slots`, for a component to choose how a use renders: `$slots` names the slots the use fills; `$build` is `true` at build time and `undefined` in the browser, and may only decide a `data-sn-if` (SN201 elsewhere) ([docs/components.md](docs/components.md#choosing-how-it-renders-per-use-build-and-slots)).
-- The store handle `instance(root).resource(name)` has `src` and `order`: the URL the resource loads now (its `src` resolved in its scope, an API's `base` included, without pagination parameters or a POST body; `null` while `when` is false and for `call`, `for` and `file:` resources) and its `order` attribute as written (`-rank`). A custom element can save to the resource's API without being told the URL again ([docs/islands.md](docs/islands.md#instance-api)).
 - `attrAllowed(el, name, value)` and `styleAllowed(value)` from `@tiaforge-ui/sinter`: the checks `data-sn-attr` and `data-sn-style` apply (allowed URL schemes, the app's `urlSchemes` included; no style value that loads a URL), for a component script that builds elements itself ([docs/islands.md](docs/islands.md)).
 - `sinter({ compileHints: true })` (default `false`): each page module starts with V8's `//# allFunctionsCalledOnLoad`, so Chromium compiles it as the page loads. Worth it where the first render runs much of the code at once ([docs/configuration.md](docs/configuration.md#checks)).
 - Accessibility warnings: SN544 (`click-without-keyboard`), a click handler or click-started action on an element that takes no focus and has no `role` or `tabindex`; SN545 (`late-live-region`), a live region that is the top of an `if`, `else` or `for` template, so it is not announced; SN546 (`image-alt`), an `<img>` without `alt`, `aria-label`, `aria-labelledby`, a hiding role or `aria-hidden`. Strict mode makes them errors ([docs/diagnostics.md](docs/diagnostics.md)).
 - `@tiaforge-ui/sinter-markdown`: `<md-view>`, a script renderer `<md-doc>` uses for a document from an API, several times faster than the components; it has an early renderer, so an embedded document is in the first paint. A use that fills a slot, a `file:` document, or `templates: true` renders through the components as before; pass `templates: true` for a live preview that should update in place. `build(doc, onRefused)` reports a URL attribute the check left out.
-- `data-sn-optimistic` sees `$event`, as `data-sn-body`, `data-sn-confirm`, `then` and `catch` do (it was SN201). An action on a component's tag triggered by the component's event (`data-sn-put="/api/tasks/order" data-sn-trigger="move"`) reads `$event.detail` in its optimistic change as in its body, typed by `data-sn-emits`, so a page needs no state and hidden `run()` target to carry it. `data-sn-when` goes on a component's tag with the action, as the other action attributes do (it was SN102) ([docs/actions.md](docs/actions.md#optimistic-updates)).
 
 ### Changed
 
@@ -120,7 +121,6 @@ How to write an entry (from 0.21.0 on; older sections keep their own form):
 - A component whose root is an if/else chain passes its tag's attributes (an `id`) to a branch that is another component's tag.
 - Back and Forward across swaps restore a scroll position the page reaches only once its data is in (a long list); it landed near the top.
 - `data-sn-transition` morphs on a swap to a page whose element renders from its first response: the old page now stays on screen until the element is there, the page's responses are in, or 500 ms pass. A page load is unchanged ([docs/navigation.md](docs/navigation.md#page-transitions)).
-- A component script's refs (`data-sn-ref`) inside a closed `<dialog>`, the dialog itself included, are set at mount, so `connected()` can reach them before the dialog opens; they were `undefined` until it opened. The dialog's other bindings and the components inside it still render when it opens ([docs/islands.md](docs/islands.md)).
 
 ### Performance
 

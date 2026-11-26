@@ -17,18 +17,18 @@ const page = () => {
   return { ir: compactIR(parts.ir), fns };
 };
 
-test("a second copy's instance() names the cause, once in the console as well", async () => {
+test("a second copy's instance() names the cause, and the app's copy warns", async () => {
   const app = mount(document, { ...page(), env: { ...defaultEnv, href: () => 'http://localhost/' } });
   expect(instance(document)).toBe(app);
   // another copy of the module, as a library's own sinter is
   const other = (await import('../../src/runtime/app.js?copy' as string)) as typeof import('../../src/runtime/app.js');
   expect(other.instance).not.toBe(instance);
-  const error = vi.spyOn(console, 'error').mockImplementation(() => {});
-  expect(() => other.instance(document)).toThrow(/another copy of sinter.*resolve\.dedupe/);
-  expect(() => other.instance(document)).toThrow(/another copy/);
-  expect(error).toHaveBeenCalledTimes(1);
+  // the app's copy says why, through its warnings (readable in dev)
+  const warn = vi.spyOn(app, 'warn');
+  expect(() => other.instance(document)).toThrow(/^sinter: mounted by another copy$/);
+  expect(warn).toHaveBeenCalledWith(34);
   // a root no copy mounted is the plain error, and nothing is logged
   expect(() => other.instance(document.body)).toThrow(/^sinter: not mounted$/);
   expect(() => instance(document.body)).toThrow(/^sinter: not mounted$/);
-  expect(error).toHaveBeenCalledTimes(1);
+  expect(warn).toHaveBeenCalledTimes(1);
 });
