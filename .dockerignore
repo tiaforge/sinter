@@ -1,0 +1,13 @@
+# the image builds (examples/realworld/Dockerfile) from the sources: nothing built or installed on this machine
+**/node_modules
+**/target
+**/dist
+.git
+.codegraph
+.claude
+coverage
+bench
+docs
+editors
+test
+e2e

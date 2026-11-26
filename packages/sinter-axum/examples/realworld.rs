@@ -5,6 +5,9 @@
 // localStorage, so this server embeds the signed-out view (`favorited` false): it is for measuring.
 //
 //   cargo run --release --features upstream --example realworld -- <dist> [port] [api origin]
+//
+// Without the arguments, the environment: `PORT` (4370), `API` (http://localhost:4400) and `HOST` (127.0.0.1; a container
+// sets 0.0.0.0: examples/realworld/Dockerfile).
 use axum::{
     Router,
     http::{HeaderValue, header},
@@ -19,8 +22,10 @@ use tower_http::{compression::CompressionLayer, services::ServeDir};
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut args = std::env::args().skip(1);
     let dir = args.next().ok_or("usage: realworld <dist> [port] [api origin]")?;
-    let port = args.next().unwrap_or_else(|| "4370".into());
-    let api = args.next().unwrap_or_else(|| "http://localhost:4400".into());
+    let env = |name: &str, default: &str| std::env::var(name).ok().filter(|v| !v.is_empty()).unwrap_or_else(|| default.into());
+    let port = args.next().unwrap_or_else(|| env("PORT", "4370"));
+    let api = args.next().unwrap_or_else(|| env("API", "http://localhost:4400"));
+    let host = env("HOST", "127.0.0.1");
     let (http, base) = (reqwest::Client::new(), api.clone());
     let embed = Embed::from_dir(&dir)
         .allow_origin(api.clone())
@@ -44,15 +49,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build()?;
     let app =
         Router::new().fallback_service(ServeDir::new(&dir)).layer(middleware::from_fn(cache)).layer(embed).layer(CompressionLayer::new());
-    let l = tokio::net::TcpListener::bind(format!("127.0.0.1:{port}")).await?;
+    let l = tokio::net::TcpListener::bind(format!("{host}:{port}")).await?;
     // the head and the rest of the page are two writes: without TCP_NODELAY, the second can wait
     // for the client's delayed ACK (about 40 ms)
     use axum::serve::ListenerExt;
     let l = l.tap_io(|tcp| {
         let _ = tcp.set_nodelay(true);
     });
-    println!("http://127.0.0.1:{port}");
-    axum::serve(l, app).await?;
+    println!("http://{host}:{port}");
+    axum::serve(l, app).with_graceful_shutdown(stop()).await?;
     Ok(())
 }
 
@@ -63,4 +68,17 @@ async fn cache(req: axum::extract::Request, next: Next) -> Response {
     let v = if immutable { "public, max-age=31536000, immutable" } else { "no-cache" };
     res.headers_mut().insert(header::CACHE_CONTROL, HeaderValue::from_static(v));
     res
+}
+
+/// Ctrl-C, and SIGTERM where there is one: as a container's first process, the server is stopped by it (`docker stop`)
+async fn stop() {
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{SignalKind, signal};
+        if let Ok(mut term) = signal(SignalKind::terminate()) {
+            tokio::select! { _ = term.recv() => {}, _ = tokio::signal::ctrl_c() => {} }
+            return;
+        }
+    }
+    let _ = tokio::signal::ctrl_c().await;
 }

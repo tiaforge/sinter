@@ -155,3 +155,25 @@ handler that turns jwt_ninja's `APIError` into its 401 (unhandled, it is a 500).
 
 The public API (`npm run e2e`) is slower and intermittently answers without CORS headers under
 load, so runs against it vary by a few tests.
+
+## The server as an image
+
+The app with its data in the page (built with `SINTER_EMBED=1`), served by sinter-axum's example server
+(`packages/sinter-axum/examples/realworld.rs`), is published as an 8 MB image: one static binary, the app's files
+and the CA certificates, on `scratch`, running as a non-root user.
+
+```sh
+docker run --rm -p 8080:8080 ghcr.io/tiaforge/sinter-realworld     # http://localhost:8080
+```
+
+It fetches each page's data from the public API (`api.realworld.show`) and writes it into the HTML, so the first
+frame has the articles (the static build fetches them after the page loads: Lighthouse mobile LCP 1.9 s against
+0.9 s). `PORT` (8080), `HOST` (0.0.0.0) and `API` (the origin the build names) set where it listens and what it
+fetches from. It serves plain HTTP: put the host's TLS or a CDN in front (the server compresses with gzip). It embeds
+the signed-out view only, so it is for the public demo and for measuring.
+
+Build it from the repository's root: `docker build -f examples/realworld/Dockerfile -t sinter-realworld .`
+(the `Dockerfile` builds sinter, the app and the server itself). The *RealWorld image* workflow
+(`.github/workflows/realworld-image.yml`) publishes `latest` and the commit's short sha for amd64 and arm64
+when the app, sinter or the server change on `main`; the package is private until it is made public in its
+settings on GitHub.
