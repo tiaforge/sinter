@@ -1160,6 +1160,7 @@ name = "sinter-realworld-server"
 version = "0.0.0"
 dependencies = [
  "axum",
+ "bytes",
  "reqwest",
  "sinter-axum",
  "tokio",
