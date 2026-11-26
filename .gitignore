@@ -17,3 +17,6 @@ bench/static/out/
 bench/collections/out/
 bench/axes/out/
 bench/astro/out/
+
+# the container build's server crate
+examples/realworld/server/target/

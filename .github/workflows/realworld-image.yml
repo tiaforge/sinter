@@ -2,7 +2,8 @@ name: RealWorld image
 
 # examples/realworld with its data in the page, served by sinter-axum's example server (examples/realworld/Dockerfile),
 # published as ghcr.io/<owner>/sinter-realworld: `docker run --rm -p 8080:8080 ghcr.io/<owner>/sinter-realworld`.
-# The first push creates the package private: make it public once in the package's settings.
+# Each architecture is built on a runner of its own (no emulation: arm64 under QEMU took half an hour) and the two images
+# are put under one tag.
 on:
   push:
     branches: [main]
@@ -24,34 +25,74 @@ concurrency:
   group: realworld-image
   cancel-in-progress: true
 
+env:
+  IMAGE: ghcr.io/${{ github.repository_owner }}/sinter-realworld
+
 jobs:
-  image:
-    runs-on: ubuntu-latest
+  build:
+    strategy:
+      matrix:
+        include:
+          - { platform: linux/amd64, runner: ubuntu-latest, arch: amd64 }
+          - { platform: linux/arm64, runner: ubuntu-24.04-arm, arch: arm64 }
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
-      - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      # the repository's name as a label links the package to it; the owner's name, lower case, is the image's
+      # the repository's name as a label links the package to it
       - id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/${{ github.repository_owner }}/sinter-realworld
-          tags: |
-            type=raw,value=latest
-            type=sha,format=short
-      - uses: docker/build-push-action@v6
+          images: ${{ env.IMAGE }}
+      - id: build
+        uses: docker/build-push-action@v6
         with:
           context: .
           file: examples/realworld/Dockerfile
-          # arm64 for the free ARM hosts; built under emulation, so slower than amd64
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
+          platforms: ${{ matrix.platform }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.arch }}
+      - run: |
+          mkdir -p ${{ runner.temp }}/digests
+          digest='${{ steps.build.outputs.digest }}'
+          touch "${{ runner.temp }}/digests/${digest#sha256:}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: digest-${{ matrix.arch }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  merge:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: ${{ runner.temp }}/digests
+          pattern: digest-*
+          merge-multiple: true
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=raw,value=latest
+            type=sha,format=short
+      - name: One tag for both architectures
+        working-directory: ${{ runner.temp }}/digests
+        run: docker buildx imagetools create $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") $(printf "${IMAGE}@sha256:%s " *)
+      - run: docker buildx imagetools inspect ${IMAGE}:${{ steps.meta.outputs.version }}

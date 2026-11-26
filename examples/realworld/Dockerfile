@@ -20,19 +20,21 @@ WORKDIR /repo/examples/realworld
 # `file:` dependencies linked, not copied: the build must use the sinter just built
 RUN npm ci --install-links=false && SINTER_EMBED=1 npx vite build
 
-# 2. the server: one static binary (musl, on Alpine's Rust, whichever architecture the build runs on)
+# 2. the server: one static binary (musl, on Alpine's Rust, whichever architecture the build runs on). examples/realworld/server
+# builds sinter-axum's example with only the dependencies it runs on (`cargo build --example` would add the crate's dev-dependencies)
 FROM rust:1-alpine AS server
-# cmake, make, g++: the examples' dev-dependency flate2 builds zlib-ng, and rustls its crypto library;
-# ca-certificates: the bundle the final image takes
+# cmake, make, g++, perl: rustls's crypto library; ca-certificates: the bundle the final image takes
 RUN apk add --no-cache musl-dev cmake make g++ perl ca-certificates
-WORKDIR /crate
-COPY packages/sinter-axum ./
+WORKDIR /src
+COPY packages/sinter-axum ./packages/sinter-axum
+COPY examples/realworld/server ./examples/realworld/server
+WORKDIR /src/examples/realworld/server
 ENV CARGO_PROFILE_RELEASE_STRIP=symbols
-RUN cargo build --release --locked --features upstream --example realworld
+RUN cargo build --release --locked
 
 # 3. nothing but the binary, the app's files and the certificates the server's HTTPS requests to the API need
 FROM scratch
-COPY --from=server /crate/target/release/examples/realworld /realworld
+COPY --from=server /src/examples/realworld/server/target/release/realworld /realworld
 COPY --from=server /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 COPY --from=app /repo/examples/realworld/dist /srv/realworld
 ENV HOST=0.0.0.0 PORT=8080 API=https://api.realworld.show SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
