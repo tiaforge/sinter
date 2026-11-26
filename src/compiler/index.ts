@@ -362,12 +362,9 @@ function earlyLines(early: EarlyParts | null, options: Pick<CompileOptions, 'hel
   // the built-in formatters the early bindings call, from the package (not the early runtime, which the build shares
   // between pages): each early file bundles only those it calls, beside the messages module that sets its locale
   // (in the page's language, when it has one: `$lang`)
-  // (an app without languages: the page's literal `<html lang>`, also for `$locale`, which is no constant there)
-  const lang = options.locale?.name ?? early?.lang;
-  const readsLocale = !options.locale && !!early?.lang && early.fns.some((x) => /\$\.\$locale\b/.test(x));
-  if (early?.formatters?.length || readsLocale) {
-    lines.push(`import { ${[...(early!.formatters ?? []), ...(lang ? ['$lang'] : [])].join(', ')} } from '${RUNTIME}';`);
-    if (lang) lines.push(`$lang(${JSON.stringify(lang)});`);
+  if (early?.formatters?.length) {
+    lines.push(`import { ${[...early.formatters, ...(options.locale ? ['$lang'] : [])].join(', ')} } from '${RUNTIME}';`);
+    if (options.locale) lines.push(`$lang(${JSON.stringify(options.locale.name)});`);
   }
   lines.push('');
   if (early) {
@@ -388,12 +385,10 @@ export function pageModule(parts: CompiledParts, options: Pick<CompileOptions, '
 function pageLines(parts: CompiledParts, options: Pick<CompileOptions, 'helpers' | 'dev' | 'config' | 'actions' | 'prefetch' | 'origins' | 'locale' | 'apis' | 'swap' | 'swapList'> & Partial<Pick<CompileOptions, 'root'>>): MappedLines {
   const lines = new MappedLines();
   // the page module is `async`: it waits for the parse, and for the early file if the page has one
-  // a page in one language: the locale the formatters use, the app's and the page's (an app without languages: the
-  // page's literal `<html lang>`; an app's `configure({ locale })` wins over it)
-  const lang = options.locale?.name ?? parts.lang;
-  const core = ['mount', '$k', parts.early ? 'rendered' : 'parsed', ...parts.helpers.builtin, ...(lang ? ['$lang'] : [])];
+  const core = ['mount', '$k', parts.early ? 'rendered' : 'parsed', ...parts.helpers.builtin, ...(options.locale ? ['$lang'] : [])];
   lines.push(`import { ${core.join(', ')} } from '${RUNTIME}';`);
-  if (lang) lines.push(`$lang(${JSON.stringify(lang)});`);
+  // a page in one language: the locale the formatters use, the app's and the page's
+  if (options.locale) lines.push(`$lang(${JSON.stringify(options.locale.name)});`);
   // prefixed (a helper may be named as a feature: `keys`, `form`, …), and an identifier (`query-links` is `sn$query_links`)
   const local = (f: string) => `sn$${f.replace(/-/g, '_')}`;
   for (const f of parts.features) lines.push(`import ${local(f)} from '${RUNTIME}/${f}';`);

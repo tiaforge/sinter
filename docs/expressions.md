@@ -95,14 +95,6 @@ export const toc = memo((body: string, depth: number) => headings(parseDocument(
 
 Always available, no import. They read the current locale, so a locale switch updates them. Each `Intl` formatter is built once per locale and options, then reused.
 
-The locale, and `$locale`, is the page's language: with [`languages()`](static-pages.md#languages) the language the
-page is built in; in an app without languages, the page's `<html lang>` (or its layout's) as written, in the first
-paint and in the browser alike (`<html lang="de">`: `number(1234.5)` is `1.234,5`). A `configure({ locale })`
-source wins over both in the browser ([docs/configuration.md](configuration.md)); calls over build-time constants
-are still written in the page's language. With no `lang`, one a binding sets
-(`data-sn-attr="{ lang: … }"`), or one `Intl` does not take (`en_US`), the formatters use the browser's default
-locale and `$locale` is `undefined`.
-
 | Helper | Example | Result in `en` |
 | --- | --- | --- |
 | `date(v, style, timeStyle)` | `date(c.born, 'long')` | `March 4, 1990` |
@@ -117,9 +109,8 @@ locale and `$locale` is `undefined`.
 A calendar date, a string `YYYY-MM-DD` (`'2026-11-11'`), is the same day for every visitor: `date()` formats it in UTC,
 where it was parsed, so it never shows the day before west of Greenwich. A moment (a timestamp, a `Date`,
 `'2026-11-11T09:00:00Z'`) is shown in the visitor's time zone. In a page built in one language
-([`localePrefix`](static-pages.md#languages), or a literal `<html lang>`), `number()`, `bytes()`
-and `date()` of a calendar date over constants are written into the HTML at build time; moments, times and
-`relative()` are formatted in the browser.
+([`localePrefix`](static-pages.md#languages)), `number()`, `bytes()` and `date()` of a calendar date over constants
+are written into the HTML at build time; moments, times and `relative()` are formatted in the browser.
 
 ## What belongs in markup
 

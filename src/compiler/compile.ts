@@ -440,8 +440,6 @@ export interface EarlyParts {
   formatters?: string[];
   /** the early renderers of the components whose uses render early (their `cmp` bindings): by local name, the module */
   renderers?: Record<string, string>;
-  /** an app without languages: the page's literal `<html lang>`, the locale of the formatters and `$locale` (`$lang`) */
-  lang?: string;
 }
 
 /**
@@ -593,8 +591,6 @@ export interface CompiledParts {
   keptBound?: string[];
   /** `<html data-sn-swap="off">`: links to this page load it */
   swapOff?: true;
-  /** an app without languages: the page's literal `<html lang>`, the locale of the formatters and `$locale` (`$lang`) */
-  lang?: string;
   /** origins of resources that could be requested early but are not in `origins` */
   unlistedOrigins?: string[];
   /** the scoped styles of the components the page uses, by component */
@@ -2612,10 +2608,8 @@ class Compiler {
     if (this.opts.urls) this.canonical(doc);
     // a page in one language says which: `<html lang="de">`
     if (this.opts.locale && this.opts.locale.prefix !== false) { const h = doc.childNodes.find((n): n is P5Element => isElement(n) && n.tagName === 'html'); if (h) setAttr(h, 'lang', this.opts.locale.name); }
-    // the page's language, for what the build sorts (`order` on a `file:` list) and, in an app without languages, the
-    // locale of `$locale` and the formatters (`pageLocale`): its literal `<html lang>`, the layout's included; none when
-    // a binding sets it (`data-sn-attr="{ lang: … }"`) or it is no language tag `Intl` takes
-    { const h = doc.childNodes.find((n): n is P5Element => isElement(n) && n.tagName === 'html'); this.pageLang = h ? literalLang(h) : undefined; }
+    // the page's language, for what the build sorts (`order` on a `file:` list): its `<html lang>`, the layout's included
+    { const h = doc.childNodes.find((n): n is P5Element => isElement(n) && n.tagName === 'html'); this.pageLang = (h && attr(h, 'lang')) || undefined; }
     this.checkHead();
     const twice = this.componentIds();
     for (const { el, why } of this.repeatedIds) {
@@ -2672,7 +2666,7 @@ class Compiler {
     if (this.opts.units && unitsOn() && (!ships || live?.size) && !this.opts.describeOnly && !this.opts.dev) {
       // (B1: what placing it adds to the page's tables, which the second pass from this walk takes out: `fromWalk`)
       const sizes = this.fw && this.pointNames.length ? this.fwSizes() : null;
-      this.placedUnit = placeUnits(this, this.opts.units as UnitStore, [this.keepsAttrs, this.pageLocale() ?? '', this.page.axisUrl ?? '', this.finishedFirst ? 'first' : ''].join('\u0001'), ships, live ?? undefined);
+      this.placedUnit = placeUnits(this, this.opts.units as UnitStore, [this.keepsAttrs, this.opts.locale?.name ?? '', this.page.axisUrl ?? '', this.finishedFirst ? 'first' : ''].join('\u0001'), ships, live ?? undefined);
       if (sizes && (this.placedUnit || this.earlyDefs)) { this.fw!.unit = { ...this.fwSince(sizes), f1: this.fns.length, fnUses: this.fnUses.slice() }; this.fwWatchUnit(); }
       if (ships) holdUnit(this);
       // (a unit refused after its definitions were compiled here: the page compiled again without one, `compileTwice`)
@@ -3040,7 +3034,6 @@ class Compiler {
       ...((effect) => (effect ? { loadEffect: effect } : {}))(this.loadEffects(ir, doc)),
       ...(this.permanentNames.length ? { permanent: [...this.permanentNames], keptSource: Object.fromEntries(this.keptSource), ...(this.keptBound.size ? { keptBound: [...this.keptBound] } : {}) } : {}),
       ...(this.swapOff ? { swapOff: true as const } : {}),
-      ...(!this.opts.locale && this.pageLang ? { lang: this.pageLang } : {}),
       ...(this.unlisted.size ? { unlistedOrigins: [...this.unlisted].sort() } : {}),
       styles: [...this.uses.keys()].sort().flatMap((n) => {
         const f = this.componentFiles.get(n), css = f?.css;
@@ -8577,16 +8570,8 @@ class Compiler {
   private pagesDecl: { name: string; of: string; pattern: string; html: P5Element; entry: P5Element } | null = null;
   /** `<html data-sn-for>`, compiled as the template: the entries and their paths */
   private pagesOut: CompiledParts['pages'] | undefined;
-  /** the page's literal `<html lang>`, once the layout is merged (`literalLang`) */
+  /** the page's `<html lang>`, once the layout is merged */
   private pageLang: string | undefined;
-
-  /**
-   * The page's one locale: its language with `localePrefix` or `languages()`, else its literal `<html lang>`. `$locale`
-   * and the built-in formatters read it, at build and in the browser (`$lang` in the page module and the early file).
-   */
-  pageLocale(): string | undefined {
-    return this.opts.locale?.name ?? this.pageLang;
-  }
 
   /**
    * `<html data-sn-for="post in posts">` (on the page's `<html>`, or its layout's tag): the page once per entry of a
@@ -9211,10 +9196,9 @@ class Compiler {
     // records which helper kept the binding in the browser, for SN322
     const folding = (this.folding = this.helperCalls(NOT));
     for (const h of this.opts.helpers.names) params.set(h, folding.fn(h));
-    // a page in one language (`localePrefix`, `languages()`, or a literal `<html lang>`): what depends only on the
-    // language is written as the browser would. A calendar date (`2026-11-11`) is the same day everywhere; a moment
-    // (`…T09:00Z`) is the visitor's time zone's
-    const lang = this.pageLocale();
+    // a page built in one language: what depends only on the language is written as the browser would. A calendar
+    // date (`2026-11-11`) is the same day everywhere; a moment (`…T09:00Z`) is the visitor's time zone's
+    const lang = this.opts.locale?.name;
     if (lang) {
       // the browser's own formatters, with the page's language as the locale for the call
       const inLang = <T>(f: () => T): T => { const was = config.locale; config.locale = { get: () => lang, set: () => {} }; try { return f(); } finally { config.locale = was; } };
@@ -13057,9 +13041,7 @@ class Compiler {
     if ((url || readsUrl) && this.pathList.length) ir.path = this.pathList;
     const arrays = this.urlArrays();
     if ((url || readsUrl) && arrays.length) ir.urlArrays = arrays;
-    // an app without languages: the page's literal `<html lang>`, for the formatters and `$locale` (`$lang`)
-    const lang = this.opts.locale ? undefined : this.pageLang;
-    return { ir, fns, helpers, namespaces, ...(formatters.length ? { formatters } : {}), ...(Object.keys(renderers).length ? { renderers } : {}), ...(lang ? { lang } : {}) };
+    return { ir, fns, helpers, namespaces, ...(formatters.length ? { formatters } : {}), ...(Object.keys(renderers).length ? { renderers } : {}) };
   }
 
   /**
@@ -14081,16 +14063,6 @@ const memberNames = (namespaces: Record<string, { members: string[] }>) => Objec
 
 function isElement(n: P5Node): n is P5Element {
   return 'tagName' in n;
-}
-
-/** `<html lang>` as written, when no binding sets it and `Intl` takes it as a language tag; else undefined */
-function literalLang(html: P5Element): string | undefined {
-  const lang = attr(html, 'lang')?.trim();
-  if (!lang) return undefined;
-  // `data-sn-attr="{ lang: … }"` (or `'lang'`): the language is decided in the browser
-  if (/(^|[{,\s])(['"]?)lang\2\s*:/.test(attr(html, 'data-sn-attr') ?? '')) return undefined;
-  try { Intl.getCanonicalLocales(lang); } catch { return undefined; }
-  return lang;
 }
 
 function attr(el: P5Element, name: string): string | undefined {
