@@ -20,8 +20,10 @@ const feature: Feature = {
     const segs = (app.ir.path ?? []).flatMap((p) => p.split('/'));
     /** parameters written since the last write to the history */
     const changed = new Set<string>();
-    /** the strongest kind this flush pass asked for; whether this flush follows Back or Forward */
-    let kind = 0, back = false;
+    /** the strongest kind this flush pass asked for; whether this flush follows Back or Forward; the URL a same-page link went to */
+    let kind = 0, back = false, at = '';
+    /** the page's URL: a same-page navigation's until the address bar shows it (the page does not depend on when the browser commits it) */
+    const href = () => { const h = app.env.href(); return at && h != at ? at : (at = '', h); };
 
     /** A value as the URL holds it: a string, or null for none (`false`, `null`, `''`; an object, with a dev warning). */
     const one = (v: unknown, name: string): string | null => {
@@ -34,7 +36,7 @@ const feature: Feature = {
     const push = (x: string) => (app.env.pushState ? app.env.pushState(x) : history.pushState(null, '', x));
     /** The query with the changed parameters set or deleted, in their places; false when it equals the current one. */
     const write = (k: number): boolean => {
-      const u = new URL(app.env.href()), q = new URLSearchParams();
+      const u = new URL(href()), q = new URLSearchParams();
       // a parameter's values (none, one, a list), unless they are there: where its first key was, else at the end
       const put = (n: string) => { if (!q.has(n)) for (const x of [$url[n] ?? []].flat()) q.append(n, x); };
       for (const [n, v] of u.searchParams) changed.has(n) ? put(n) : q.append(n, v);
@@ -76,13 +78,15 @@ const feature: Feature = {
       get kind() { return kind; },
       commit: write,
       push,
-      arrive() {
+      href,
+      arrive(href) {
         changed.clear();
         kind = 0;
         back = true;
-        // `$url` was read again (a same-page link): its array parameters are lists from now on, for what is
-        // evaluated before the next render too (a resource's `then` navigating during the mount)
-        lists(app.env.href(), arrays, $url);
+        // `$url` was read again (a same-page link, from its URL): its array
+        // parameters are lists from now on, for what is evaluated before the next render too (a resource's
+        // `then` navigating during the mount)
+        lists(at = href, arrays, $url);
       },
       set(name, value, k) {
         value == null ? delete $url[name] : ($url[name] = value);
@@ -91,7 +95,7 @@ const feature: Feature = {
       },
     };
     // after Back or Forward, the core has read `$url` again: array parameters as lists, before the render
-    app.beforeFlush.push(() => { if (back) lists(app.env.href(), arrays, $url); });
+    app.beforeFlush.push(() => { if (back) lists(href(), arrays, $url); });
     app.afterFlush.push(() => {
       const k = kind, t = app.ext.typing;
       kind = 0;
@@ -111,6 +115,7 @@ const feature: Feature = {
       changed.clear();
       kind = 0;
       back = true;
+      at = '';
     }));
   },
 };
