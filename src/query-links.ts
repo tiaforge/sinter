@@ -12,7 +12,7 @@ import { readUrl } from './runtime/url.js';
 const feature: Feature = {
   name: 'query-links',
   install(app: App) {
-    const reads = app.ir.urlReads!, here = () => new URL(app.env.href());
+    const reads = app.ir.urlReads!, here = () => new URL(app.ext.location!.href());
     /** a query without the parameters `drop`, each name's values together in their order: equal for equal queries */
     const key = (u: URL, drop: string[] = []) => {
       const q = new URLSearchParams(u.search);
@@ -43,7 +43,7 @@ const feature: Feature = {
     };
     /**
      * the new entry is there (written, or the browser's): `$url` read again, the flush as after Back. Read from
-     * `to`: WebKit may run an intercepted navigation's handler before the address bar shows its URL
+     * `to`, so that the page does not depend on when the browser commits the URL
      */
     const arrive = (to: URL) => {
       const u = app.page.$url;

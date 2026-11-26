@@ -55,10 +55,8 @@ How to write an entry (from 0.21.0 on; older sections keep their own form):
   thousand names) or the shadow's `arguments`: only names an expression can use. In a component's `<script>` nothing
   changes ([docs/editors.md](docs/editors.md)).
 - The VS Code extension starts the language server again: it failed with `onDidChangeLogLevel is not a function`.
-- In Safari (WebKit, with the Navigation API), `navigate()` or a link to the same page with another query
-  sometimes changed the address bar but not the page: `$url` bindings kept the old values. WebKit can run the
-  navigation before the address bar shows its URL, and `$url` (array parameters too) was read from the address
-  bar; it is now read from the link's or `navigate()`'s URL ([docs/navigation.md](docs/navigation.md#same-page-links)).
+- In Safari, `navigate()` or a same-page link with another query sometimes changed the address bar but not `$url`
+  bindings (array parameters too); they now follow the link's URL ([docs/navigation.md](docs/navigation.md#same-page-links)).
 
 ## 0.22.1 (2026-11-24)
 
