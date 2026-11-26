@@ -50,6 +50,13 @@ export interface Resource<T extends object = any> {
   readonly meta: Meta;
   readonly key: string[] | null;
   readonly isCollection: boolean;
+  /**
+   * the URL it loads now, as its `src` resolves in its scope (as the request layer gets it: an API's `base` included, its query as written; no
+   * pagination parameters, no POST body); null while `when` is false, and for `call`, `for` and `file:` resources
+   */
+  readonly src: string | null;
+  /** its `order` attribute as written (`-field`: descending); null without one */
+  readonly order: string | null;
   get(key: string | T): T | undefined;
   has(key: string | T): boolean;
   all(): readonly T[];
@@ -81,7 +88,7 @@ export interface Resource<T extends object = any> {
   base(): { items: T[] | T | null; total: number | null };
   /** while set, upsert/merge/remove are recorded instead of applied */
   recording: Op[] | null;
-  loader: { refresh(hint?: object): Promise<void>; url?(): string | null } | null;
+  loader: { refresh(hint?: object): Promise<void>; url?(): string | null; src?(): string | null } | null;
   onDirty(what: 'data' | 'meta'): void;
 }
 
@@ -266,7 +273,8 @@ export function createResource<T extends object = any>(name: string, o: Resource
   }
 
   const r: Resource<T> = {
-    name, meta, key: o.key, isCollection: coll, keyOf, recording: null, loader: null, onDirty() {},
+    name, meta, key: o.key, isCollection: coll, order: o.order, keyOf, recording: null, loader: null, onDirty() {},
+    get src() { return r.loader?.src?.() ?? null; },
     get: (k) => (coll ? visible().get(keyOf(k)) : visible().s ?? undefined),
     has: (k) => r.get(k) !== undefined,
     all: () => visible().l,
