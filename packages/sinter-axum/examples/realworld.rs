@@ -15,7 +15,7 @@ use axum::{
     middleware::{self, Next},
     response::Response,
 };
-use sinter_axum::{Embed, Param, to_page};
+use sinter_axum::{Embed, Param, PlaceholderRequest, to_page};
 use std::{path::PathBuf, sync::Arc, time::Duration};
 use tower_http::{compression::CompressionLayer, services::ServeDir};
 
@@ -27,24 +27,49 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let port = args.next().unwrap_or_else(|| env("PORT", "4370"));
     let api = args.next().unwrap_or_else(|| env("API", "http://localhost:4400"));
     let host = env("HOST", "127.0.0.1");
-    let (http, base) = (reqwest::Client::new(), api.clone());
+    // shorter than the page's time limit: a slow API is "no data" (the browser asks for it), not a failed page
+    let http = reqwest::Client::builder().timeout(Duration::from_millis(700)).build()?;
+    let quiet = |segments: &'static [&'static str], param: &'static str, after: &'static [&'static str]| {
+        let (http, base) = (http.clone(), api.clone());
+        move |r: PlaceholderRequest| {
+            let (http, base) = (http.clone(), base.clone());
+            async move {
+                let mut url = reqwest::Url::parse(&format!("{base}/api")).ok()?;
+                {
+                    let mut path = url.path_segments_mut().ok()?;
+                    for seg in segments {
+                        path.push(seg);
+                    }
+                    path.push(r.params.get(param)?.as_str()?);
+                    for seg in after {
+                        path.push(seg);
+                    }
+                }
+                get(&http, url).await
+            }
+        }
+    };
+    let (articles_http, base) = (http.clone(), api.clone());
     let embed = Embed::from_dir(&dir)
         .allow_origin(api.clone())
         .timeout(Duration::from_millis(800))
+        // The API shows an anonymous visitor the demo accounts' content only: the profile, articles and comments of any other
+        // account answer 404, and the browser, which has the token, asks again. A page whose data cannot be fetched is not
+        // sent (`Error, please retry later.`), so these resources give "no data" instead of the error.
+        .resolve("profile.html:profile", quiet(&["profiles"], "username", &[]))
+        .resolve("article.html:article", quiet(&["articles"], "slug", &[]))
+        .resolve("article.html:comments", quiet(&["articles"], "slug", &["comments"]))
+        .resolve("editor.html:article", quiet(&["articles"], "slug", &[]))
         // ?author=… on the profile's own tab, ?favorited=… on its favorites
         .resolve("profile.html:articles", move |r| {
-            let (http, base) = (http.clone(), base.clone());
+            let (http, base) = (articles_http.clone(), base.clone());
             async move {
                 let user = r.params.get("username")?.as_str()?;
                 let by = if r.params.get("tab").and_then(Param::as_str) == Some("favorites") { "favorited" } else { "author" };
                 let offset = (to_page(r.params.get("page").and_then(Param::as_str)) - 1) * 10;
                 let mut url = reqwest::Url::parse(&format!("{base}/api/articles")).ok()?;
                 url.query_pairs_mut().append_pair(by, user).append_pair("offset", &offset.to_string()).append_pair("limit", "10");
-                let res = http.get(url).send().await.ok()?;
-                if !res.status().is_success() {
-                    return None;
-                }
-                res.bytes().await.ok()
+                get(&http, url).await
             }
         })
         .build()?;
@@ -64,6 +89,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("http://{host}:{port}");
     axum::serve(l, app).with_graceful_shutdown(stop()).await?;
     Ok(())
+}
+
+/// The answer of a GET, or nothing: an error, a non-2xx or a slow API is no data, not a failed page.
+async fn get(http: &reqwest::Client, url: reqwest::Url) -> Option<bytes::Bytes> {
+    let res = http.get(url).send().await.ok()?;
+    if !res.status().is_success() {
+        return None;
+    }
+    res.bytes().await.ok()
 }
 
 /// `/login` is `login.html`: a page with no data in it (login, register, settings) is not the layer's, and files are

@@ -143,6 +143,13 @@ ionicons stylesheet from `code.ionicframework.com` cannot load without network a
 
 In a full run, a test or two can time out in `page.goto` (10 s) under load and pass when run alone.
 
+2026-11-26: against realworld-django-ninja on a local port (SQLite, `e2e-local.sh`) the suite passes 140 of 140 on the static build, and 140 of
+140 on the embedded build behind sinter-axum's realworld server (the container image's). Against the public API the same code
+failed 3 to 6 tests per run (134 to 137 passed): "popular tags" every time (above), and a few others that changed from run to run, passed
+when run alone and failed the same way on the build from before that day's changes. Their traces show the app's last request, the
+profile's or the author's list, with no recorded answer while the others were answered in under 100 ms, which the section's
+warning about the public API under load fits; they pass on a local backend.
+
 ## Against a local backend
 
 ```sh
