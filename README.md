@@ -299,13 +299,15 @@ Measurements and sources: [`docs/realworld-comparison.md`](docs/realworld-compar
 
 ## When not to use sinter
 
-- You want a SPA: client-side routing and a client-side component runtime. (Swaps keep a player or a
-  drawer across pages, but each page is still its own HTML document.)
-- The UI is mostly client-side interaction (editors, canvas, drag and drop). sinter leaves that to
-  the scripts of components, which do the browser work around markup sinter renders.
-- You can't have a build step.
-- Your backend renders HTML, not JSON.
-- You need stability guarantees. sinter is at v0.22.
+- You need client-side routing or one app shell that stays in memory for the whole session.
+  [Swaps](docs/navigation.md#swaps) keep marked elements (a player, a drawer, scroll positions) across pages,
+  but the server still serves each page as its own HTML document, and swaps need a recent browser
+  (Chromium 135+, Firefox 147+, Safari 26.2+; others load the page).
+- The app is mostly one imperative surface (a rich editor, a canvas). sinter leaves that to the
+  [scripts of components](docs/islands.md), which do the browser work around markup sinter renders.
+- You can't have a build step. Attributes are compiled; the browser never reads them.
+- Your backend only renders HTML and has no JSON API.
+- You need stability guarantees. sinter is pre-1.0, and renames are listed in the [changelog](CHANGELOG.md).
 
 ## Setup
 
