@@ -36,6 +36,9 @@ How to write an entry (from 0.21.0 on; older sections keep their own form):
 
 ### Fixed
 
+- Docs: a `data-sn-style` value rendered into the first frame is a `style` attribute, which `style-src 'self'` alone
+  blocks; [docs/security.md](docs/security.md#csp-and-trusted-types) said that policy was enough. Allow
+  `style-src-attr 'unsafe-inline'` for a right first frame.
 - A component library linked from outside the app (`file:`, `npm link`) no longer brings its own copy of sinter:
   the Vite plugin adds `@tiaforge-ui/sinter` to `resolve.dedupe`, so the library's scripts import the app's copy.
   Before, the library's copy's `instance()` knew none of the app's mounts (caley: a self-saving sortable saved

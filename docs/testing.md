@@ -35,7 +35,7 @@ The module imports no test runner. Use Vitest or anything else, on jsdom or happ
 | `root` | the document body |
 | `app` | the mounted app |
 | `state(el)` | the nearest `data-sn-state` scope of `el`: `get()` and `update(fn)`, [below](#changing-state) |
-| `flush()` | run the scheduler until no binding is dirty. Deterministic, no timeouts |
+| `flush()` | run the scheduler until no binding is dirty. Deterministic, no timeouts. Await it: a component script's `this.state` write renders at `await flush()` too |
 | `settle()` | `flush()` until every request, queue and debounce has finished |
 | `advance(ms)` | move sinter's clock: debounce, backoff, `$now` |
 | `navigations` | URLs sinter tried to go to, such as a login redirect. The test DOM never navigates |

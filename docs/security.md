@@ -130,6 +130,12 @@ What the build adds to the page and how it fits a strict policy:
   `prefetch: { html: { delivery: 'header' } }`. See [navigation.md](navigation.md#speculation-rules-and-a-content-security-policy).
 - **Embedded data** (`<script type="application/json">`) is data, not executed, so a script-src
   policy does not apply to it.
+- **Style bindings in the first frame are `style` attributes.** A `data-sn-style` value the build
+  renders into the HTML (a size from state, a colour from embedded data) is written as a `style`
+  attribute, which `style-src 'self'` alone blocks: the element shows without it until the page
+  module sets it through the CSSOM, which the policy allows. For a right first frame, allow the
+  attributes with `style-src-attr 'unsafe-inline'` (they cannot run code); `style-src` itself can stay
+  `'self'`.
 
 ## Supply chain and build
 
