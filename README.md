@@ -118,7 +118,7 @@ When attributes aren't enough (a canvas, a chart library, an editor), give a com
 ## Examples
 
 - **[Dashboard](examples/dashboard)**: four services with live metrics, checked against the backend's OpenAPI file.
-- **[RealWorld](examples/realworld)**: the full Conduit app, passing the official end-to-end suite.
+- **[RealWorld](examples/realworld)**: the full Conduit app, passing the official end-to-end suite. [Running copy](https://realworld.tiaforge.dev).
 - **[Static site](examples/static-site)** and **[multilingual site](examples/multilingual-site)**: pages that ship no JavaScript, plus one page that loads data.
 - **[Recipes](docs/recipes)**: 22 small pages, each one tested: filters, dialogs, offline drafts, SignalR and more.
 

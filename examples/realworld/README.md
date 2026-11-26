@@ -3,6 +3,8 @@
 The [RealWorld](https://github.com/gothinkster/realworld) "Conduit" frontend as a multi-page sinter
 app, talking to the public API at `https://api.realworld.show/api`.
 
+A running copy: **https://realworld.tiaforge.dev** (the [server image](#the-server-as-an-image) below, with each page's data in its HTML).
+
 ```sh
 npm install            # in the repo root first: npm run build
 npm run dev            # http://localhost:5173
