@@ -125,12 +125,15 @@ which the compiler writes and `mount` receives: the tests read them as the build
 | part | kept when | what goes without it | reached anyway |
 | --- | --- | --- | --- |
 | `FN_DIALOG`, `FN_ITEMS`, `FN_REFRESH`, `FN_PAGE`, `FN_EMIT`, `FN_RUN` | a handler or an optimistic change names one of the group's store functions (`$.$f.merge(…)` in its code): `openDialog`/`closeDialog`; `upsert`/`merge`/`remove`; `refresh`; `page`; `emit`; `run` | that group of `app.storeFns()` (733 B minified for all six) | a TypeError in the handler (`… is not a function`), which `exec` logs |
+| `TEXTRUN`, `SHOW`, `CLASSX`, `ATTR` | a binding of the kind: `data-sn-text` on a `<template>` (a text binding with a name), `data-sn-show`, `data-sn-class` with a computed key (a class binding without a name), `data-sn-attr` or any attribute binding | the writer of that kind (`W.x`, `W.h`, `W.k`, `W.a`; `ATTR` also the scheme check, `security.ts`): 1,172 B minified for all four | a TypeError out of the render (`write` calls the missing writer; a creation function's call falls back to `write`) |
 
 Why nothing else can call them. The compiled handlers are the only callers the runtime has: no feature module calls
 `storeFns`; the page's `$f` (`app.page.$f`) is the handlers' scope; a component's handlers and its fills are functions of
 the page's table, so their code is read with the page's. App code could reach `instance(root).storeFns()`, which the
 islands' API never documented ([islands.md](../islands.md#instance-api)). `navigate` and `signOut` are no part: the
 package's `navigate()` and `signOut()` call them through `storeFns(null)`. `closePopover` was the `POPOVER` part already.
+The writers are called by `write`, for a binding of the IR, and by the templates' creation functions, which the compiler
+writes from the same bindings (`makeCode`); the early script has writers of its own.
 
 ## Next
 

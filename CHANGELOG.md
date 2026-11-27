@@ -88,6 +88,10 @@ How to write an entry (from 0.21.0 on; older sections keep their own form):
   is: up to 0.3 kB gzip (0.7 kB minified) less per page, 0.2 kB on RealWorld. Nothing to do. App code reached them only
   through `instance(…).storeFns()`, which was never documented; `navigate()` and `signOut()` are always there
   ([docs/proposals/site-core.md](docs/proposals/site-core.md#finer-parts)).
+- The code that writes text runs (`<template data-sn-text>`), `data-sn-show`, a class from a value
+  (`data-sn-class="{ [name]: on }"`) and attributes (`data-sn-attr`, `data-sn-href`, with the check of URL attributes'
+  schemes) is left out of a build whose pages have no such binding: 0.5 kB gzip (1.2 kB minified) less on a page with
+  only text bindings, 0.1 kB on RealWorld. Nothing to do.
 - A page with handlers whose writes the build cannot follow (a helper or a component script that changes an object
   it was handed, a write through a variable that may hold any of the page's objects) ships a smaller page module and
   does less on each click: such a handler listed every path it might change, and now only those no other entry of its

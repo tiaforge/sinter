@@ -51,3 +51,30 @@ test('a handler that reaches a store function the core left out fails loudly: a 
   expect((root.querySelector('#d') as HTMLDialogElement).open).toBe(false);
   errors.mockRestore();
 });
+
+test('a writer stays when a page has its kind of binding, and only then', () => {
+  expect(parts('<div data-sn-state="{ s: \'x\' }"><p data-sn-text="s"></p></div>')).toEqual([]);
+  expect(parts('<div data-sn-state="{ s: \'x\' }"><p><template data-sn-text="s"></template> after</p></div>')).toEqual(['TEXTRUN']);
+  expect(parts('<div data-sn-state="{ s: true }"><p data-sn-show="s">x</p></div>')).toEqual(['SHOW']);
+  expect(parts('<div data-sn-state="{ s: true }"><p data-sn-class="{ on: s }">x</p></div>')).toEqual([]);
+  expect(parts('<div data-sn-state="{ s: \'red\' }"><p data-sn-class="{ [s]: true }">x</p></div>')).toEqual(['CLASSX']);
+  expect(parts('<div data-sn-state="{ s: \'/a\' }"><a data-sn-attr="{ title: s }">x</a></div>')).toEqual(['ATTR']);
+});
+
+test('pages with and without each writer render on their own cores', async () => {
+  // (a handler writes the state, so the build cannot render the bindings into the page)
+  const { root } = await render('<div data-sn-state="{ s: \'/a\', on: true, c: \'red\' }"><button data-sn-on-click="s = c = \'\'; on = false">b</button><a id="a" data-sn-attr="{ title: s }" data-sn-show="on" data-sn-class="{ [c]: on }">x <template data-sn-text="c"></template></a></div>');
+  expect([flags.TEXTRUN, flags.SHOW, flags.CLASSX, flags.ATTR]).toEqual([true, true, true, true]);
+  const a = root.querySelector('#a') as HTMLAnchorElement;
+  expect([a.getAttribute('title'), a.hidden, a.className, a.textContent]).toEqual(['/a', false, 'red', 'x red']);
+  flags.reset();
+  const plain = await render('<div data-sn-state="{ s: \'hi\', on: true }"><button data-sn-on-click="s = \'\'; on = false">b</button><p id="p" data-sn-text="s" data-sn-class="{ on }"></p></div>');
+  expect([flags.TEXTRUN, flags.SHOW, flags.CLASSX, flags.ATTR]).toEqual([false, false, false, false]);
+  expect(plain.root.querySelector('#p')!.outerHTML).toMatch(/^<p id="p" data-sn="\d+" class="on">hi<\/p>$/);
+});
+
+test('a binding that reaches a writer the core left out fails loudly: a TypeError out of the render', async () => {
+  // a core built without attribute bindings, a page with one: its first render throws
+  flags.without('ATTR');
+  await expect(render('<div data-sn-state="{ s: \'/a\' }"><button data-sn-on-click="s = \'/b\'">b</button><a data-sn-attr="{ title: s }">x</a></div>')).rejects.toThrow(TypeError);
+});

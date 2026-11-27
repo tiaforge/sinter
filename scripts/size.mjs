@@ -179,10 +179,15 @@ const entries = {
 // to 9.875 KB (10,088 B), with a token to 10.875 KB (11,028 B), the multilingual status page to 11.125 KB (11,270 B), the
 // article to 57.125 KB (58,446 B: RealWorld's handlers call `merge()` and `refresh()`, the dialog, page, emit and run
 // groups go)
+// Lowered on 2026-11-27, when the writers of text runs, `data-sn-show`, a class from a value and attributes (with the URL
+// attributes' scheme check, src/runtime/security.ts) became parts of the site's core (TEXTRUN, SHOW, CLASSX, ATTR; 1,172 B
+// minified for a page with none): the minimal page to 9.25 KB (9,430 B), with swaps to 11.25 KB (11,415 B), with a token to
+// 10.375 KB (10,517 B), the multilingual status page to 10.625 KB (10,756 B), the article to 57 KB (58,358 B). The minimal
+// page with a link keeps 9.875 KB (10,016 B: its link is an attribute binding)
 const BUDGET = {
-  'multilingual de/status': 11.125 * 1024, 'multilingual de/status, html': 0.875 * 1024,
-  minimal: 9.75 * 1024, 'minimal, swaps': 11.75 * 1024, 'realworld article': 57.125 * 1024,
-  'minimal, link': 9.875 * 1024, 'minimal, token': 10.875 * 1024, 'minimal, token, early': 1.875 * 1024, 'realworld early, shared': 3.375 * 1024,
+  'multilingual de/status': 10.625 * 1024, 'multilingual de/status, html': 0.875 * 1024,
+  minimal: 9.25 * 1024, 'minimal, swaps': 11.25 * 1024, 'realworld article': 57 * 1024,
+  'minimal, link': 9.875 * 1024, 'minimal, token': 10.375 * 1024, 'minimal, token, early': 1.875 * 1024, 'realworld early, shared': 3.375 * 1024,
 };
 let failed = false;
 const gz = (b) => gzipSync(b, { level: 9 }).length;

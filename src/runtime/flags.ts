@@ -51,6 +51,14 @@ export const SWAP = true;
  * module (a load or action signed out, a 401, `signOut()`) are there only then. A build decides it from its `apis`.
  */
 export const TOKEN = true;
+/** `<template data-sn-text>`: text runs (their writer) */
+export const TEXTRUN = true;
+/** `data-sn-show` (its writer) */
+export const SHOW = true;
+/** `data-sn-class` with a value for its class, not an object of named classes (its writer) */
+export const CLASSX = true;
+/** `data-sn-attr`, `data-sn-href` and the other attribute bindings (their writer, with the URL attributes' scheme check) */
+export const ATTR = true;
 /** `openDialog()` or `closeDialog()` in a handler (the compiled handlers name it: `$.$f.openDialog`) */
 export const FN_DIALOG = true;
 /** `upsert()`, `merge()` or `remove()` in a handler or an optimistic change */

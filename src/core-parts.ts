@@ -5,7 +5,7 @@ import type { Binding, IR, NodeDef } from './ir.js';
 
 /** every part, in the order of src/runtime/flags.ts */
 export const CORE_PARTS = ['LIST', 'BRANCH', 'ACTION', 'DIALOG', 'EVENTS', 'MODEL', 'PROP', 'STYLE', 'RESOURCE', 'TWIN', 'SIGNEDOUT', 'POPOVER',
-  'FN_DIALOG', 'FN_ITEMS', 'FN_REFRESH', 'FN_PAGE', 'FN_EMIT', 'FN_RUN'] as const;
+  'TEXTRUN', 'SHOW', 'CLASSX', 'ATTR', 'FN_DIALOG', 'FN_ITEMS', 'FN_REFRESH', 'FN_PAGE', 'FN_EMIT', 'FN_RUN'] as const;
 export type CorePart = (typeof CORE_PARTS)[number];
 
 const BY_KIND: Partial<Record<Binding['k'], CorePart>> = { for: 'LIST', if: 'BRANCH', ch: 'BRANCH', model: 'MODEL', prop: 'PROP', style: 'STYLE' };
@@ -27,6 +27,11 @@ export function coreParts(ir: Pick<IR, 'roots' | 'templates' | 'actions' | 'reso
     for (const b of nd.b) {
       const k = BY_KIND[b.k];
       if (k) used.add(k);
+      // the writers: a text binding with a name is a text run's, a class binding without one takes its class from the value
+      if (b.k == 'text' && b.n) used.add('TEXTRUN');
+      if (b.k == 'show') used.add('SHOW');
+      if (b.k == 'class' && !b.n) used.add('CLASSX');
+      if (b.k == 'attr') used.add('ATTR');
       if (b.k == 'on') used.add('EVENTS');
       if (b.k == 'on' && b.x != null) used.add('ACTION');
     }
