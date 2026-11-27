@@ -21,9 +21,9 @@ const CORE = join(src, 'runtime/app.ts');
 
 /** a written chunk; `entry` from the bundle, `core`: its source map has the core's module */
 type Chunk = { f: string; code: string; map: { mappings: string; sources: string[] } | null; entry: boolean; core: boolean };
-async function chunks(compileHints: boolean, rollupOptions?: object): Promise<Chunk[]> {
-  const dir = join(out, String(compileHints) + (rollupOptions ? '-own' : ''));
-  const res = await build({ root, logLevel: 'silent', plugins: [sinter({ compileHints })], resolve: { alias }, build: { outDir: dir, emptyOutDir: true, minify: false, sourcemap: true, ...(rollupOptions ? { rollupOptions } : {}) } });
+async function chunks(compileHints: boolean, rollupOptions?: object, swap = false): Promise<Chunk[]> {
+  const dir = join(out, String(compileHints) + (rollupOptions ? '-own' : '') + (swap ? '-swap' : ''));
+  const res = await build({ root, logLevel: 'silent', plugins: [sinter({ compileHints, ...(swap ? { swap } : {}) })], resolve: { alias }, build: { outDir: dir, emptyOutDir: true, minify: false, sourcemap: true, ...(rollupOptions ? { rollupOptions } : {}) } });
   const bundle = (Array.isArray(res) ? res : [res]).flatMap((r) => ('output' in r ? r.output : []));
   const assets = join(dir, 'assets');
   return readdirSync(assets).filter((f) => f.endsWith('.js')).map((f) => {
@@ -59,5 +59,16 @@ test('the core in a chunk of its own, whatever its name, gets the hint too; the 
   const off = await chunks(false, own), on = await chunks(true, own);
   expect(on.filter((c) => c.core).map((c) => [c.entry, c.f.startsWith('my-core-')])).toEqual([[false, true]]);
   expect(on.filter((c) => !c.entry && !c.core).length).toBeGreaterThan(0);
+  compare(off, on);
+});
+
+test('a hinted chunk with dynamic imports starts with the hint too: V8 reads it on the first line only, and Vite writes its preload map first', async () => {
+  // swaps on: the chunk with the core imports the rest of the swap when a navigation needs it; that rest has a chunk
+  // of its own to load with it here, so Vite starts the core's chunk with `const __vite__mapDeps=…`
+  const own = { output: { manualChunks: (id: string) => (id === join(src, 'vt-types.ts') ? 'vt' : undefined) } };
+  const off = await chunks(false, own, true), on = await chunks(true, own, true);
+  const lazy = on.filter((c) => (c.entry || c.core) && c.code.includes('__vite__mapDeps'));
+  expect(lazy.length).toBeGreaterThan(0);
+  for (const c of lazy) expect(c.code.split('\n')[0], c.f).toBe(HINT.trim());
   compare(off, on);
 });
