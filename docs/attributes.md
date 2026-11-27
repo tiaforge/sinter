@@ -106,7 +106,7 @@ When a package of `sinter({ lazy })` loads, on any element of a page, a layout o
 | Attribute | Value | Meaning |
 | --- | --- | --- |
 | `data-sn-import` | lazy packages, comma-separated | loads packages of sinter({ lazy }) when the element is rendered (at takeover outside templates, when its branch or row first renders inside one), instead of on first call |
-| `data-sn-preload` | lazy packages, comma-separated | the build preloads packages of sinter({ lazy }) with the page (&lt;link rel="modulepreload"&gt;): fetched with the page bundle, run on first call or by data-sn-import |
+| `data-sn-preload` | lazy packages, comma-separated | the build preloads packages of sinter({ lazy }) with the page (&lt;link rel="modulepreload" fetchpriority="low"&gt;): fetched with the page bundle, after what the page needs to start, run on first call or by data-sn-import |
 
 ## Set by sinter
 

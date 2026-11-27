@@ -2782,7 +2782,9 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         if (x?.type === 'chunk') todo.push(...(x.imports ?? []));
       }
     }
-    const tags = files.filter((f) => !html.includes(`"${base}${f}"`)).map((f) => `<link rel="modulepreload" crossorigin href="${attr(base + f)}">`);
+    // low priority: code for later, which must not take the connection from what the page needs to start (its scripts,
+    // stylesheets and early script; over HTTP/2 they share one connection)
+    const tags = files.filter((f) => !html.includes(`"${base}${f}"`)).map((f) => `<link rel="modulepreload" crossorigin fetchpriority="low" href="${attr(base + f)}">`);
     return tags.length ? html.replace('</head>', `  ${tags.join('\n  ')}\n</head>`) : html;
   }
 

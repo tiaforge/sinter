@@ -63,5 +63,5 @@ test('a component script that reaches the package through an alias loads with it
   const script = assets().find((f) => f.startsWith('x-ring-'))!;
   expect(script).toBeDefined();
   expect(read(script)).not.toContain(MARK);
-  expect(html).toContain(`<link rel="modulepreload" crossorigin href="/assets/${script}">`);
+  expect(html).toContain(`<link rel="modulepreload" crossorigin fetchpriority="low" href="/assets/${script}">`);
 });

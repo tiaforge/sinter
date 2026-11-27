@@ -74,7 +74,7 @@ otherwise for the pages that need it sooner:
 | --- | --- | --- |
 | on first call | nothing | the first stub called loads the package |
 | when an element is rendered | `data-sn-import="openpgp"` | the page module loads it when it renders the element: at takeover for an element outside templates, when its `data-sn-if` branch or row first renders otherwise. Never before takeover, so it does not compete with the page's own files |
-| with the page | `data-sn-preload="openpgp"` | the build puts `<link rel="modulepreload">` for the package's chunks into the page's head: fetched and compiled in parallel with the page bundle, run on first call or by a `data-sn-import` |
+| with the page | `data-sn-preload="openpgp"` | the build puts `<link rel="modulepreload" fetchpriority="low">` for the package's chunks into the page's head: fetched and compiled in parallel with the page bundle, after what the page needs to start, run on first call or by a `data-sn-import` |
 
 ```html
 <!-- src/components/mail-reader.html: every page with a reader loads openpgp once it has taken over -->
@@ -91,7 +91,9 @@ otherwise for the pages that need it sooner:
   head can still ask for it.
 - A load `data-sn-import` starts that fails is silent; the call that needs the package reports it.
 - On a slow network a big preload competes with the page bundle and the page's data: measure before
-  preloading. The two attributes are apart for that reason. `vite dev` writes no preload links.
+  preloading. The links have low priority, since the code is for later and must not compete with what the page
+  needs to start (its scripts, stylesheets and early script, which share one connection over HTTP/2): the browser
+  gives the connection to those first. The two attributes are apart for that reason. `vite dev` writes no preload links.
   Measured in Caley's mail page (openpgp, 129.6 kB gzip; 150 ms, 1.6 Mbit/s, 4x CPU, 3 cold loads,
   2026-11-11): `data-sn-import` had openpgp ready at 2295–2364 ms, as the component that imported it
   before; with `data-sn-preload` as well, 2180–2218 ms, the list and the message body no later, but the

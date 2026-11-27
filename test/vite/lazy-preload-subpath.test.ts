@@ -33,6 +33,6 @@ test('a lazy package imported through a subpath: data-sn-preload with its name p
   const parser = assets.find((f) => readFileSync(join(root, 'dist/assets', f), 'utf8').includes('SUBPKG_PARSER'));
   expect(parser).toBeTruthy();
   const html = readFileSync(join(root, 'dist/index.html'), 'utf8');
-  expect(html).toContain(`<link rel="modulepreload" crossorigin href="/assets/${parser}">`);
+  expect(html).toContain(`<link rel="modulepreload" crossorigin fetchpriority="low" href="/assets/${parser}">`);
   expect(warnings.join('\n')).not.toContain('SN520');
 }, 60_000);

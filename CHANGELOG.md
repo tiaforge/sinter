@@ -110,6 +110,11 @@ How to write an entry (from 0.21.0 on; older sections keep their own form):
   network emulated: 150 ms, 1.6 Mbit/s, HTTP/2, 4x CPU, cold cache), largest paint: mail 1,796 → 1,656 ms, calendar
   1,276 → 1,228 ms. The early script grows by the request code (Caley mail: about +1.3 kB gzip). Nothing to do
   ([docs/first-paint.md](docs/first-paint.md#request-middleware-and-sign-in)).
+- The `<link rel="modulepreload">` links `data-sn-preload` writes have `fetchpriority="low"`: the package is code for
+  later, and no longer takes the connection from the page's own scripts, stylesheets and early script. Measured on
+  Caley's mail page (openpgp preloaded; slow network emulated: 150 ms, 1.6 Mbit/s, HTTP/2, 4x CPU, cold cache): page
+  scripts end 1,360 → 1,225 ms, first paint 1,360 → 1,284 ms, largest paint 1,796 → 1,732 ms; the preloaded module
+  still finishes at about the same time. Nothing to do ([docs/lazy.md](docs/lazy.md)).
 - A site whose pages have no `data-sn-for`, `data-sn-if` or `<sn-component use>` loads about 1 kB less JavaScript
   (gzip; 2.4 kB minified): its build now leaves the list and branch code out of the runtime, as it was meant to.
   A page with one resource and one text binding goes from 11.2 kB to 10.2 kB. Nothing to do; sites that use lists

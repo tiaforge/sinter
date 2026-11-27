@@ -157,7 +157,10 @@ test('data-sn-preload: a modulepreload link for the package\'s chunk, in the pag
   const { target: pkg, body } = lazyChunks();
   const html = readFileSync(join(out, 'preload/index.html'), 'utf8');
   // the chunk the loader imports, then the chunks it imports, at the end of the head
-  expect(html).toMatch(new RegExp(`<link rel="modulepreload" crossorigin href="/assets/${pkg.replace(/[.]/g, '\\.')}">\\s*<link rel="modulepreload" crossorigin href="/assets/${body.replace(/[.]/g, '\\.')}">\\s*</head>`));
+  // with low priority: code for later, after what the page needs to start
+  expect(html).toMatch(new RegExp(`<link rel="modulepreload" crossorigin fetchpriority="low" href="/assets/${pkg.replace(/[.]/g, '\\.')}">\\s*<link rel="modulepreload" crossorigin fetchpriority="low" href="/assets/${body.replace(/[.]/g, '\\.')}">\\s*</head>`));
+  // the page's own module and its chunks keep the default priority
+  expect(html).not.toMatch(/<script type="module"[^>]*fetchpriority/);
   expect(html).not.toContain('data-sn-preload');
   expect(readFileSync(join(out, 'import/index.html'), 'utf8')).not.toContain(pkg);
 });
@@ -186,8 +189,8 @@ test('a component script that imports a lazy package is a chunk of its own, besi
   expect(script).toBeDefined();
   expect(read(script)).not.toContain(MARK);
   // data-sn-preload: the package, and the page's component scripts that load with it
-  expect(html).toContain(`<link rel="modulepreload" crossorigin href="/assets/${script}">`);
-  expect(html).toContain(`<link rel="modulepreload" crossorigin href="/assets/${lazyChunks().body}">`);
+  expect(html).toContain(`<link rel="modulepreload" crossorigin fetchpriority="low" href="/assets/${script}">`);
+  expect(html).toContain(`<link rel="modulepreload" crossorigin fetchpriority="low" href="/assets/${lazyChunks().body}">`);
   expect(read(entry)).toMatch(new RegExp(`later\\(\\(\\) => __vitePreload\\(\\(\\) => import\\("\\./${script.replace(/[.]/g, '\\.')}"[\\s\\S]{0,200}"\\./${script.replace(/[.]/g, '\\.')}", import\\.meta\\.url\\)`));
 });
 
