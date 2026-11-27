@@ -872,10 +872,11 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
         // a global, a constant (inlined, a new value at each evaluation), the server's payload: none of the page's objects
         if (cp && (cp.res.kind === 'global' || cp.res.kind === 'const' || cp.res.kind === 'payload')) return [];
         if (e.type === 'MemberExpression' && !cp) {
-          // a member of a value that is no path (`find(xs, id).items`): the pieces under that member
+          // a member of a value that is no path (`find(xs, id).items`): the pieces under that member. A piece anywhere
+          // below the value (`**`: what a helper returns of its argument, `pick(ys)`) may be the member or below it: it stays
           const prop = !e.computed && e.property.type === 'Identifier' ? e.property.name : e.computed && e.property.type === 'Literal' ? String(e.property.value) : '*';
           return classify(e.object as Node, locals).flatMap((p) => (!p.sub.length ? [{ sub: [], src: p.src && [...p.src, prop] }]
-            : p.sub[0] === '*' || prop === '*' || p.sub[0] === prop ? [{ sub: p.sub.slice(1), src: p.src }] : []));
+            : p.sub[0] === '**' ? [p] : p.sub[0] === '*' || prop === '*' || p.sub[0] === prop ? [{ sub: p.sub.slice(1), src: p.src }] : []));
         }
         return ANY;
       }
