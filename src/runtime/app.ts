@@ -525,10 +525,10 @@ export function mount(root: Document | Element, o: MountOptions): App {
   const { ir, fns } = o;
   if (ir?.v != 2 || !ir.ps) throw Error('sinter: unsupported IR');
   // (the test suite's flags: the parts this page uses turn on; nothing in a build)
-  F.use?.(ir);
+  F.use?.(ir, fns);
   const env = o.env ?? envOf(config);
   const req = createRequestLayer(env, o.request ?? config.request);
-  const schemes = schemesOf(config.urlSchemes);
+  const schemes = F.ATTR ? schemesOf(config.urlSchemes) : undefined;
   const resources = new Map<string, Resource>(), loaders: Array<{ def: ResourceDef; changed(typing?: boolean): void; start(): void; refresh(): Promise<void> }> = [];
   const acts = new WeakMap<Element, ActState>();
   /** the action states with a request running or waiting, for a branch swap to hand on */
@@ -586,17 +586,21 @@ export function mount(root: Document | Element, o: MountOptions): App {
     try { return fns[b.f!]!(b.e ? (rb ? (rb.e ??= child(s, { $el: el })) : child(s, { $el: el })) : s); } catch (e) { warn(6, b, el, e); }
   };
   const evaluate = (rb: RB): any => evalB(rb.b, rb.s, rb.el, rb);
-  /** The writers, one per binding kind: `(element, name, value)`; a template's creation function calls them too. */
+  /**
+   * The writers, one per binding kind: `(element, name, value)`; a template's creation function calls them too. A kind no
+   * page of the site has (the TEXTRUN, SHOW, CLASSX, ATTR, PROP, STYLE parts) has none: reached anyway, the call is a
+   * TypeError (`write`, a creation function).
+   */
   const W = {
     U: UNSET,
     /** `<template data-sn-text>`: the text node after `el`, found from it at each write; an empty comment holds its place until it has text */
-    x(el: HTMLElement, _n: string, v: any) {
+    x: F.TEXTRUN ? (el: HTMLElement, _n: string, v: any) => {
       const s = el.nextSibling as CharacterData | null;
       v = '' + (v ?? '');
       // a text run's own node (`TemplateDef.tx`)
       if (el.nodeType == 3) return void ((el as unknown as Text).data = v);
       if (s?.nodeType == 3) { if (s.data !== v) s.data = v; } else if (v) s?.nodeType == 8 && !s.data ? s.replaceWith(v) : el.after(v);
-    },
+    } : undefined,
     t(el: HTMLElement, _n: string, v: any) {
       const t = el.firstChild as Text | null;
       // an element without content (a new row) takes a number as it is: the DOM converts it, while
@@ -609,7 +613,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
       if (t?.nodeType == 3 && !t.nextSibling) { if (t.data !== v) t.data = v; }
       else if (el.textContent !== v) el.textContent = v;
     },
-    h(el: HTMLElement, _n: string, v: any) { el.hidden = !v; },
+    h: F.SHOW ? (el: HTMLElement, _n: string, v: any) => { el.hidden = !v; } : undefined,
     p: F.PROP ? (el: HTMLElement, n: string, v: any) => {
       (el as any)[n] = v;
       // not defined yet, or defined but not upgraded yet (a row cloned from a template)
@@ -617,16 +621,21 @@ export function mount(root: Document | Element, o: MountOptions): App {
     } : undefined,
     /** `has`: the element may have the class (it is not a new clone of an element without a `class` attribute) */
     c(el: HTMLElement, n: string, v: any, has: unknown) { if (v || has) el.classList.toggle(n, !!v); },
-    a(el: HTMLElement, n: string, v: any) {
+    /** `data-sn-class` with a value for its class (`[name, on]`): `prev`'s class goes when the name changed */
+    k: F.CLASSX ? (el: HTMLElement, v: any, prev: any) => {
+      if (prev?.[0] && prev[0] != v?.[0]) el.classList.remove(prev[0]);
+      if (v?.[0]) el.classList.toggle(v[0], !!v[1]);
+    } : undefined,
+    a: F.ATTR ? (el: HTMLElement, n: string, v: any) => {
       // form state: the attribute is only the default once the user has changed the control
       if (/^(checked|selected|indeterminate|value)$/.test(n) && n in el) (el as any)[n] = n == 'value' ? (v == null || v === false || v === true ? '' : v) : v != null && v !== false;
       if (v == null || v === false) el.removeAttribute(n);
       // relative URLs by the base of the document rows go into (a clone's own is its template's, about:blank)
       // an unchanged value is not written again: a playing <audio>'s `src` set to the same value restarts it,
       // an <iframe>'s reloads it
-      else if (urlAllowed(el, n, (v = v === true ? '' : '' + v), doc.baseURI, schemes)) { if (el.getAttribute(n) !== v) el.setAttribute(n, v); }
+      else if (urlAllowed(el, n, (v = v === true ? '' : '' + v), doc.baseURI, schemes!)) { if (el.getAttribute(n) !== v) el.setAttribute(n, v); }
       else { el.removeAttribute(n); warn(7, n, el.localName, v); }
-    },
+    } : undefined,
     s: F.STYLE ? (el: HTMLElement, n: string, v: any) => {
       if (v == null || v === false) el.style.removeProperty(n);
       else if (STYLE_BAD.test(v)) { el.style.removeProperty(n); warn(8, n, v); }
@@ -872,18 +881,25 @@ export function mount(root: Document | Element, o: MountOptions): App {
       let done = false;
       return (ok) => { if (!done) { done = true; for (const [r, id] of ids) ok ? r.commitLayer(id) : r.dropLayer(id); } };
     },
+    // Each group only on a site whose handlers name one of its functions (the FN_* parts: the compiled handlers are the
+    // only callers; a missing one is a TypeError in the handler, which `exec` logs). `navigate` and `signOut` stay: the
+    // package's `navigate()` and `signOut()` call them
     storeFns: (el) => ({
-      openDialog: (id: string) => { const d = dialog(id); if (d && !d.open) d.showModal(); },
-      refresh: (...n: string[]) => { for (const x of n) res(x).refresh(); },
-      // `upsert(c.replies, x)`: the item that holds the list gets it as a patch
-      upsert: (n: string | string[], a: any, f?: string, x?: any) => Array.isArray(n) ? app.ext.nested!.upsert(res, n, a, f!, x) : res(n).upsert(a),
-      merge: byItem('merge'),
-      remove: byItem('remove'),
-      page: (n: string, t: string | number) => app.ext.paginate!.page(n, t),
-      closeDialog: (id?: string) => (id ? dialog(id) : el?.closest('dialog'))?.close(),
+      ...(F.FN_DIALOG && {
+        openDialog: (id: string) => { const d = dialog(id); if (d && !d.open) d.showModal(); },
+        closeDialog: (id?: string) => (id ? dialog(id) : el?.closest('dialog'))?.close(),
+      }),
+      ...(F.FN_REFRESH && { refresh: (...n: string[]) => { for (const x of n) res(x).refresh(); } }),
+      ...(F.FN_ITEMS && {
+        // `upsert(c.replies, x)`: the item that holds the list gets it as a patch
+        upsert: (n: string | string[], a: any, f?: string, x?: any) => Array.isArray(n) ? app.ext.nested!.upsert(res, n, a, f!, x) : res(n).upsert(a),
+        merge: byItem('merge'),
+        remove: byItem('remove'),
+      }),
+      ...(F.FN_PAGE && { page: (n: string, t: string | number) => app.ext.paginate!.page(n, t) }),
       // (hiding a hidden popover does nothing; only a site whose handlers call it keeps it, `F.POPOVER`)
       ...(F.POPOVER && { closePopover: (id?: string) => ((id ? byId(id, '[popover]') : el?.closest('[popover]')) as HTMLElement | null | undefined)?.hidePopover() }),
-      emit: (n: string, detail?: unknown) => el?.dispatchEvent(new CustomEvent(n, { detail, bubbles: true, cancelable: true })),
+      ...(F.FN_EMIT && { emit: (n: string, detail?: unknown) => el?.dispatchEvent(new CustomEvent(n, { detail, bubbles: true, cancelable: true })) }),
       // to this page with only parameters it reads changed: as a same-page link (no load); else the browser navigates
       // the navigation chain where a feature installed one (links.ts), else the page loads
       navigate: (url: string, o?: { replace?: boolean }) => {
@@ -895,14 +911,16 @@ export function mount(root: Document | Element, o: MountOptions): App {
       // every API's token goes (src/token.ts), with what the page kept; the resources of those APIs load again: signed out
       signOut: () => { if (F.TOKEN) tokens.on?.signOut(env, app); },
       // the element's action, as if its trigger fired (a form is submitted); disabled or inert: nothing
-      run: (id: string) => {
-        const t = F.ACTION ? byId(id) : undefined, rb = t && handlersOf(t as Tagged)?.find((x) => x.b.x != null);
-        if (!rb) return warn(20, id);
-        if (t.matches(':disabled') || t.closest('[inert]')) return;
-        if (t.localName != 'form') return trigger(rb, null);
-        synth = true;
-        try { (t as HTMLFormElement).requestSubmit(); } finally { synth = false; }
-      },
+      ...(F.FN_RUN && {
+        run: (id: string) => {
+          const t = F.ACTION ? byId(id) : undefined, rb = t && handlersOf(t as Tagged)?.find((x) => x.b.x != null);
+          if (!rb) return warn(20, id);
+          if (t.matches(':disabled') || t.closest('[inert]')) return;
+          if (t.localName != 'form') return trigger(rb, null);
+          synth = true;
+          try { (t as HTMLFormElement).requestSubmit(); } finally { synth = false; }
+        },
+      }),
     }),
     serverEvent(name, payload) {
       for (const fn of listeners.get(name) ?? []) try { fn(payload); } catch (e) { console.error(e); }
@@ -1209,18 +1227,14 @@ export function mount(root: Document | Element, o: MountOptions): App {
   function write(b: Binding, e: Element, v: any, prev: any, fresh: boolean) {
     const el = e as HTMLElement, n = b.n!;
     switch (b.k) {
-      case 'text': n ? W.x(el, n, v) : W.t(el, n, v); break;
-      case 'show': W.h(el, n, v); break;
+      case 'text': n ? W.x!(el, n, v) : W.t(el, n, v); break;
+      case 'show': W.h!(el, n, v); break;
       case 'prop': if (F.PROP) W.p!(el, n, v); break;
       case 'class':
         // a new element without a class attribute cannot have the class: skip removing it
-        if (n) W.c(el, n, v, !fresh || el.hasAttribute('class'));
-        else {
-          if (prev?.[0] && prev[0] != v?.[0]) el.classList.remove(prev[0]);
-          if (v?.[0]) el.classList.toggle(v[0], !!v[1]);
-        }
+        n ? W.c(el, n, v, !fresh || el.hasAttribute('class')) : W.k!(el, v, prev);
         break;
-      case 'attr': W.a(el, n, v); break;
+      case 'attr': W.a!(el, n, v); break;
       case 'style': if (F.STYLE) b.g != null ? W.g!(el, b.g, v, prev) : W.s!(el, n, v);
     }
   }
@@ -1934,8 +1948,9 @@ export function mount(root: Document | Element, o: MountOptions): App {
       /** `src` or `when` may have changed: reload from the first page if the URL differs. From typing: once the typing pauses. */
       changed(soft?: boolean) {
         if (def.fx) return;
-        if (typing != null) { env.clearTimeout(typing); typing = null; app.busy--; }
-        if (soft) { app.busy++; typing = env.setTimeout(() => { typing = null; app.busy--; l.changed(); }, TYPING, 'debounce'); return; }
+        // (typing: only a text field's model marks so, `setModel`; a site without models has no pause to wait for)
+        if (F.MODEL && typing != null) { env.clearTimeout(typing); typing = null; app.busy--; }
+        if (F.MODEL && soft) { app.busy++; typing = env.setTimeout(() => { typing = null; app.busy--; l.changed(); }, TYPING, 'debounce'); return; }
         const u = resolve();
         if (u === url) return l.pager?.follow?.();
         url = u;

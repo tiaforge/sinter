@@ -1,5 +1,9 @@
-import { expect, test } from 'vitest';
+import { beforeEach, expect, test } from 'vitest';
 import { createResource } from '../src/runtime/store.js';
+import { reset } from './core-flags.js';
+
+// the store on its own, not a page's: every part of the core on (test/core-flags.ts)
+beforeEach(() => reset(true));
 
 test('writes made while a load is in flight survive its older response', () => {
   const r = createResource<{ id: number; t: string }>('c', { key: ['id'], order: null });

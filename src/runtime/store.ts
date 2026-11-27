@@ -97,6 +97,9 @@ export function clean<T>(obj: T): T {
 }
 
 /** the empty value of a list without `key`: one frozen array, so a read that finds it empty changes nothing */
+// the parts of the core this build's pages use (src/core-parts.ts): keyed collections, ordering
+import * as F from './flags.js';
+
 const NONE: readonly never[] = Object.freeze([]);
 
 /** One collator per locale: constructing one is costly in some engines. */
@@ -105,7 +108,9 @@ const collator = (l = '') => collators.get(l) ?? (collators.set(l, new Intl.Coll
 
 export function createResource<T extends object = any>(name: string, o: ResourceOptions): Resource<T> {
   const meta: Meta = { loading: false, error: null, loadedAt: null, total: null, live: null };
-  const coll = !!o.key, field = o.order?.replace(/^-/, ''), dir = o.order?.[0] == '-' ? -1 : 1;
+  // a key or an order in a build whose pages have none (the KEYED and ORDER parts): this resource is not of its pages
+  if ((!F.KEYED && o.key) || (!F.ORDER && o.order)) throw Error(`sinter: ${name}: no ${o.key && !F.KEYED ? 'KEYED' : 'ORDER'} in this build's core`);
+  const coll = F.KEYED && !!o.key, field = F.ORDER ? o.order?.replace(/^-/, '') : undefined, dir = o.order?.[0] == '-' ? -1 : 1;
   const subs = new Set<(c: Change<T>) => void>();
   const prep = (x: any) => (o.prep ? o.prep(x) : x);
   /** base items in arrival order, and each key's arrival number (ties in `order` keep arrival order) */
@@ -147,7 +152,7 @@ export function createResource<T extends object = any>(name: string, o: Resource
 
   /** By `order` (none: all equal, so arrival order decides). */
   const compare = (a: any, b: any) => {
-    if (!field) return 0;
+    if (!F.ORDER || !field) return 0;
     const x = a[field], y = b[field];
     if (x == null || y == null) return +(x == null) - +(y == null);
     return dir * (typeof x == 'string' && typeof y == 'string' ? collator(sortedFor).compare(x, y) : +(x > y) - +(x < y));
@@ -177,6 +182,8 @@ export function createResource<T extends object = any>(name: string, o: Resource
 
   /** The base in display order. */
   function baseList(): T[] {
+    // (a site with no `order`: arrival order, the base's own)
+    if (!F.ORDER) return [...base.values()];
     const locale = o.locale?.();
     if (sorted && locale === sortedFor && touched.size <= 64) {
       if (touched.size) {

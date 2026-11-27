@@ -83,6 +83,25 @@ How to write an entry (from 0.21.0 on; older sections keep their own form):
   (gzip; 2.4 kB minified): its build now leaves the list and branch code out of the runtime, as it was meant to.
   A page with one resource and one text binding goes from 11.2 kB to 10.2 kB. Nothing to do; sites that use lists
   or branches are unchanged.
+- The runtime's handler functions (`openDialog()`/`closeDialog()`, `merge()`/`upsert()`/`remove()`, `refresh()`,
+  `page()`, `emit()`, `run()`) are left out of a build whose pages' handlers never call them, as the list and branch code
+  is: up to 0.3 kB gzip (0.7 kB minified) less per page, 0.2 kB on RealWorld. Nothing to do. App code reached them only
+  through `instance(…).storeFns()`, which was never documented; `navigate()` and `signOut()` are always there
+  ([docs/proposals/site-core.md](docs/proposals/site-core.md#finer-parts)).
+- The code that writes text runs (`<template data-sn-text>`), `data-sn-show`, a class from a value
+  (`data-sn-class="{ [name]: on }"`) and attributes (`data-sn-attr`, `data-sn-href`, with the check of URL attributes'
+  schemes) is left out of a build whose pages have no such binding: 0.5 kB gzip (1.2 kB minified) less on a page with
+  only text bindings, 0.1 kB on RealWorld. Nothing to do.
+- The store's keyed collections and its sorting are left out of a build whose resources have no `key` and no `order`:
+  0.7 kB gzip (1.6 kB minified) less on such a site, 0.7 kB on the multilingual example's pages. Nothing to do; an app
+  module can still read and write a resource through `instance(…).resource(name)` as before
+  ([docs/proposals/site-core.md](docs/proposals/site-core.md#finer-parts)).
+- In a site whose paginated resources all keep their page in the URL (`paginate="{ …, model: $url.page }"`), the pager
+  leaves out its moves in memory (keyset, append, a numbered page without `model`): 0.5 kB gzip (1.6 kB minified) less
+  on RealWorld's home and profile pages. Nothing to do.
+- A build without `sinter({ apis })` leaves out the request layer's lookup of an API's credentials and headers, and one
+  whose pages have no `data-sn-model` the pause a resource's reload waits for while a text field is typed in: 0.2 kB
+  gzip less on a page with one resource. Nothing to do.
 - A page with handlers whose writes the build cannot follow (a helper or a component script that changes an object
   it was handed, a write through a variable that may hold any of the page's objects) ships a smaller page module and
   does less on each click: such a handler listed every path it might change, and now only those no other entry of its

@@ -173,10 +173,29 @@ const entries = {
 // the loop, 2.4 kB minified; `core, no parts` 7,207 B to 6,229 B): the minimal page to 10.125 KB (10,246 B), with swaps to
 // 12 KB (12,208 B), with a link to 10.25 KB (10,375 B), with a token to 11.125 KB (11,322 B), the multilingual status page
 // to 11.375 KB (11,555 B). RealWorld has lists and branches: unchanged
+// Lowered on 2026-11-27, when the store functions (`openDialog()`, `merge()`, `refresh()`, `emit()`, `run()`, …) became
+// parts of the site's core: a group stays only when a page's handlers name one of them (`FN_*`, src/core-parts.ts; 733 B
+// minified where none is called): the minimal page to 9.75 KB (9,955 B), with swaps to 11.75 KB (11,934 B), with a link
+// to 9.875 KB (10,088 B), with a token to 10.875 KB (11,028 B), the multilingual status page to 11.125 KB (11,270 B), the
+// article to 57.125 KB (58,446 B: RealWorld's handlers call `merge()` and `refresh()`, the dialog, page, emit and run
+// groups go)
+// Lowered on 2026-11-27, when the writers of text runs, `data-sn-show`, a class from a value and attributes (with the URL
+// attributes' scheme check, src/runtime/security.ts) became parts of the site's core (TEXTRUN, SHOW, CLASSX, ATTR; 1,172 B
+// minified for a page with none): the minimal page to 9.25 KB (9,430 B), with swaps to 11.25 KB (11,415 B), with a token to
+// 10.375 KB (10,517 B), the multilingual status page to 10.625 KB (10,756 B), the article to 57 KB (58,358 B). The minimal
+// page with a link keeps 9.875 KB (10,016 B: its link is an attribute binding)
+// Lowered on 2026-11-27, when the store's keyed collections and its ordering became parts of the site's core (KEYED,
+// ORDER: 1,628 B minified for a site whose resources have neither): the minimal page to 8.625 KB (8,744 B), with swaps to
+// 10.5 KB (10,727 B), with a link to 9.125 KB (9,312 B), with a token to 9.625 KB (9,814 B), the multilingual status page to
+// 9.875 KB (10,070 B). RealWorld has keyed lists and an ordered one (the comments): unchanged
+// Lowered on 2026-11-27, when the request layer looked up an API's settings only in a build with `sinter({ apis })`
+// (`APIS`, 315 B minified with the pause a resource waits for after typing, which only a site with `data-sn-model` keeps):
+// the minimal page to 8.375 KB (8,565 B), with swaps to 10.375 KB (10,551 B), with a link to 9 KB (9,143 B), the
+// multilingual status page to 9.75 KB (9,894 B). The minimal page with a token keeps 9.625 KB (9,765 B: it has an API)
 const BUDGET = {
-  'multilingual de/status': 11.375 * 1024, 'multilingual de/status, html': 0.875 * 1024,
-  minimal: 10.125 * 1024, 'minimal, swaps': 12 * 1024, 'realworld article': 57.375 * 1024,
-  'minimal, link': 10.25 * 1024, 'minimal, token': 11.125 * 1024, 'minimal, token, early': 1.875 * 1024, 'realworld early, shared': 3.375 * 1024,
+  'multilingual de/status': 9.75 * 1024, 'multilingual de/status, html': 0.875 * 1024,
+  minimal: 8.375 * 1024, 'minimal, swaps': 10.375 * 1024, 'realworld article': 57 * 1024,
+  'minimal, link': 9 * 1024, 'minimal, token': 9.625 * 1024, 'minimal, token, early': 1.875 * 1024, 'realworld early, shared': 3.375 * 1024,
 };
 let failed = false;
 const gz = (b) => gzipSync(b, { level: 9 }).length;

@@ -3,6 +3,8 @@
 import { envOf, type Env } from './env.js';
 import type { Transport } from './app.js';
 import type { Retry } from './request.js';
+// the build's: `APIS`, whether it has `sinter({ apis })` (src/runtime/flags.ts)
+import * as F from './flags.js';
 
 export type Middleware = (request: Request, next: (request: Request) => Promise<Response>) => Promise<Response>;
 
@@ -66,6 +68,8 @@ export interface ApiSettings {
 
 /** The page module: the build's APIs. */
 export function $apis(list: ApiSettings[]): void {
+  // a page module of a build with APIs, on a core built without them (the request layer would not send their settings)
+  if (!F.APIS) throw Error("sinter: no APIS in this build's core");
   config.apis = list;
 }
 

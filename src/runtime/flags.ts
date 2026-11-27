@@ -52,7 +52,42 @@ export const SWAP = true;
  */
 export const TOKEN = true;
 /**
- * Called with each page's IR as it mounts; nothing here, nor in a build. The test suite's flags (test/core-flags.ts)
- * turn on the parts the mounted pages use and no others, so every test runs on the smallest core for its pages.
+ * Not a part of the core: the build has `sinter({ apis })` (the page modules' `$apis`). The request layer finds a request's
+ * API (its credentials and static headers) only then. A build decides it from its `apis`.
  */
-export const use: ((ir: import('../ir.js').IR) => void) | undefined = undefined;
+export const APIS = true;
+/** `<template data-sn-text>`: text runs (their writer) */
+export const TEXTRUN = true;
+/** `data-sn-show` (its writer) */
+export const SHOW = true;
+/** `data-sn-class` with a value for its class, not an object of named classes (its writer) */
+export const CLASSX = true;
+/** `data-sn-attr`, `data-sn-href` and the other attribute bindings (their writer, with the URL attributes' scheme check) */
+export const ATTR = true;
+/** a resource with a `key`: keyed collections in the store (`src/runtime/store.ts`) */
+export const KEYED = true;
+/** a resource with an `order`: the store's sorting, by locale for strings */
+export const ORDER = true;
+/** `openDialog()` or `closeDialog()` in a handler (the compiled handlers name it: `$.$f.openDialog`) */
+export const FN_DIALOG = true;
+/** `upsert()`, `merge()` or `remove()` in a handler or an optimistic change */
+export const FN_ITEMS = true;
+/** `refresh()` in a handler */
+export const FN_REFRESH = true;
+/** `page()` in a handler */
+export const FN_PAGE = true;
+/** `emit()` in a handler */
+export const FN_EMIT = true;
+/** `run()` in a handler */
+export const FN_RUN = true;
+/**
+ * a paginated resource without `model` (keyset, append, or numbered with its page in memory): the pager's moves by
+ * direction and cursor (src/paginate.ts). Off, the pager only follows a `model` page in the URL.
+ */
+export const MOVES = true;
+/**
+ * Called with each page's IR and expression functions as it mounts; nothing here, nor in a build. The test suite's flags
+ * (test/core-flags.ts) turn on the parts the mounted pages use and no others, so every test runs on the smallest core for
+ * its pages.
+ */
+export const use: ((ir: import('../ir.js').IR, fns: unknown[]) => void) | undefined = undefined;
