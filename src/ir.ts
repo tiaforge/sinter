@@ -1,6 +1,6 @@
 // IR v2: the only contract between compiler and runtime. Plain JSON; every
 // expression is an index into the page module's function table.
-import { fixedPaths, numberPaths, type Entry } from './paths.js';
+import { fixedPaths, numberPaths, pruneWrites, type Entry } from './paths.js';
 
 export const IR_VERSION = 2;
 
@@ -571,7 +571,10 @@ const noUrl = ({ url: _, ...rest }: ActionDef) => rest;
 const noId = ({ id: _, ...rest }: TemplateDef) => rest;
 
 export function compactIR(full: IR): IR {
-  const ir = structuredClone(full), ps = numberPaths(ir);
+  const ir = structuredClone(full);
+  // (before the paths are numbered: a path only the writes left out named gets no node)
+  pruneWrites(ir);
+  const ps = numberPaths(ir);
   const { syncs, ...rest } = ir;
   // what the mount listens for: decided here, so it walks no bindings for it
   const nodes = [...ir.roots, ...ir.templates.flatMap((t) => t.nodes)];

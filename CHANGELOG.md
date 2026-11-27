@@ -75,6 +75,11 @@ How to write an entry (from 0.21.0 on; older sections keep their own form):
   (gzip; 2.4 kB minified): its build now leaves the list and branch code out of the runtime, as it was meant to.
   A page with one resource and one text binding goes from 11.2 kB to 10.2 kB. Nothing to do; sites that use lists
   or branches are unchanged.
+- A page with handlers whose writes the build cannot follow (a helper or a component script that changes an object
+  it was handed, a write through a variable that may hold any of the page's objects) ships a smaller page module and
+  does less on each click: such a handler listed every path it might change, and now only those no other entry of its
+  list already covers. On an app page with many state scopes the page module is 17% smaller (6% gzip) and a click
+  marks half as many paths; what renders is the same. Nothing to do.
 
 ## 0.22.1 (2026-11-24)
 
