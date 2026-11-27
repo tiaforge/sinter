@@ -1,6 +1,6 @@
 // Lighthouse on every RealWorld implementation under the same conditions (world.mjs): the same local API, the same
 // recorded third-party files, the same static server; each audit in a new Chrome with an empty profile.
-//   CHROME=/path/to/chrome node run.mjs [--work dir] [--runs 5] [--delay 150] [--record] [--only a,b] [--out dir]
+//   CHROME=/path/to/chrome node run.mjs [--work dir] [--runs 5] [--delay 150] [--record] [--only a,b] [--out dir] [--sinter label=dir,...]
 // --record: first one load per app and form factor that fetches missing third-party files once (setup's first run
 //   needs it); without it a file that was not recorded is a 404, and the run says so.
 // Runs are interleaved (run i of every app, then run i+1), so a slow minute on the machine hits every app alike.
@@ -19,7 +19,7 @@ import { world } from './world.mjs';
 
 const { values: opt } = parseArgs({ options: {
   work: { type: 'string', default: join(import.meta.dirname, 'work') }, runs: { type: 'string', default: '5' }, delay: { type: 'string', default: '150' },
-  record: { type: 'boolean' }, only: { type: 'string' }, out: { type: 'string' },
+  record: { type: 'boolean' }, only: { type: 'string' }, out: { type: 'string' }, sinter: { type: 'string' },
 } });
 const work = resolve(opt.work), runs = Number(opt.runs), delay = Number(opt.delay);
 const out = resolve(opt.out ?? join(work, `results-${new Date().toISOString().slice(0, 16).replace(/:/g, '')}`));
@@ -30,6 +30,8 @@ const chromeVersion = (() => { try { return execFileSync(CHROME ?? chromeLaunche
 
 const w = await world({ dir: work, delay, record: !!opt.record });
 const APPS = apps(work, w);
+// --sinter label=dir,...: other sinter builds audited beside the checkout's, served the same way (e.g. one without its options)
+for (const s of opt.sinter?.split(',') ?? []) { const [label, dist] = s.split('='); APPS[label] = apps(work, w, resolve(dist)).sinter; }
 const names = opt.only ? opt.only.split(',') : Object.keys(APPS);
 const serverSide = new Set(IMPLEMENTATIONS.filter((i) => i.server).map((i) => i.name));
 

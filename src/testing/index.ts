@@ -32,6 +32,8 @@ import back from '../back.js';
 import refresh from '../refresh.js';
 import versions from '../versions.js';
 import dev, { warningSink, type RuntimeWarning } from '../dev.js';
+import type { EventSenders } from '../event-senders.js';
+export { eventSenders, type EventSenders } from '../event-senders.js';
 export type { RuntimeWarning } from '../dev.js';
 import optimistic from '../optimistic.js';
 import paginate from '../paginate.js';
@@ -227,6 +229,12 @@ export function mockStream(): MockStream {
 // ---- render
 
 export interface RenderOptions {
+  /**
+   * What the events the page's code can make carry (`eventSenders(files, root)` of this module over the test's modules,
+   * or a summary the test states): with it a handler's `$event` is followed, as in a build; without it, as in
+   * `compile()`, no event's is (docs/spec.md, Aliases)
+   */
+  events?: EventSenders;
   requests?: MockRequests;
   streams?: Record<string, MockStream>;
   /** page URL, for `$url` (default `http://localhost/`) */
@@ -584,7 +592,10 @@ function compilePage(html: string, options: RenderOptions, strict: Strict = { on
   // (not for a single-file component: its `<script>` is its script, and `scripts` gives the class that stands for it)
   for (const name of Object.keys(options.scripts ?? {})) {
     if (inlineScripts(files[`${base(name)}.html`] ?? '').length) continue;
-    files[`${base(name)}.ts`] ??= 'export default class {}';
+    // (the stand-in is the class's own code: the build reads a script for what it keeps in its state, docs/spec.md, Aliases)
+    const given = options.scripts![name];
+    const classes = typeof given === 'function' ? [given] : Object.values((given ?? {}) as Record<string, unknown>).filter((v) => typeof v === 'function');
+    files[`${base(name)}.ts`] ??= classes.length ? classes.map((c, i) => `export ${i ? '' : 'default '}${(c as () => void).toString()}`).join('\n') : 'export default class {}';
   }
   for (const name of Object.keys(options.earlyRenderers ?? {})) files[`${base(name)}.early.ts`] ??= 'export default () => {};';
   const proj = options.project;
@@ -599,6 +610,7 @@ function compilePage(html: string, options: RenderOptions, strict: Strict = { on
       contentNs: { m: { entries: messageEntries(options), format: '@tiaforge-ui/sinter/messages/format', formatFn: formatMessage as never, inlineFn: inlineMessage, module: '@tiaforge-ui/sinter/messages' } },
     } : {}),
     file: proj?.file ?? PAGE, root: proj?.root ?? '/test', dev: options.dev ?? true, helpers: manifest,
+    ...(options.events ? { eventSenders: () => options.events! } : {}),
     ...(proj?.lazyModule ? { lazyModule: proj.lazyModule } : {}), actions: actionManifest, moduleSrc: 'about:blank', componentNames: proj?.componentNames ?? Object.keys(options.components ?? {}), ...(proj?.libraries?.length ? { libraries: proj.libraries } : {}),
     // lazy packages: any name, loaded by nothing (a test calls the app's functions, which import what they need)
     lazy: true,
@@ -821,7 +833,7 @@ export async function render(html: string, options: RenderOptions = {}): Promise
   // a page that fails to mount leaves nothing behind: the next render starts afresh
   try { app = mount(doc, {
     // the IR as the page module carries it
-    ir: compactIR(parts.ir), fns, env,
+    ir: compactIR(parts.ir, { names: options.dev ?? true }), fns, env,
     // as in a build, where every page has the app's prefetch feature
     features: [...parts.features.map((f) => FEATURES[f]!), prefetch(ahead, ahead.some((p) => p.a) ? lists : undefined)],
     request: [...config.request, ...(requests ? [requests] : [])],

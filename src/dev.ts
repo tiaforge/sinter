@@ -1,7 +1,7 @@
 // Dev builds: warnings with readable messages, frozen resource items and the
 // "state changed outside sinter" detector. The compiler adds this module to
 // the page in dev mode only, so none of it ships to production.
-import type { App, Feature } from './runtime/app.js';
+import type { App, Dirty, Feature } from './runtime/app.js';
 import type { Binding } from './ir.js';
 import { config } from './runtime/config.js';
 import { inState } from './paths.js';
@@ -39,6 +39,7 @@ const MESSAGES: Record<number, string> = {
   31: 'anchor `<!--%-->` has no end comment `<!--/sn-->` after it: one was added. A minifier or CDN that strips HTML comments breaks lists and branches: turn comment stripping off for sinter pages',
   32: 'the early script requested `%`, and a request middleware changed the request (a header, its credentials): the response is not used, and the page sent it again. Add what the middleware adds in `sinter({ apis })` (`headers`, `credentials`, `token`) instead, or answer it from the middleware with `early="off"` on the resource',
   25: 'font % is preloaded (sinter({ fonts: { preload } })), but the page did not render with it in its first % frames: the preload competes with what the first paint needs, and when the font is slow it can hold the first paint. Preload a face the first view uses, or remove it',
+  36: 'a write changed `%`, which nothing it marked reaches (it marked %): what reads it shows the old value until something else renders it. A write sinter cannot see changed one of the page\'s objects (a custom element or a library that changes an object it was handed, a timer), or sinter\'s write analysis missed an alias: report it.%',
   22: "the page's Content-Security-Policy blocked an inline script (%): sinter's Speculation Rules are one, so the next page's HTML is not prefetched. If the policy comes from a response header, add 'inline-speculation-rules' to its script-src (a CSP in a <meta> gets their hash from the build), or set sinter({ prefetch: { html: { delivery: 'header' } } }). See docs/navigation.md",
 };
 
@@ -109,6 +110,51 @@ function deepFreeze<T>(v: T): T {
     for (const k of Object.keys(v)) deepFreeze((v as Record<string, unknown>)[k]);
   }
   return v;
+}
+
+/**
+ * The state as the dev module last saw it, per scope: each value by its path, and inside a plain object or array (not a
+ * frozen one: a resource's item never changes), what it held. A frozen value, a function, a DOM node, a `Date`, a
+ * `Map` is compared by identity. Bounded: a snapshot stops at `LIMIT` values.
+ */
+interface Snap { v: unknown; kids?: Map<string, Snap> }
+const LIMIT = 20000;
+const plain = (v: unknown): v is Record<string, unknown> => {
+  if (!v || typeof v != 'object' || Object.isFrozen(v)) return false;
+  const p = Object.getPrototypeOf(v);
+  return Array.isArray(v) || p === Object.prototype || p === null;
+};
+/** an own property's value, or its getter (read without calling it: reading is no part of a check) */
+const own = (o: object, k: string): unknown => { const d = Object.getOwnPropertyDescriptor(o, k); return d && ('value' in d ? d.value : d.get); };
+function snapshot(v: unknown, budget: { n: number }, up: Set<unknown> = new Set()): Snap {
+  if (--budget.n < 0 || !plain(v) || up.has(v)) return { v };
+  up.add(v);
+  const kids = new Map<string, Snap>();
+  for (const k of Object.keys(v)) kids.set(k, snapshot(own(v, k), budget, up));
+  up.delete(v);
+  return { v, kids };
+}
+/** the paths below `at` whose value changed since `s` (a value replaced, a key added or removed), not looked into further */
+function changes(s: Snap, now: unknown, at: string[], out: string[][]) {
+  if (!Object.is(s.v, now)) { out.push(at); return; }
+  if (!s.kids || !plain(now)) return;
+  for (const [k, c] of s.kids) if (!Object.prototype.hasOwnProperty.call(now, k)) out.push([...at, k]); else changes(c, own(now, k), [...at, k], out);
+  for (const k of Object.keys(now)) if (!s.kids.has(k)) out.push([...at, k]);
+}
+/**
+ * Whether written path `w` (its segments, the `{name}` ones filled as the writer's scope had them) reaches the changed
+ * path `p`: `p` is `w` or below it, where `*`, `#`, `~` and an unfilled `{name}` stand for any segment and `**` for any
+ * rest, as the runtime's reach does (paths.ts `staticReach`: a write reaches what reads below it).
+ */
+export function covers(w: string[], p: string[]): boolean {
+  for (let i = 0; i < w.length; i++) {
+    const s = w[i]!;
+    if (s == '**') return true;
+    if (i >= p.length) return false;
+    if (s == '*' || s == '#' || s == '~' || (s[0] == '{' && s.endsWith('}')) || s == p[i]) continue;
+    return false;
+  }
+  return true;
 }
 
 /** Where function `f` was written, when one place in the IR uses it (a resource's or a stream event's `then`). */
@@ -213,6 +259,47 @@ const dev: Feature = {
       if (/^http\/1\./i.test(protocolOf(url, app.env.href()) ?? '')) app.warn(18, url);
     };
 
+    // each concrete path a write changed is reached by a path it marked (warning 36). The state is looked at whenever
+    // a flush starts, and what changed since the last look is checked against what was marked since: every writer
+    // (handlers, models, actions' `then` and `catch`, resources' and streams' `then`, component scripts) marks first
+    const ps = app.ir.ps, names = ps?.n;
+    if (ps && names) {
+      const segs = (d: Dirty): string[] => {
+        const out: string[] = [];
+        for (let n = d.w; n >= 0; n = ps.p[n]!) out.unshift(names[n]!);
+        let slot = 0;
+        return out.map((s) => (s[0] == '{' && s.endsWith('}') ? d.v[slot++] ?? s : s));
+      };
+      const ran: string[] = [];
+      const exec = app.exec;
+      app.exec = (f, s, writes, o) => {
+        const b = o as (Binding & { at?: Record<number, string> }) | undefined;
+        const at = b?.at?.[f] ?? (b?.k == 'on' && b.x != null ? app.ir.actions[b.x]?.at?.[f] : undefined) ?? onlyAt(app, f);
+        if (at && ran.length < 8 && !ran.includes(at)) ran.push(at);
+        return exec(f, s, writes, o);
+      };
+      let snaps: Map<number, Snap> | null = null;
+      const look = () => { const budget = { n: LIMIT }; snaps = new Map(app.states.map(([sid, obj]) => [sid, snapshot(obj, budget)])); };
+      app.beforeFlush.push((dirty) => {
+        if (snaps) for (const [sid, obj] of app.states) {
+          const s = snaps.get(sid);
+          if (!s) continue;
+          const out: string[][] = [];
+          changes(s, obj, [`$s${sid}`], out);
+          if (!out.length) continue;
+          const marked = dirty.filter((d) => d.w >= 0).map(segs);
+          // a scope none of the marks is in: warning 15 says it
+          if (!dirty.some((p) => inState(ps, p, sid))) continue;
+          for (const p of out) if (!marked.some((w) => covers(w, p))) {
+            const mine = marked.filter((w) => w[0] == `$s${sid}`).map((w) => w.join('.'));
+            app.warn(36, p.join('.').replace(/^\$s\d+\./, ''), mine.length ? mine.slice(0, 6).map((x) => `\`${x.replace(/^\$s\d+\./, '')}\``).join(', ') + (mine.length > 6 ? `, and ${mine.length - 6} more` : '') : 'nothing of it', ran.length ? ` What ran: ${ran.join(', ')}` : ' No handler ran.');
+          }
+        }
+        ran.length = 0;
+        look();
+      });
+      app.afterFlush.push(() => { if (!snaps) look(); });
+    }
     const json = (o: unknown) => { try { return JSON.stringify(o); } catch { return ''; } };
     let last: string[] = [];
     app.beforeFlush.push((dirty) => app.states.forEach(([sid, obj], i) => {

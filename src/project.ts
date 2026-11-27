@@ -9,6 +9,7 @@ import { strictOf, type Strict } from './compiler/diagnostics.js';
 import type { OpenApiSpec } from './compiler/openapi.js';
 import { defaultApiRenamed, resolveApis, type ApiOptions, type ApisDef } from './compiler/apis.js';
 import { COMPLEXITY_LIMITS, type ComplexityOptions } from './compiler/complexity.js';
+import { eventSenders } from './event-senders.js';
 import { writeComponentTypes } from './components-build.js';
 import { componentHtml, findComponents } from './component-files.js';
 import { inlineScripts } from './compiler/components.js';
@@ -150,6 +151,8 @@ export interface Project {
   complexity: ComplexityOptions;
   /** `explainWrites` */
   explainWrites: boolean;
+  /** the app's modules every page loads (its helpers, actions, config and early modules), where the build reads what events they send */
+  modules: string[];
   /** `expansionLimit`, checked, or undefined for the default */
   expansionLimit: number | undefined;
   /** `static`: the pages that must ship no JavaScript (SN322) */
@@ -314,6 +317,7 @@ export function project(root: string, options: ProjectOptions = {}): Project {
     changesRequests: configRel ? changesRequests(configSource(configRel, readFile(resolve(root, configRel)))) : false,
     configuresLocale: [configRel, earlyRel].some((rel) => !!rel && configuresLocale(resolve(root, rel), root, readFile)),
     early: earlyRel ? url(earlyRel) : null,
+    modules: [helpersFile, actionsFile, configRel && resolve(root, configRel), earlyRel && resolve(root, earlyRel)].filter((f): f is string => !!f),
     types: typesRel ? resolve(root, typesRel) : null,
   };
 }
@@ -337,6 +341,8 @@ export function compileOptionsOf(p: Project, file?: string) {
     root: p.root, helpers: p.helpers, actions: p.actions, config: p.config, readFile: p.readFile, listFiles: p.listFiles,
     openapi: p.openapi, apis: p.apis, complexity: p.complexity, ...(p.expansionLimit ? { expansionLimit: p.expansionLimit } : {}), ...(p.explainWrites ? { explainWrites: true } : {}),
     componentNames: p.componentNames, libraries: p.libraries, lazy: p.lazy,
+    // what the events of a page's modules carry (src/event-senders.ts): the app's, its components' and its own scripts
+    eventSenders: (entries: string[], inline: Array<{ name: string; text: string }>) => eventSenders([...p.modules, ...entries], p.root, inline),
     ...(p.lazy.length ? { lazyModule: lazyReachOf(p).reach } : {}),
     ...(file !== undefined && p.isStatic(file) ? { static: true, prerender: true } : {}),
     ...(file !== undefined && p.swap ? { swap: true } : {}),

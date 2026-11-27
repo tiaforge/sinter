@@ -2,13 +2,14 @@
 // opening the first article. Every file is gzipped here at level 9, so different CDN
 // compression does not skew the comparison. Fonts, images and API calls are not counted.
 //   CHROME=… node weight.mjs <name>=<url> ...
+// CHROME_ARGS: a JSON array of Chrome flags, e.g. the fair harness's (fair/weight.mjs passes its local world's).
 import { createRequire } from 'node:module';
 import { gzipSync } from 'node:zlib';
 
 const require = createRequire(process.env.PLAYWRIGHT_FROM ?? import.meta.url);
 const { chromium } = require('@playwright/test');
 
-const browser = await chromium.launch({ executablePath: process.env.CHROME });
+const browser = await chromium.launch({ executablePath: process.env.CHROME, args: JSON.parse(process.env.CHROME_ARGS ?? '[]') });
 const rows = [];
 for (const arg of process.argv.slice(2)) {
   const [name, url] = arg.split(/=(.*)/);

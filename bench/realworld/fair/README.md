@@ -40,12 +40,34 @@ npm run build --prefix ../../examples/realworld  # sinter's build (needs the rep
 node fair/setup.mjs                              # clones and builds the others into fair/work/ (bun, pnpm, npm)
 CHROME=/path/to/chrome node fair/check.mjs --record   # records the third-party files, checks every page
 CHROME=/path/to/chrome node fair/run.mjs --runs 5     # the tables: fair/work/results-<time>/results.md
+CHROME=/path/to/chrome node fair/weight.mjs           # what the browser downloads (../weight.mjs), served the same way
 ```
+
+`--only a,b` picks implementations by name; `--sinter label=dir` (run.mjs and weight.mjs) adds another sinter build,
+served like the checkout's, e.g. one built from a copy of `examples/realworld` with other options. `weight.mjs` needs
+Playwright (`PLAYWRIGHT_FROM=<a file whose node_modules have @playwright/test>`).
 
 `work/versions.json` lists every commit, the theme's sha256 and the tool versions the builds used;
 `results.json` every audit's scores with the Chrome and Lighthouse versions and the fixtures' checksum.
 Scores still vary from run to run (Lighthouse simulates the network from what it observed, and the CPU is the
 machine's): compare runs from the same machine and session, and report the range.
+
+## Results (2026-11-27)
+
+The implementations that pass the e2e suite and that this harness serves: sinter, Angular, Vue 3 (official). Backtick
+was not in this run (Solid from a CDN, below). Chrome for Testing 158.0.8127.36, Lighthouse 13.6.0, API delay 150 ms,
+one cloud VM (load 0.51 before, 0.76 after); median of 5 interleaved runs (range of the 5); fixtures
+`77001a24496a0567`. sinter at 46426e1. No failed request.
+
+| implementation | mobile | FCP | LCP | TBT | CLS | desktop | CLS |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| **sinter** | **100** (100–100) | 901 ms | **901 ms** | 8 ms | 0.000 | **100** (100–100) | 0 |
+| Angular | 85 (84–89) | 1.51 s | 2.98 s | 213 ms | 0.138 | 76 (76–76) | 0.767 |
+| Vue 3 (official) | 77 (66–80) | 1.76 s | 3.95 s | 2 ms | 0.198 | 76 (76–76) | 0.793 |
+
+In the same run, sinter built from a copy of `examples/realworld` with `swap`, `prefetch` and `firstPaint` off
+(`--sinter`): mobile 98 (84–100), LCP 1.71 s, CLS 0.088; desktop 100. `weight.mjs` the same session (gzip KB, JS home /
+home + article): sinter 35.2 / 67.5, the copy without options 26.2 / 54.7, Angular 98.4 / 123.1, Vue 3 (official) 48.7 / 72.3.
 
 ## Results (2026-11-22)
 

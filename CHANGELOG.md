@@ -35,10 +35,15 @@ How to write an entry (from 0.21.0 on; older sections keep their own form):
   (`contact in contacts`, `(contact, i) in contacts`) and the syntax as snippets; after the item, `in` and
   `in contacts`; after `in`, the lists before the other names ([docs/editors.md](docs/editors.md)).
 - `sinter({ explainWrites: true })` turns on warning `SN548`: at each alias whose value the compiler cannot follow
-  (`compose = $event.detail`, `sel = last` with `last` a `data-sn-let`), what it holds and the handlers it reaches, whose
+  (`compose = $event.detail`, `sel = items.reduce(…)`), what it holds and the handlers it reaches, whose
   writes therefore mark every state scope and resource and re-render everything that reads state. Off by default, and
   a warning in strict mode too; nothing changes in what is marked
   ([docs/diagnostics.md](docs/diagnostics.md#sn548-untraceable-writes)).
+- Dev builds check that every write marked what it changed: when part of the state changed and no path marked since
+  reaches it (a custom element or a library changed an object of the page it was handed, or sinter missed an alias),
+  runtime warning 36 names the path, what was marked and the handlers that ran, where before the page showed the old
+  value until something else rendered it. In strict mode it fails the page, as other runtime warnings do. Production
+  builds are unchanged ([docs/spec.md](docs/spec.md)).
 
 ### Changed
 
@@ -117,6 +122,39 @@ How to write an entry (from 0.21.0 on; older sections keep their own form):
   (CPU slowed 4x) the main thread spends 82 ms instead of 116 ms compiling before the page settles, and on its calendar
   30 ms instead of 60 ms. Nothing to do; builds without the option are unchanged
   ([docs/configuration.md](docs/configuration.md#checks)).
+- A write through a variable that holds an object taken from a `data-sn-let`, from a `data-sn-for` item over a list
+  that is no state path (`x in visible(items)`, a resource), or from a callback's parameter over one
+  (`visible(items).map((x) => x.part)`) now marks the paths that object may be, instead of every state scope and
+  resource, so the handler re-renders only what reads them. On an app's contacts page, 3 of its 33 handlers still mark everything, down from 22. Nothing to do; `sinter({ explainWrites: true })`
+  (`SN548`) lists what still makes a page's handlers mark everything.
+- A handler of a DOM event that hands `$event` to a helper (`sel = rowClick($event, sel)`,
+  `week = addDays(week, step($event))`) no longer makes the result an object the build cannot follow: the browser's
+  event holds none of the page's objects, so writes through the result mark what its other arguments may be, not
+  every state scope and resource. An event of a DOM event's name that the page sends itself (a component that
+  declares `select` in `data-sn-emits`, an `emit('click', item)`) keeps its detail untraceable, as before.
+- A write through state that holds a resource's item, or a helper's result made from a resource (`sel = rowClick(…,
+  messages)`, then `sel.cursor = key`), no longer marks the resource and everything that reads it: resource data is
+  read-only (`SN205`; dev builds freeze it, so a write into it throws there), and only `merge()`, `upsert()` and
+  `remove()` change it. Likewise a write through an alias the build cannot follow marks every state scope but no
+  longer every resource. If a page wrote into a resource's item through such a variable, it now must copy the item
+  first (`sel = structuredClone(row)`), as SN205 already asks of a direct write. On an app's mail page the page module is 8% smaller (1.6% gzip).
+- A handler that keeps an event's detail (`compose = $event.detail`, `sel = $event.detail` of a component's `pick`)
+  now aliases what the page's `emit()`s of that event pass, instead of any object of the page, so writes through it
+  mark only that. The build reads every module the page loads, through every import, for the events they make, and
+  follows an event only when every event of its name is made with a literal name and no detail or a primitive one; else it
+  stays untraceable (`sinter({ explainWrites: true })`, `SN548`, says why). The same check now decides what the entry
+  on a DOM event's `$event` above assumed. `compile()` without `eventSenders` and the testing module's
+  `render()` without `events` read no modules: there every `$event` is untraceable ([docs/spec.md](docs/spec.md)).
+- A component with a script no longer makes every handler that writes inside an object mark every state scope, when
+  its script provably keeps none of the page's objects in its state: the build reads the script, and each write to
+  `this.state` must be a primitive or a fresh value (a literal, a comparison, `structuredClone(…)`) and `this.state`
+  read only for primitives. An event a script emits is followed by the same rule (`this.emit('media', media)` with
+  `const media = w < 640 ? 'narrow' : 'wide'`). Otherwise nothing changes; `SN548` names the statement
+  ([docs/spec.md](docs/spec.md)).
+- `SN548` (`sinter({ explainWrites: true })`) says what stopped the build from following an alias: the statement of
+  a component script and its place, the module that makes an event with a detail it cannot follow, or what an
+  `emit()` passes, so the author knows which line to change
+  ([docs/diagnostics.md](docs/diagnostics.md#sn548-untraceable-writes)).
 
 ## 0.22.1 (2026-11-24)
 

@@ -1,6 +1,12 @@
 // The compiler: one pure, deterministic function from annotated HTML to a
 // rewritten page plus its IR and function table.
 import type { SourceMap } from './sourcemap.js';
+import type { EventSenders } from '../event-senders.js';
+import { freshState } from '../script-values.js';
+import { parseModule } from './index.js';
+import { lineCol } from '../line-col.js';
+/** `freshState` of a component script, by its file and text */
+const SCRIPT_STATE = new Map<string, string | null>();
 import { rewriteImages, sourceFile, type ImageHost, type ImageResult } from './images.js';
 import { boxSizesCss, type ReserveTrace, Layout, PLACEHOLDER_BASE, type Affine, type Reserved, type StyleSheet } from './layout.js';
 import { shows } from './status-eval.js';
@@ -16,7 +22,7 @@ import * as parse5 from 'parse5';
 import { freeRefs, parseExpression, parseProgram } from './parse.js';
 import type { DefaultTreeAdapterMap } from 'parse5';
 import { type Code, type Diagnostic, didYouMean, distance, severityOf, suggest } from './diagnostics.js';
-import { type AliasSite, analyze, applyEdits, foldsInto, nsLocal, refNames, STORE_FNS, throughField, wild, type SlotScope, type ComponentScope, type ExprOptions, type ExprResult, type LetEntry, type LoopEntry, type PageInfo, type Read, type ResourceInfo, type Scope } from './expr.js';
+import { type AliasSite, analyze, applyEdits, elementPieces, foldsInto, nsLocal, refNames, STORE_FNS, throughField, wild, type SlotScope, type ComponentScope, type ExprOptions, type ExprResult, type LetEntry, type LoopEntry, type PageInfo, type Read, type ResourceInfo, type Scope } from './expr.js';
 import { callerAttribute, COMPONENT_NAME, componentPaths, DOM_EVENTS, inlineScriptLang, inlineScriptPath, inlineScripts, type InlineScript, isArrayType, LIBRARY_LAYER, rootCss, scopeCss, SLOT_TYPE, typeMembers, withoutSlots, type Member } from './components.js';
 import type { Node } from 'acorn';
 import type * as acorn from 'acorn';
@@ -296,6 +302,12 @@ export interface CompileOptions {
   expansionLimit?: number;
   /** `sinter({ explainWrites })`: SN548 names each alias that makes handlers' writes impossible to follow */
   explainWrites?: boolean;
+  /**
+   * What the events the page's modules can send carry (src/event-senders.ts): the app's modules (the project's entries)
+   * and these, through every import. Without it, no event's `$event` is followed: a DOM event's may be any object, and so
+   * may an event's detail (`compile()` and `render()` read no modules; the Vite plugin and `sinter check` pass it).
+   */
+  eventSenders?: (entries: string[], inline: Array<{ name: string; text: string }>) => EventSenders;
   /** internal, set by `compileParts` for its second pass: the trees the first found over the limit (`SN536` again, there) */
   overLimit?: Map<string, number>;
   /**
@@ -2519,7 +2531,7 @@ class Compiler {
     this.page = {
       resources: new Map(), helpers: new Set(opts.helpers.names), namespaces: ns,
       actions: new Set([...(opts.actions?.names ?? []), ...Object.keys(opts.actions?.namespaces ?? {})]),
-      usedHelpers: new Set(), usedNs: new Map(), usesNow: false, pathParams: new Set(), dialogs: new Set(), popovers: new Set(), fed: new Set(), ids: new Map(),
+      usedHelpers: new Set(), usedNs: new Map(), usesNow: false, pathParams: new Set(), dialogs: new Set(), popovers: new Set(), fed: new Set(), ids: new Map(), emitted: new Set(),
       ...(opts.apis?.list.some((a) => a.token) ? { tokens: true } : {}),
     };
     const l = opts.locale;
@@ -2696,7 +2708,7 @@ class Compiler {
     this.finishChoices();
     this.resolveSources();
     this.fileUses();
-    this.applyAliases();
+    this.applyAliases(doc);
     this.markScoped();
 
     for (const [name, id] of this.embedded) {
@@ -5355,7 +5367,7 @@ class Compiler {
         if (members.has(e.key)) continue;
         const v = entryValue(r, e);
         const q = v ? analyze(src.slice(v.start, v.end), scope, this.page, { mode: 'value', report: () => {} }) : null;
-        members.set(e.key, { name: `$slot.${e.key}`, code: q?.ok ? q.inner : 'undefined', deps: q?.deps ?? [], usesEl: q?.usesEl ?? false, usesIndex: q?.usesIndex ?? false, resource: q?.resource ?? null, src: q?.itemOf ?? null, list: q?.listOf ?? null });
+        members.set(e.key, { name: `$slot.${e.key}`, code: q?.ok ? q.inner : 'undefined', deps: q?.deps ?? [], usesEl: q?.usesEl ?? false, usesIndex: q?.usesIndex ?? false, resource: q?.resource ?? null, src: q?.itemOf ?? null, list: q?.listOf ?? null, ...(q?.pieces ? { pieces: q.pieces } : {}) });
       }
       for (const m of known ?? []) if (!m.optional && !members.has(m.name)) this.report(el, 'data-sn-with', 'SN313', `the placement of \`${p.name}\` passes no \`${m.name}\`, which \`Slot<${T}>\` needs`, 0);
     }
@@ -5464,7 +5476,7 @@ class Compiler {
         const q = v ? analyze(src.slice(v.start, v.end), caller, this.page, { mode: 'value', waits: true, report: () => {} }) : null;
         // a prop is a let: inlined, or waiting for a lazy helper module
         const waiting = q?.ok ? this.lazyLet(q.inner, q.deps) : null;
-        lets.push({ name: e.key, code: waiting?.code ?? (q?.ok ? q.inner : 'undefined'), deps: waiting?.deps ?? q?.deps ?? [], usesEl: q?.usesEl ?? false, usesIndex: q?.usesIndex ?? false, resource: q?.resource ?? null, prop: true, src: q?.itemOf ?? null, list: q?.listOf ?? null });
+        lets.push({ name: e.key, code: waiting?.code ?? (q?.ok ? q.inner : 'undefined'), deps: waiting?.deps ?? q?.deps ?? [], usesEl: q?.usesEl ?? false, usesIndex: q?.usesIndex ?? false, resource: q?.resource ?? null, prop: true, src: q?.itemOf ?? null, list: q?.listOf ?? null, ...(q?.pieces ? { pieces: q.pieces } : {}) });
       }
     }
     // `data-sn-model`: the `value` prop (and the `change` handler, with the other bindings)
@@ -5673,7 +5685,7 @@ class Compiler {
       if (members.has(e.key)) continue;
       const v = entryValue(r, e);
       const q = v ? analyze(src.slice(v.start, v.end), ctx.scope, this.page, { mode: 'value', report: () => {} }) : null;
-      members.set(e.key, { name: `$slot.${e.key}`, code: q?.ok ? q.inner : 'undefined', deps: q?.deps ?? [], usesEl: false, usesIndex: false, resource: q?.resource ?? null, src: q?.itemOf ?? null, list: q?.listOf ?? null });
+      members.set(e.key, { name: `$slot.${e.key}`, code: q?.ok ? q.inner : 'undefined', deps: q?.deps ?? [], usesEl: false, usesIndex: false, resource: q?.resource ?? null, src: q?.itemOf ?? null, list: q?.listOf ?? null, ...(q?.pieces ? { pieces: q.pieces } : {}) });
     }
     const data = `{ ${[...members].map(([key, l]) => `${JSON.stringify(key)}: (${l.code})`).join(', ')} }`;
     // case 0: the default, the component's markup
@@ -6948,7 +6960,9 @@ class Compiler {
       // selectOption() dispatches them). A handler higher up hears both: there `input` replaces.
       const choice = (event === 'input' || event === 'change') && (el.tagName === 'select' || (el.tagName === 'input' && /^(checkbox|radio)$/i.test(attr(el, 'type') ?? '')));
       // sinter's own events (`sn-error`) carry a detail it made: none of the page's objects
-      const r = this.expr(el, a.name, scope, { mode: 'handler', magic: ['$event'], ...(choice ? { urlKind: 4 } : {}), ...(SINTER_EVENTS.includes(event) ? { freshDetail: true } : {}) });
+      // a DOM event's `$event` is the browser's (unless the page emits one of that name: `applyAliases`)
+      const base = kf ? kf[1]! : event;
+      const r = this.expr(el, a.name, scope, { mode: 'handler', magic: ['$event'], ...(choice ? { urlKind: 4 } : {}), ...(SINTER_EVENTS.includes(event) ? { freshDetail: true } : {}), ...(DOM_EVENTS.has(base) ? { domEvent: base } : SINTER_EVENTS.includes(event) ? {} : { eventName: base }) });
       const ms = duration(get(`debounce-${event}`) ?? '', 'ms') ?? 0;
       if (ms > 0) this.features.add('debounce');
       if (r.ok) node.b.push(this.binding({ k: 'on', n: kf ? kf[1]! : event, f: this.fn(r.code), w: r.writes, ...filter, ...(ms > 0 ? { ms } : {}) }));
@@ -7220,8 +7234,11 @@ class Compiler {
     }
     const a0 = this.page.aliases?.length ?? 0;
     const r = analyze(src, scope, this.page, { ...o, report: this.reporter(el, attrName, shift) });
-    if (this.opts.explainWrites) this.aliasSites(a0, el, attrName, src, shift);
+    if (this.opts.explainWrites || r.emitPieces) this.aliasSites(a0, el, attrName, src, shift);
     for (const a of r.assigns ?? []) this.addSources(`@${a.path}`, a.src);
+    for (const e of r.emits ?? []) this.page.emitted.add(e);
+    // what an `emit()` passes is the detail its event's handlers read (`@evn:<event>`), wherever on the page they are
+    for (const e of r.emitPieces ?? []) for (const p of e.pieces) (this.page.aliases ??= []).push({ t: wild([`@evn:${e.event}`, ...p.sub]), s: p.src && wild(p.src), ...(!p.src && p.why ? { why: p.why } : {}) });
     if (scope.component?.id !== undefined) for (const e of r.emitted ?? []) this.addSources(`@ev:${scope.component.id}:${e.event}`, e.src);
     for (const c of r.srcRefs ?? []) this.srcCalls.push({ el, attr: attrName, shift, ...c });
     this.at = { el, attr: attrName, shift };
@@ -7418,7 +7435,7 @@ class Compiler {
       const v = p.value as import('acorn').Expression & { start: number; end: number };
       const r = this.expr(el, 'data-sn-let', scope, { mode: 'value', waits: true }, src.slice(v.start, v.end), v.start);
       const waiting = r.ok ? this.lazyLet(r.inner, r.deps) : null;
-      const entry: LetEntry = { name, code: waiting?.code ?? r.inner, deps: waiting?.deps ?? r.deps, usesEl: r.usesEl, usesIndex: r.usesIndex, resource: r.resource, src: r.itemOf ?? null, list: r.listOf ?? null, text: src.slice(v.start, v.end) };
+      const entry: LetEntry = { name, code: waiting?.code ?? r.inner, deps: waiting?.deps ?? r.deps, usesEl: r.usesEl, usesIndex: r.usesIndex, resource: r.resource, src: r.itemOf ?? null, list: r.listOf ?? null, text: src.slice(v.start, v.end), ...(r.pieces ? { pieces: r.pieces } : {}) };
       // the resources it can be, for store calls and `$meta[…]` that take it as one: its value as their names
       // (also when the value has an undeclared name: the use reports it as a resource, with the suggestion)
       {
@@ -8086,7 +8103,8 @@ class Compiler {
     // (only where a loop around it has the name: a row's functions stay the same across uses and pages)
     const taken = scope.component?.runtime, clash = (n: string) => taken === 'all' || !!taken?.has(n) || scope.loops.some((l) => (l.rt ?? l.name) === n);
     const rt = (n: string) => (scope.component && clash(n) ? { rt: `${n}$${tid}` } : {});
-    const loops: LoopEntry[] = [...scope.loops, { name: item, kind: 'item', alias, resource: list.resource, ...(list.resources ? { resources: list.resources } : {}), ...rt(item), src: list.listOf ?? null }];
+    // (an item of a list that is no state path: what an element of the list's value may hold)
+    const loops: LoopEntry[] = [...scope.loops, { name: item, kind: 'item', alias, resource: list.resource, ...(list.resources ? { resources: list.resources } : {}), ...rt(item), src: list.listOf ?? null, ...(!alias && list.pieces ? { pieces: elementPieces(list.pieces) } : {}) }];
     if (index) loops.push({ name: index, kind: 'index', alias: null, resource: null, of: alias, ...rt(index) });
     if (scope.component && clash(item)) t.item = `${item}$${tid}`;
     if (scope.component && index && clash(index)) t.index = `${index}$${tid}`;
@@ -12638,11 +12656,36 @@ class Compiler {
    * result, a let, an event's detail) marks every state scope and resource, and any change inside an object
    * marks everything under it. Before anything reads the writes (`writtenState`, folding, the IR).
    */
-  applyAliases() {
+  applyAliases(doc?: DefaultTreeAdapterMap['document']) {
     // a component's script assigns its state's fields anything, a prop's object included
+    // (unless the build reads it and finds it gives them only values that hold none of the page's objects: script-values.ts)
     for (const us of this.uses.values()) for (const u of us) if (u.sid !== undefined && this.componentFiles.get(u.name)?.script) {
-      (this.page.aliases ??= []).push({ t: [`$s${u.sid}`, '*'], s: null, why: `\`<${u.name}>\`'s script may give its state's fields any object` });
+      const why = this.scriptState(u.name);
+      if (!why) continue;
+      (this.page.aliases ??= []).push({ t: [`$s${u.sid}`, '*'], s: null, why: `\`<${u.name}>\`'s script may give its state's fields any object: ${why}` });
       (this.page.objectFields ??= new Set()).add(`$s${u.sid}.*`);
+    }
+    // what a handler's `$event` holds: a DOM event's (`@dom:<event>`), none of the page's objects; another event's detail
+    // (`@evn:<event>`), what the page's `emit()`s of it pass (aliases of `@evn:<event>`). Each only when the build read
+    // every event of that name the page's modules can make (src/event-senders.ts) and none carries a detail it cannot
+    // follow, and for a DOM event's name, when no `emit()` and no component of the page sends one too; else untraceable
+    if (this.page.aliases?.some((a) => /^@(dom|evn):/.test(a.s?.[0] ?? ''))) {
+      const senders = this.opts.eventSenders ? this.opts.eventSenders(...this.pageModules(doc)) : null;
+      const sent = new Set(this.page.emitted);
+      for (const us of this.uses.values()) for (const u of us) for (const m of u.emits ?? []) sent.add(m.name);
+      const blocked = (ev: string): string | null => (!senders ? 'the build did not read the page\'s modules (`compile()` without `eventSenders`)'
+        : senders.unknown ?? senders.risky.get(ev) ?? (sent.has('*') ? 'an `emit()` of the page names its event by a value' : null));
+      this.page.aliases = this.page.aliases.flatMap((a) => {
+        const m = /^@(dom|evn):(.*)$/.exec(a.s?.[0] ?? '');
+        if (!m) return [a];
+        const ev = m[2]!, why = blocked(ev);
+        if (why) return [{ ...a, s: null, why: `\`$event\` of \`${ev}\` may be any object: ${why}` }];
+        if (m[1] === 'evn') return [a];
+        // a DOM event's name the page sends too: its detail is what the page's `emit()`s of it pass, the browser's holds none
+        if (!sent.has(ev)) return [];
+        const props = a.s!.slice(1);
+        return [{ ...a, s: [`@evn:${ev}`, ...(props[0] === 'detail' ? props.slice(1) : ['**'])] }];
+      });
     }
     // a field only ever given primitives (its initializer and every assignment) holds none of the page's objects
     const objects = this.page.objectFields ?? new Set<string>();
@@ -12659,6 +12702,9 @@ class Compiler {
     const mutated = this.page.mutated ?? new Set<string>();
     const sids = [...new Set(this.stateInits.map((x) => x.sid))].sort((a, b) => a - b);
     const ALL = [...sids.map((x) => `$s${x}.**`), ...this.resources.map((r) => `$r.${r.name}.**`)];
+    // resource data is read-only (SN205; dev builds freeze it): a write through state never changes an object of a
+    // resource's, so what it may change through an alias is state only (store functions name the resource they change)
+    const STATE = ALL.filter((a) => a.startsWith('$s'));
     // a segment of `p` stands for one of `x`: equal, or either is any key or row; a list's structure (`#`) only for itself
     const seg = (a: string, b: string) => a === b || (a !== '#' && b !== '#' && (a === '*' || b === '*' || b[0] === '{' || b === '~' || a[0] === '{' || a === '~'));
     // `**`: anything below, at any depth
@@ -12675,16 +12721,18 @@ class Compiler {
         const whole = (mutated.has(w) && end !== '#') || end === '**', O = end === '#' || end === '**' ? W.slice(0, -1) : whole ? W : W.slice(0, -1);
         let via = -1;
         const add = (p: string[]) => { const k = p.join('.'); if (!out.has(k)) { out.add(k); queue.push([k, via]); } };
+        const fromState = W[0] !== '$r', every = fromState ? STATE : ALL;
         const changes = (t: string[], s: string[] | null) => {
+          if (fromState && s?.[0] === '$r') return;
           if (under(t, O)) {
-            if (!s) return void (causes ? causes.add(via) : ALL.forEach((a) => add([a])));
+            if (!s) return void (causes ? causes.add(via) : every.forEach((a) => add([a])));
             const out = t.includes('**') ? [...s, '**'] : [...s, ...W.slice(t.length)];
             // the object written is a marked row element (`~`, by identity): the rows that hold it, not all of them
             if (!t.includes('**') && O[t.length - 1] === '~' && out[s.length - 1] === '*') out[s.length - 1] = '~';
             add(deep(out));
           } else if (whole && O.length < t.length && under(O, t)) {
             // a change of everything inside an object that holds the alias (a list's order, `#`, changes no object in it)
-            if (s) add(deep([...s, '**'])); else if (causes) causes.add(via); else ALL.forEach((a) => add([a]));
+            if (s) add(deep([...s, '**'])); else if (causes) causes.add(via); else every.forEach((a) => add([a]));
           }
         };
         for (const [i, a] of list.entries()) {
@@ -12710,7 +12758,7 @@ class Compiler {
         extend(strs(ws), causes);
         for (const i of causes) { const l = blamed.get(i) ?? []; l.push(owner); blamed.set(i, l); }
       }
-      const next = extend(strs(ws));
+      const next = extend(strs(ws)).filter((p) => !p.startsWith('@evn:'));
       if (next.length !== ws.length) ws.splice(0, ws.length, ...next);
     };
     for (const n of [...this.roots, ...this.templates.flatMap((t) => t.nodes)]) for (const b of n.b) { if (blamed) owner = this.ownerOf(b); fix(b.w); }
@@ -12718,6 +12766,59 @@ class Compiler {
     for (const r of this.resources) { if (blamed) owner = `\`<sn-resource name="${r.name}">\``; fix(r.w); }
     for (const x of this.syncs) for (const e of x.events) { if (blamed) owner = `\`<sn-event name="${e.name}">\``; fix(e.w); }
     if (blamed) this.explainWrites(blamed, list);
+  }
+
+  /**
+   * The modules a page loads beyond the project's: the scripts of the components it uses (an inline one by its text) and
+   * its own `<script>`s; one from another origin, or an import map, is out of the build's sight (`unknown`, an entry the
+   * scan cannot find).
+   */
+  private pageModules(doc?: DefaultTreeAdapterMap['document']): [string[], Array<{ name: string; text: string }>] {
+    const files: string[] = [], inline: Array<{ name: string; text: string }> = [];
+    const file = (p: string) => (p.startsWith('/') && !p.startsWith(this.opts.root) ? this.opts.root + p : p);
+    for (const name of this.uses.keys()) {
+      const c = this.componentFiles.get(name);
+      if (!c?.script) continue;
+      // an inline one: the file's top-level scripts, by their text (each, whichever is the script)
+      if (/\.html\.script\.[jt]s$/.test(c.script)) for (const x of c.inline ?? []) inline.push({ name: c.file, text: x.code });
+      else files.push(file(c.script));
+    }
+    const visit = (n: P5Node) => {
+      if (isElement(n) && n.tagName === 'script') {
+        const type = attr(n, 'type') ?? '';
+        const src = attr(n, 'src');
+        if (type === 'importmap') files.push('importmap:');
+        else if (type === '' || type === 'module' || /javascript/.test(type)) {
+          if (src) files.push(/^[a-z]+:|^\/\//i.test(src) ? src : file(src.startsWith('/') ? src : resolvePath(dirname(this.opts.file), src)));
+          else inline.push({ name: `${this.opts.file}#script`, text: (n.childNodes as P5Node[]).map((x) => (x as { value?: string }).value ?? '').join('') });
+        }
+      }
+      for (const c of ((n as { childNodes?: P5Node[] }).childNodes ?? [])) visit(c);
+      const content = (n as { content?: P5Node }).content;
+      if (content) visit(content);
+    };
+    if (doc) visit(doc as unknown as P5Node);
+    return [files, inline];
+  }
+
+  /** Why the script of component `name` may keep one of the page's objects in its state (`freshState`), or null when it surely does not. */
+  private scriptState(name: string): string | null {
+    const c = this.componentFiles.get(name);
+    if (!c?.script) return null;
+    const inline = /\.html\.script\.[jt]s$/.test(c.script);
+    const file = inline ? c.file : c.script.startsWith('/') && !c.script.startsWith(this.opts.root) ? this.opts.root + c.script : c.script;
+    let texts: string[];
+    try { texts = inline ? (c.inline ?? []).map((x) => x.code) : [this.opts.readFile(file)]; } catch { return `the build could not read \`${c.script}\``; }
+    for (const text of texts) {
+      const key = `${file}\0${text}`;
+      let why = SCRIPT_STATE.get(key);
+      if (why === undefined) {
+        try { why = freshState(parseModule(text, inline ? `${file}.ts` : file) as never, (n) => { const { line, col } = lineCol(text, n.start); return `${this.relFile(file)}:${line}:${col}`; }); } catch (e) { why = `the build could not parse \`${c.script}\`: ${(e as Error).message}`; }
+        SCRIPT_STATE.set(key, why);
+      }
+      if (why) return why;
+    }
+    return null;
   }
 
   /** where a handler is, for SN548: its attribute, file and line */
@@ -12740,7 +12841,7 @@ class Compiler {
     const o = this.origins.get(el) ?? { file: this.opts.file, src: '', chain: [] };
     const { line, col } = el.sourceCodeLocation ? this.lineCol(o.src, this.valueOffset(el, attrName) + shift) : { line: 1, col: 1 };
     const at: AliasSite = { text: src.replace(/\s+/g, ' ').trim(), file: o.file, line, col };
-    for (let i = a0; i < list.length; i++) if (!list[i]!.s && !list[i]!.at) list[i]!.at = at;
+    for (let i = a0; i < list.length; i++) if ((!list[i]!.s || /^@(dom|evn):/.test(list[i]!.s![0]!) || list[i]!.t[0]!.startsWith('@evn:')) && !list[i]!.at) list[i]!.at = at;
   }
 
   /**
