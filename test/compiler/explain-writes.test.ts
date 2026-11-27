@@ -38,11 +38,11 @@ describe('SN548', () => {
       <button data-sn-on-click="sel = ys[0]"></button><button data-sn-on-click="sel.n = 5"></button><button data-sn-on-click="sel = pick(ys)"></button></main>`)).toEqual([]);
   });
 
-  test('a `data-sn-let` and an event\'s detail are named as such', () => {
-    const ds = sn548(`<main data-sn-state="{ ys: [{ n: 1 }], sel: null, box: null }" data-sn-let="{ last: ys.at(-1) }" data-sn-on-pick="box = $event.detail"><b data-sn-text="ys[0].n + (sel ? sel.n : 0)"></b>
+  test('through a `data-sn-let`, what the let\'s value is; an event\'s detail as such', () => {
+    const ds = sn548(`<main data-sn-state="{ ys: [{ n: 1 }], sel: null, box: null }" data-sn-let="{ last: ys.reduce((a, y) => y, null) }" data-sn-on-pick="box = $event.detail"><b data-sn-text="ys[0].n + (sel ? sel.n : 0)"></b>
       <button data-sn-on-click="sel = last"></button><button data-sn-on-click="sel.n = 6"></button><button data-sn-on-click="box.n = 7"></button></main>`);
     expect(ds.map((d) => d.message.split(' (')[0])).toEqual(expect.arrayContaining(['`sel` may hold any of the page\'s objects', '`box` may hold any of the page\'s objects']));
-    expect(ds.find((d) => d.message.startsWith('`sel`'))!.message).toContain('`last` is a `data-sn-let`');
+    expect(ds.find((d) => d.message.startsWith('`sel`'))!.message).toContain('`ys.reduce((a, y) => y, null)` is the result of `reduce()`');
     expect(ds.find((d) => d.message.startsWith('`box`'))!.message).toContain('`$event.detail` is an event\'s detail');
   });
 

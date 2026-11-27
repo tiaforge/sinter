@@ -16,7 +16,7 @@ import * as parse5 from 'parse5';
 import { freeRefs, parseExpression, parseProgram } from './parse.js';
 import type { DefaultTreeAdapterMap } from 'parse5';
 import { type Code, type Diagnostic, didYouMean, distance, severityOf, suggest } from './diagnostics.js';
-import { type AliasSite, analyze, applyEdits, foldsInto, nsLocal, refNames, STORE_FNS, throughField, wild, type SlotScope, type ComponentScope, type ExprOptions, type ExprResult, type LetEntry, type LoopEntry, type PageInfo, type Read, type ResourceInfo, type Scope } from './expr.js';
+import { type AliasSite, analyze, applyEdits, elementPieces, foldsInto, nsLocal, refNames, STORE_FNS, throughField, wild, type SlotScope, type ComponentScope, type ExprOptions, type ExprResult, type LetEntry, type LoopEntry, type PageInfo, type Read, type ResourceInfo, type Scope } from './expr.js';
 import { callerAttribute, COMPONENT_NAME, componentPaths, DOM_EVENTS, inlineScriptLang, inlineScriptPath, inlineScripts, type InlineScript, isArrayType, LIBRARY_LAYER, rootCss, scopeCss, SLOT_TYPE, typeMembers, withoutSlots, type Member } from './components.js';
 import type { Node } from 'acorn';
 import type * as acorn from 'acorn';
@@ -5355,7 +5355,7 @@ class Compiler {
         if (members.has(e.key)) continue;
         const v = entryValue(r, e);
         const q = v ? analyze(src.slice(v.start, v.end), scope, this.page, { mode: 'value', report: () => {} }) : null;
-        members.set(e.key, { name: `$slot.${e.key}`, code: q?.ok ? q.inner : 'undefined', deps: q?.deps ?? [], usesEl: q?.usesEl ?? false, usesIndex: q?.usesIndex ?? false, resource: q?.resource ?? null, src: q?.itemOf ?? null, list: q?.listOf ?? null });
+        members.set(e.key, { name: `$slot.${e.key}`, code: q?.ok ? q.inner : 'undefined', deps: q?.deps ?? [], usesEl: q?.usesEl ?? false, usesIndex: q?.usesIndex ?? false, resource: q?.resource ?? null, src: q?.itemOf ?? null, list: q?.listOf ?? null, ...(q?.pieces ? { pieces: q.pieces } : {}) });
       }
       for (const m of known ?? []) if (!m.optional && !members.has(m.name)) this.report(el, 'data-sn-with', 'SN313', `the placement of \`${p.name}\` passes no \`${m.name}\`, which \`Slot<${T}>\` needs`, 0);
     }
@@ -5464,7 +5464,7 @@ class Compiler {
         const q = v ? analyze(src.slice(v.start, v.end), caller, this.page, { mode: 'value', waits: true, report: () => {} }) : null;
         // a prop is a let: inlined, or waiting for a lazy helper module
         const waiting = q?.ok ? this.lazyLet(q.inner, q.deps) : null;
-        lets.push({ name: e.key, code: waiting?.code ?? (q?.ok ? q.inner : 'undefined'), deps: waiting?.deps ?? q?.deps ?? [], usesEl: q?.usesEl ?? false, usesIndex: q?.usesIndex ?? false, resource: q?.resource ?? null, prop: true, src: q?.itemOf ?? null, list: q?.listOf ?? null });
+        lets.push({ name: e.key, code: waiting?.code ?? (q?.ok ? q.inner : 'undefined'), deps: waiting?.deps ?? q?.deps ?? [], usesEl: q?.usesEl ?? false, usesIndex: q?.usesIndex ?? false, resource: q?.resource ?? null, prop: true, src: q?.itemOf ?? null, list: q?.listOf ?? null, ...(q?.pieces ? { pieces: q.pieces } : {}) });
       }
     }
     // `data-sn-model`: the `value` prop (and the `change` handler, with the other bindings)
@@ -5673,7 +5673,7 @@ class Compiler {
       if (members.has(e.key)) continue;
       const v = entryValue(r, e);
       const q = v ? analyze(src.slice(v.start, v.end), ctx.scope, this.page, { mode: 'value', report: () => {} }) : null;
-      members.set(e.key, { name: `$slot.${e.key}`, code: q?.ok ? q.inner : 'undefined', deps: q?.deps ?? [], usesEl: false, usesIndex: false, resource: q?.resource ?? null, src: q?.itemOf ?? null, list: q?.listOf ?? null });
+      members.set(e.key, { name: `$slot.${e.key}`, code: q?.ok ? q.inner : 'undefined', deps: q?.deps ?? [], usesEl: false, usesIndex: false, resource: q?.resource ?? null, src: q?.itemOf ?? null, list: q?.listOf ?? null, ...(q?.pieces ? { pieces: q.pieces } : {}) });
     }
     const data = `{ ${[...members].map(([key, l]) => `${JSON.stringify(key)}: (${l.code})`).join(', ')} }`;
     // case 0: the default, the component's markup
@@ -7418,7 +7418,7 @@ class Compiler {
       const v = p.value as import('acorn').Expression & { start: number; end: number };
       const r = this.expr(el, 'data-sn-let', scope, { mode: 'value', waits: true }, src.slice(v.start, v.end), v.start);
       const waiting = r.ok ? this.lazyLet(r.inner, r.deps) : null;
-      const entry: LetEntry = { name, code: waiting?.code ?? r.inner, deps: waiting?.deps ?? r.deps, usesEl: r.usesEl, usesIndex: r.usesIndex, resource: r.resource, src: r.itemOf ?? null, list: r.listOf ?? null, text: src.slice(v.start, v.end) };
+      const entry: LetEntry = { name, code: waiting?.code ?? r.inner, deps: waiting?.deps ?? r.deps, usesEl: r.usesEl, usesIndex: r.usesIndex, resource: r.resource, src: r.itemOf ?? null, list: r.listOf ?? null, text: src.slice(v.start, v.end), ...(r.pieces ? { pieces: r.pieces } : {}) };
       // the resources it can be, for store calls and `$meta[…]` that take it as one: its value as their names
       // (also when the value has an undeclared name: the use reports it as a resource, with the suggestion)
       {
@@ -8086,7 +8086,8 @@ class Compiler {
     // (only where a loop around it has the name: a row's functions stay the same across uses and pages)
     const taken = scope.component?.runtime, clash = (n: string) => taken === 'all' || !!taken?.has(n) || scope.loops.some((l) => (l.rt ?? l.name) === n);
     const rt = (n: string) => (scope.component && clash(n) ? { rt: `${n}$${tid}` } : {});
-    const loops: LoopEntry[] = [...scope.loops, { name: item, kind: 'item', alias, resource: list.resource, ...(list.resources ? { resources: list.resources } : {}), ...rt(item), src: list.listOf ?? null }];
+    // (an item of a list that is no state path: what an element of the list's value may hold)
+    const loops: LoopEntry[] = [...scope.loops, { name: item, kind: 'item', alias, resource: list.resource, ...(list.resources ? { resources: list.resources } : {}), ...rt(item), src: list.listOf ?? null, ...(!alias && list.pieces ? { pieces: elementPieces(list.pieces) } : {}) }];
     if (index) loops.push({ name: index, kind: 'index', alias: null, resource: null, of: alias, ...rt(index) });
     if (scope.component && clash(item)) t.item = `${item}$${tid}`;
     if (scope.component && index && clash(index)) t.index = `${index}$${tid}`;

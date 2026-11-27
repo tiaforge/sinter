@@ -35,7 +35,7 @@ How to write an entry (from 0.21.0 on; older sections keep their own form):
   (`contact in contacts`, `(contact, i) in contacts`) and the syntax as snippets; after the item, `in` and
   `in contacts`; after `in`, the lists before the other names ([docs/editors.md](docs/editors.md)).
 - `sinter({ explainWrites: true })` turns on warning `SN548`: at each alias whose value the compiler cannot follow
-  (`compose = $event.detail`, `sel = last` with `last` a `data-sn-let`), what it holds and the handlers it reaches, whose
+  (`compose = $event.detail`, `sel = items.reduce(…)`), what it holds and the handlers it reaches, whose
   writes therefore mark every state scope and resource and re-render everything that reads state. Off by default, and
   a warning in strict mode too; nothing changes in what is marked
   ([docs/diagnostics.md](docs/diagnostics.md#sn548-untraceable-writes)).
@@ -117,6 +117,11 @@ How to write an entry (from 0.21.0 on; older sections keep their own form):
   (CPU slowed 4x) the main thread spends 82 ms instead of 116 ms compiling before the page settles, and on its calendar
   30 ms instead of 60 ms. Nothing to do; builds without the option are unchanged
   ([docs/configuration.md](docs/configuration.md#checks)).
+- A write through a variable that holds an object taken from a `data-sn-let`, from a `data-sn-for` item over a list
+  that is no state path (`x in visible(items)`, a resource), or from a callback's parameter over one
+  (`visible(items).map((x) => x.part)`) now marks the paths that object may be, instead of every state scope and
+  resource, so the handler re-renders only what reads them. On an app's contacts page, 3 of its 33 handlers still mark everything, down from 22. Nothing to do; `sinter({ explainWrites: true })`
+  (`SN548`) lists what still makes a page's handlers mark everything.
 
 ## 0.22.1 (2026-11-24)
 

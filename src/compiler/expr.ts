@@ -24,6 +24,8 @@ export interface LoopEntry {
   rt?: string;
   /** item: the resources its list is (see `Sources`): where `merge(item, …)` and `remove(item)` act */
   src?: string[] | null;
+  /** item of a list that is no state path (`x in visible(xs)`): what an element of the list may hold (`Piece`) */
+  pieces?: Piece[];
 }
 
 /**
@@ -39,6 +41,8 @@ export interface StateEntry { sid: number; names: Set<string> }
 /** A `data-sn-let` name: a value expression inlined wherever the name is read. */
 export interface LetEntry {
   name: string;
+  /** which of the page's objects its value may hold (`Piece`): a write through an alias of it reaches them */
+  pieces?: Piece[];
   /** the compiled expression (without the `($) =>` wrapper) */
   code: string;
   deps: string[];
@@ -279,6 +283,8 @@ export interface ExprResult {
   listOf?: Sources | null;
   /** handlers: state paths assigned an item (`sel = p`), with its sources */
   assigns?: Array<{ path: string; src: Sources }>;
+  /** a value expression: which of the page's objects its value may hold (`Piece`) */
+  pieces?: Piece[];
   /** `emit(event, item)`: the item's sources, by event */
   emitted?: Array<{ event: string; src: Sources }>;
   /** every `merge()`/`remove()` call, at its start, with its item's sources */
@@ -441,6 +447,14 @@ const EVENT_NATIVE = new Set(['target', 'currentTarget', 'key', 'code', 'type', 
   'timeStamp', 'submitter', 'newState', 'oldState', 'relatedTarget', 'dataTransfer', 'clipboardData', 'touches', 'changedTouches', 'state', 'origin']);
 /** the pieces of a value spread or copied into another (`[...x]`, `{ ...x }`, `Object.assign(t, x)`): the value's own contents */
 const contentsOf = (ps: Piece[]): Piece[] => ps.map((p) => (p.sub.length ? p : { sub: ['*'], src: p.src && [...p.src, '*'], ...(p.why ? { why: p.why } : {}) }));
+/**
+ * The pieces of a member chain (`props`) read from a value with pieces `ps`: a piece of the value itself becomes the
+ * object at its source's member, one under a key the member's, one at any depth (`**`) stays.
+ */
+export const memberPieces = (ps: Piece[], props: string[]): Piece[] => props.reduce((acc, prop) => acc.flatMap((p): Piece[] => (!p.sub.length ? [{ ...p, src: p.src && [...p.src, prop] }]
+  : p.sub[0] === '**' ? [p] : p.sub[0] === '*' || prop === '*' || p.sub[0] === prop ? [{ ...p, sub: p.sub.slice(1) }] : [])), ps);
+/** the pieces of an element of a list whose value has pieces `ps` */
+export const elementPieces = (ps: Piece[]): Piece[] => ps.map((p) => (!p.sub.length ? { ...p, src: p.src && [...p.src, '*'] } : p.sub[0] === '**' ? p : { ...p, sub: p.sub.slice(1) }));
 /** a path with its row segments (`{$i3}`, `{i}`, `~`) as `*`: an alias holds whichever row it was */
 export const wild = (segs: string[]): string[] => segs.map((x) => (x[0] === '{' || x === '~' ? '*' : x));
 
@@ -469,7 +483,7 @@ type Resolved =
   | { kind: 'payload' };
 
 /** a callback's parameter: the path of the element it stands for; `prim`: an index, never an object */
-interface LocalInfo { alias: string[] | null; resource: string | null; prim?: true }
+interface LocalInfo { alias: string[] | null; resource: string | null; prim?: true; pieces?: Piece[] }
 type Locals = Map<string, LocalInfo>;
 
 interface Edit { start: number; end: number; text: string }
@@ -847,7 +861,8 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
       const inner = new Map(locals);
       for (const [i, x] of (fn.params as Node[]).entries()) {
         if (x.type !== 'Identifier') return opaque('a destructured callback parameter', x);
-        inner.set(x.name, i === 0 ? { alias: one && [...one, '*'], resource: null } : i === 1 ? { alias: null, resource: null, prim: true } : { alias: one, resource: null });
+        // over a list that is no path (`visible(xs).map((x) => …)`): what an element of it, or it, may hold
+        inner.set(x.name, i === 0 ? { alias: one && [...one, '*'], resource: null, ...(!one ? { pieces: elementPieces(recv) } : {}) } : i === 1 ? { alias: null, resource: null, prim: true } : { alias: one, resource: null, ...(!one ? { pieces: recv } : {}) });
       }
       return classify(fn.body as Node, inner);
     };
@@ -878,6 +893,13 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
         }
         if (e.type === 'Identifier' && /^(undefined|NaN|Infinity)$/.test(e.name) && !locals.has(e.name)) return [];
         if (cp?.res.kind === 'local' && cp.res.info.prim) return [];
+        // a let, a loop's index or item over a list that is no state path, a callback's parameter over one: what its value
+        // may hold, read through the member chain
+        if (cp?.res.kind === 'loop' && cp.res.entry.kind === 'index') return [];
+        if (cp && !cp.segs) {
+          const ps = cp.res.kind === 'let' ? cp.res.entry.pieces : cp.res.kind === 'loop' ? cp.res.entry.pieces : cp.res.kind === 'local' ? cp.res.info.pieces : undefined;
+          if (ps) return memberPieces(ps, cp.props);
+        }
         // a global, a constant (inlined, a new value at each evaluation), the server's payload: none of the page's objects
         if (cp && (cp.res.kind === 'global' || cp.res.kind === 'const' || cp.res.kind === 'payload')) return [];
         if (e.type === 'MemberExpression' && !cp) {
@@ -2038,7 +2060,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
   // what the value is an item or a list of, for `merge()` and `remove()` through rows, lets and props
   const value = body.length === 1 && !opts.object && mode === 'value' && ok ? body[0]! : null;
   const sources = value ? { itemOf: itemSource(value, root), listOf: listSource(value, root) } : {};
-  return { ok, code, inner: out, deps: [...deps].sort(), writes: [...writes].sort(), usesEl, usesIndex, entries, path, resource, ast, ...sources,
+  return { ok, code, inner: out, deps: [...deps].sort(), writes: [...writes].sort(), usesEl, usesIndex, entries, path, resource, ast, ...sources, ...(value ? { pieces: classify(value, root) } : {}),
     ...(nameEdits.length ? { nameEdits } : {}), ...(assigns.length ? { assigns } : {}), ...(emitted.length ? { emitted } : {}), ...(srcRefs.length ? { srcRefs } : {}), ...(itemCalls.length ? { itemCalls } : {}), ...(runs.length ? { runs } : {}), ...(refreshes.length ? { refreshes } : {}), ...(nameLets.length ? { nameLets: [...new Set(nameLets)] } : {}), ...(reads.length ? { reads } : {}), ...(resources ? { resources } : {}) };
 }
 
