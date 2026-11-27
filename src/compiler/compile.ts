@@ -2519,7 +2519,7 @@ class Compiler {
     this.page = {
       resources: new Map(), helpers: new Set(opts.helpers.names), namespaces: ns,
       actions: new Set([...(opts.actions?.names ?? []), ...Object.keys(opts.actions?.namespaces ?? {})]),
-      usedHelpers: new Set(), usedNs: new Map(), usesNow: false, pathParams: new Set(), dialogs: new Set(), popovers: new Set(), fed: new Set(), ids: new Map(),
+      usedHelpers: new Set(), usedNs: new Map(), usesNow: false, pathParams: new Set(), dialogs: new Set(), popovers: new Set(), fed: new Set(), ids: new Map(), emitted: new Set(),
       ...(opts.apis?.list.some((a) => a.token) ? { tokens: true } : {}),
     };
     const l = opts.locale;
@@ -6948,7 +6948,9 @@ class Compiler {
       // selectOption() dispatches them). A handler higher up hears both: there `input` replaces.
       const choice = (event === 'input' || event === 'change') && (el.tagName === 'select' || (el.tagName === 'input' && /^(checkbox|radio)$/i.test(attr(el, 'type') ?? '')));
       // sinter's own events (`sn-error`) carry a detail it made: none of the page's objects
-      const r = this.expr(el, a.name, scope, { mode: 'handler', magic: ['$event'], ...(choice ? { urlKind: 4 } : {}), ...(SINTER_EVENTS.includes(event) ? { freshDetail: true } : {}) });
+      // a DOM event's `$event` is the browser's (unless the page emits one of that name: `applyAliases`)
+      const base = kf ? kf[1]! : event;
+      const r = this.expr(el, a.name, scope, { mode: 'handler', magic: ['$event'], ...(choice ? { urlKind: 4 } : {}), ...(SINTER_EVENTS.includes(event) ? { freshDetail: true } : {}), ...(DOM_EVENTS.has(base) ? { domEvent: base } : {}) });
       const ms = duration(get(`debounce-${event}`) ?? '', 'ms') ?? 0;
       if (ms > 0) this.features.add('debounce');
       if (r.ok) node.b.push(this.binding({ k: 'on', n: kf ? kf[1]! : event, f: this.fn(r.code), w: r.writes, ...filter, ...(ms > 0 ? { ms } : {}) }));
@@ -7222,6 +7224,7 @@ class Compiler {
     const r = analyze(src, scope, this.page, { ...o, report: this.reporter(el, attrName, shift) });
     if (this.opts.explainWrites) this.aliasSites(a0, el, attrName, src, shift);
     for (const a of r.assigns ?? []) this.addSources(`@${a.path}`, a.src);
+    for (const e of r.emits ?? []) this.page.emitted.add(e);
     if (scope.component?.id !== undefined) for (const e of r.emitted ?? []) this.addSources(`@ev:${scope.component.id}:${e.event}`, e.src);
     for (const c of r.srcRefs ?? []) this.srcCalls.push({ el, attr: attrName, shift, ...c });
     this.at = { el, attr: attrName, shift };
@@ -12645,6 +12648,19 @@ class Compiler {
       (this.page.aliases ??= []).push({ t: [`$s${u.sid}`, '*'], s: null, why: `\`<${u.name}>\`'s script may give its state's fields any object` });
       (this.page.objectFields ??= new Set()).add(`$s${u.sid}.*`);
     }
+    // what a DOM event's `$event` holds (`@dom:<event>`): none of the page's objects, unless an event of that name is one
+    // a component of the page declares or an `emit()` sends, whose detail may be any (an app's custom element that
+    // dispatches a DOM event's name with an object of the page as its detail is not seen)
+    const sent = new Set(this.page.emitted);
+    for (const us of this.uses.values()) for (const u of us) for (const m of u.emits ?? []) sent.add(m.name);
+    if (this.page.aliases?.some((a) => a.s?.[0]?.startsWith('@dom:'))) {
+      this.page.aliases = this.page.aliases.flatMap((a) => {
+        const ev = a.s?.[0]?.startsWith('@dom:') ? a.s[0].slice(5) : null;
+        if (ev === null) return [a];
+        if (!sent.has(ev) && !sent.has('*')) return [];
+        return [{ ...a, s: null, why: `\`$event\` of \`${ev}\` may be the detail of an event of that name the page sends` }];
+      });
+    }
     // a field only ever given primitives (its initializer and every assignment) holds none of the page's objects
     const objects = this.page.objectFields ?? new Set<string>();
     const fields = new Set(this.stateInits.flatMap((x) => x.fields.map((f) => `$s${x.sid}.${f.key}`)));
@@ -12741,7 +12757,7 @@ class Compiler {
     const o = this.origins.get(el) ?? { file: this.opts.file, src: '', chain: [] };
     const { line, col } = el.sourceCodeLocation ? this.lineCol(o.src, this.valueOffset(el, attrName) + shift) : { line: 1, col: 1 };
     const at: AliasSite = { text: src.replace(/\s+/g, ' ').trim(), file: o.file, line, col };
-    for (let i = a0; i < list.length; i++) if (!list[i]!.s && !list[i]!.at) list[i]!.at = at;
+    for (let i = a0; i < list.length; i++) if ((!list[i]!.s || list[i]!.s![0]!.startsWith('@dom:')) && !list[i]!.at) list[i]!.at = at;
   }
 
   /**

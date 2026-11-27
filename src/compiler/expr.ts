@@ -172,6 +172,8 @@ export interface PageInfo {
    * cannot trace), from every handler and state initializer of the page; `*` stands for any key or row
    */
   aliases?: Array<{ t: string[]; s: string[] | null; why?: string; at?: AliasSite }>;
+  /** the events the page's `emit()`s send, by name (`*`: one named by a value) */
+  emitted: Set<string>;
   /** written paths that change the object at the path (a method, `Object.assign`), not the field holding it */
   mutated?: Set<string>;
   /** state fields (`$s0.x`) that may hold an object: one assigned or initialized with something not surely a primitive, or written below */
@@ -226,6 +228,12 @@ export interface ExprOptions {
   urlKind?: number;
   /** `$event.detail` is one sinter made (`sn-error`): it holds none of the page's objects (docs/spec.md, Aliases) */
   freshDetail?: boolean;
+  /**
+   * a handler of a DOM event (`click`, `keydown`): the browser's event holds none of the page's objects, unless a
+   * component or an `emit()` of the page sends an event of that name, which only the end of the walk knows. Its
+   * pieces name the event (`@dom:click`), and `applyAliases` drops them or makes them untraceable.
+   */
+  domEvent?: string;
   /** where `$event.detail` comes from (a component's event: `@ev:<use>:<event>`) */
   detailSource?: string;
   /** a `data-sn-let` entry or a prop: it may call a helper of a module that reaches a lazy package (else SN324) */
@@ -285,6 +293,8 @@ export interface ExprResult {
   assigns?: Array<{ path: string; src: Sources }>;
   /** a value expression: which of the page's objects its value may hold (`Piece`) */
   pieces?: Piece[];
+  /** handlers: the events `emit()` sends, by name (`*`: one named by a value) */
+  emits?: string[];
   /** `emit(event, item)`: the item's sources, by event */
   emitted?: Array<{ event: string; src: Sources }>;
   /** every `merge()`/`remove()` call, at its start, with its item's sources */
@@ -543,6 +553,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
   };
   const assigns: NonNullable<ExprResult['assigns']> = [];
   const emitted: NonNullable<ExprResult['emitted']> = [];
+  const emits: string[] = [];
   const srcRefs: NonNullable<ExprResult['srcRefs']> = [];
   const itemCalls: NonNullable<ExprResult['itemCalls']> = [];
   const mode = opts.mode;
@@ -887,7 +898,11 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
         const cp = chainPath(e, locals);
         if (cp?.segs && (cp.res.kind === 'state' || cp.res.kind === 'loop' || cp.res.kind === 'local' || cp.res.kind === 'resource' || cp.res.kind === 'magic')) return [{ sub: [], src: cp.segs }];
         if (cp?.res.kind === 'magic') {
-          if (cp.root === '$event') return cp.props[0] && (EVENT_NATIVE.has(cp.props[0]) || (cp.props[0] === 'detail' && opts.freshDetail)) ? [] : opaque(cp.props[0] === 'detail' ? 'an event\'s detail' : 'the event');
+          if (cp.root === '$event') {
+            if (cp.props[0] && (EVENT_NATIVE.has(cp.props[0]) || (cp.props[0] === 'detail' && opts.freshDetail))) return [];
+            if (opts.domEvent) return [{ sub: [], src: [`@dom:${opts.domEvent}`, ...cp.props] }];
+            return opaque(cp.props[0] === 'detail' ? 'an event\'s detail' : 'the event');
+          }
           // the action's response, an error, the element: never the page's state
           return [];
         }
@@ -1563,6 +1578,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
       return;
     }
     // what a component emits keeps the item's source: the caller's `remove($event.detail)` acts on it
+    if (name === 'emit') emits.push(first?.type === 'Literal' && typeof first.value === 'string' ? first.value : '*');
     if (name === 'emit' && scope.component && first?.type === 'Literal' && typeof first.value === 'string' && n.arguments[1]) {
       const src = itemSource(n.arguments[1] as Node, locals);
       if (src?.length) emitted.push({ event: first.value, src });
@@ -2060,7 +2076,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
   // what the value is an item or a list of, for `merge()` and `remove()` through rows, lets and props
   const value = body.length === 1 && !opts.object && mode === 'value' && ok ? body[0]! : null;
   const sources = value ? { itemOf: itemSource(value, root), listOf: listSource(value, root) } : {};
-  return { ok, code, inner: out, deps: [...deps].sort(), writes: [...writes].sort(), usesEl, usesIndex, entries, path, resource, ast, ...sources, ...(value ? { pieces: classify(value, root) } : {}),
+  return { ok, code, inner: out, deps: [...deps].sort(), writes: [...writes].sort(), usesEl, usesIndex, entries, path, resource, ast, ...sources, ...(value ? { pieces: classify(value, root) } : {}), ...(emits.length ? { emits } : {}),
     ...(nameEdits.length ? { nameEdits } : {}), ...(assigns.length ? { assigns } : {}), ...(emitted.length ? { emitted } : {}), ...(srcRefs.length ? { srcRefs } : {}), ...(itemCalls.length ? { itemCalls } : {}), ...(runs.length ? { runs } : {}), ...(refreshes.length ? { refreshes } : {}), ...(nameLets.length ? { nameLets: [...new Set(nameLets)] } : {}), ...(reads.length ? { reads } : {}), ...(resources ? { resources } : {}) };
 }
 

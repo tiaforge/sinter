@@ -122,6 +122,11 @@ How to write an entry (from 0.21.0 on; older sections keep their own form):
   (`visible(items).map((x) => x.part)`) now marks the paths that object may be, instead of every state scope and
   resource, so the handler re-renders only what reads them. On an app's contacts page, 3 of its 33 handlers still mark everything, down from 22. Nothing to do; `sinter({ explainWrites: true })`
   (`SN548`) lists what still makes a page's handlers mark everything.
+- A handler of a DOM event that hands `$event` to a helper (`sel = rowClick($event, sel)`,
+  `week = addDays(week, step($event))`) no longer makes the result an object the build cannot follow: the browser's
+  event holds none of the page's objects, so writes through the result mark what its other arguments may be, not
+  every state scope and resource. An event of a DOM event's name that the page sends itself (a component that
+  declares `select` in `data-sn-emits`, an `emit('click', item)`) keeps its detail untraceable, as before.
 
 ## 0.22.1 (2026-11-24)
 
