@@ -15,7 +15,8 @@
 //   marks too little shows here, lets or not);
 // - the first paint: on a third of the seeds the memoized page is the early script's first paint taken over.
 // Writes through aliases (`sel = y; sel.n += 10`; docs/spec.md, Aliases): direct, inside another object, in another
-// list, a helper's element, one from reduce() the compiler cannot follow, and writes through the list they alias.
+// list, a helper's element, one from reduce() the compiler cannot follow, and writes through the list they alias; and
+// aliases made through a let, a loop variable over a computed list, a callback's parameter and a component event's detail.
 import { expect, test } from 'vitest';
 import { configure } from '../../src/index.js';
 import { memo } from '../../src/memo.js';
@@ -67,6 +68,8 @@ const LETS: Array<[string, string]> = [
   ['YS', 'sum(ys.map((y) => y.n))'],
   // memo()'s call-through path (an argument it does not key)
   ['BG', 'big(ys)'],
+  // what an alias can be made from: a list's element, a helper's element, an element through a callback over a computed list
+  ['YL', 'ys.length ? ys[ys.length - 1] : null'], ['YH', 'at(ys, 0) ?? null'], ['YM', 'ys.filter((y) => y.n > 0).map((y) => y).at(-1) ?? null'],
   ['L', 'tr.word(a, $locale)'],
   // over what each alias holds
   ['SL', 'twice(sel ? sel.n : 0)'], ['BL', 'twice(box ? box.it.n : 0)'], ['AL', 'sum(arr.map((x) => x.n))'], ['HL', 'twice(h ? h.n : 0)'], ['UL', 'twice(u ? u.n : 0)'],
@@ -106,7 +109,12 @@ const ALIAS = ['sel && (sel.n = sel.n + 10)', 'box && (box.it.n = box.it.n + 3)'
   'u = ys.length ? ys.reduce((p, y) => (y.n > p.n ? y : p), ys[0]) : null', 'u && (u.n = u.n + 7)',
   'u = ys.length ? ys.reduce((p, y) => (y.n > p.n ? y : p), ys[0]) : null; u && (u.n = u.n + 7)', 'h = at(ys, 0) ?? null; h && (h.n = h.n + 5)',
   // an untraceable alias, then a change through another name: what reads it must see it
-  'u = ys.length ? ys.reduce((p, y) => (y.n > p.n ? y : p), ys[0]) : null; ys.forEach((y) => (y.n = y.n + 1))', 'sel && (sel.n = sel.n + 1); h && (h.n = h.n + 1)'];
+  'u = ys.length ? ys.reduce((p, y) => (y.n > p.n ? y : p), ys[0]) : null; ys.forEach((y) => (y.n = y.n + 1))', 'sel && (sel.n = sel.n + 1); h && (h.n = h.n + 1)',
+  // aliases made through a let, a loop variable over a computed list (a row's click), a callback's parameter, a component's
+  // event detail (its button's click): made, and written through
+  'u = YL', 'h = YH', 'u = YM', 'u = YL; u && (u.n = u.n + 7)', 'h = YH; h && (h.n = h.n + 5)', 'u = YM; u && (u.n = u.n + 6)',
+  "$el.parentElement.querySelector('.zb')?.click()", "$el.parentElement.querySelector('.zb')?.click(); u && (u.n = u.n + 1)",
+  "$el.parentElement.querySelector('.ce')?.click()", "$el.parentElement.querySelector('.ce')?.click(); sel && (sel.n = sel.n + 3)"];
 
 const ISLAND = 'x-pinger';
 if (!customElements.get(ISLAND)) {
@@ -157,6 +165,8 @@ function page(r: () => number) {
   <button id="unalias" data-sn-on-click="sel = null; box = null; arr = []; h = null; u = null"></button>
   <ol class="ys"><template data-sn-for="(y, i) in ys" data-sn-key="i"><li class="y" data-sn-let="{ YR: pair(y.n, i) }"><span data-sn-text="YR.v + ':' + Q + ':' + L"></span><button class="yb" data-sn-on-click="${rowHandler}"></button></li></template></ol>
   <ol class="gs"><template data-sn-for="(g, i) in gs"><li class="g" data-sn-state="{ c: 0 }" data-sn-let="{ GR: inc(i) }"><span data-sn-text="g + i + ':' + GR + ':' + c + ':' + T"></span><button class="gb" data-sn-on-click="c = c + GR"></button></li></template></ol>
+  <template data-sn-for="z in ys.filter((y) => y.n > 0)"><button class="zb" data-sn-on-click="u = z; u.n = u.n + 2"></button></template>
+  <c-e data-sn-with="{ ys }" data-sn-on-pick="sel = $event.detail"></c-e>
   <template data-sn-for="t in todos" data-sn-key="t.id"><button class="opt" data-sn-patch="/api/t" data-sn-body="{ id: t.id }" data-sn-optimistic="merge(t, { n: 50 })"></button></template>
   ${handlers.map((h, i) => `<button id="h${i}" data-sn-on-click="${h}"></button>`).join('\n  ')}
 </main>`;
@@ -165,6 +175,8 @@ function page(r: () => number) {
 /** the components; `c-l` has a let of its own over a helper */
 const COMPONENTS = {
   'c-v': '<template data-sn-props="{ v: number }"><b class="cv" data-sn-text="v"></b></template>',
+  // an event whose detail is one of its props' objects
+  'c-e': '<template data-sn-props="{ ys: Array<{ n: number }> }" data-sn-emits="{ pick: { n: number } }"><button class="ce" data-sn-on-click="ys.length && emit(\'pick\', ys[ys.length - 1])"></button></template>',
   'c-l': '<template data-sn-props="{ xs: number[] }"><div data-sn-let="{ C: sum(xs) }"><b class="cl" data-sn-text="C + \':\' + xs.length"></b></div></template>',
 };
 const PAGES = [{ id: 11, n: 1 }, { id: 12, n: 2 }, { id: 13, n: 3 }, { id: 14, n: 4 }, { id: 15, n: 5 }];
