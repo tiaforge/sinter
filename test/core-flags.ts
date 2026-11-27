@@ -8,6 +8,8 @@ import type { IR } from '../src/ir.js';
 
 /** not parts: decided by the build from its `apis`, its `swap` option and its early files; always on here */
 export const TOKEN = true, SWAP = true, SHARED = true;
+/** not a part: decided by the build from its `apis`; on here, unless a test's core is `without('APIS')` */
+export let APIS = true;
 
 export let LIST = false, BRANCH = false, ACTION = false, DIALOG = false, EVENTS = false, MODEL = false, PROP = false, STYLE = false, RESOURCE = false, TWIN = false, POPOVER = false;
 export let TEXTRUN = false, SHOW = false, CLASSX = false, ATTR = false, KEYED = false, ORDER = false;
@@ -20,6 +22,7 @@ const apply = () => {
   LIST = on.has('LIST'); BRANCH = on.has('BRANCH'); ACTION = on.has('ACTION'); DIALOG = on.has('DIALOG'); EVENTS = on.has('EVENTS');
   MODEL = on.has('MODEL'); PROP = on.has('PROP'); STYLE = on.has('STYLE'); RESOURCE = on.has('RESOURCE'); TWIN = on.has('TWIN'); POPOVER = on.has('POPOVER');
   TEXTRUN = on.has('TEXTRUN'); SHOW = on.has('SHOW'); CLASSX = on.has('CLASSX'); ATTR = on.has('ATTR'); KEYED = on.has('KEYED'); ORDER = on.has('ORDER');
+  APIS = !left.has('APIS');
   FN_DIALOG = on.has('FN_DIALOG'); FN_ITEMS = on.has('FN_ITEMS'); FN_REFRESH = on.has('FN_REFRESH'); FN_PAGE = on.has('FN_PAGE'); FN_EMIT = on.has('FN_EMIT'); FN_RUN = on.has('FN_RUN'); MOVES = on.has('MOVES');
 };
 

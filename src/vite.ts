@@ -2211,8 +2211,9 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         // a helper module an early file may share (shared-build.ts): the swap's code for its own copy stays
         await everyPage(pagesDone, compiled, 'the core');
         const share = topLevelAwait(resolved?.build.target) && [...earlyPages.values()].some((code) => [...earlyImports(code).keys()].some((spec) => { const f = specFile(spec); return !!f && helperFiles.has(f); }));
-        // an API with a token: the core's calls into the token module (src/token.ts)
-        return flagsModule(coreUsed, share, !!options.swap, !!proj().apis?.list.some((a) => a.token));
+        // an API with a token: the core's calls into the token module (src/token.ts); any API: the request layer's lookup of
+        // its settings (`APIS`)
+        return flagsModule(coreUsed, share, !!options.swap, !!proj().apis?.list.some((a) => a.token), !!proj().apis?.list.length);
       }
       // a helper module the early files share: the stub, which takes their instance (shared-build.ts)
       if (!dev && helperFiles.size && !id.startsWith('\0') && !/[?#]/.test(id) && isAbsolute(id)) {

@@ -1948,8 +1948,9 @@ export function mount(root: Document | Element, o: MountOptions): App {
       /** `src` or `when` may have changed: reload from the first page if the URL differs. From typing: once the typing pauses. */
       changed(soft?: boolean) {
         if (def.fx) return;
-        if (typing != null) { env.clearTimeout(typing); typing = null; app.busy--; }
-        if (soft) { app.busy++; typing = env.setTimeout(() => { typing = null; app.busy--; l.changed(); }, TYPING, 'debounce'); return; }
+        // (typing: only a text field's model marks so, `setModel`; a site without models has no pause to wait for)
+        if (F.MODEL && typing != null) { env.clearTimeout(typing); typing = null; app.busy--; }
+        if (F.MODEL && soft) { app.busy++; typing = env.setTimeout(() => { typing = null; app.busy--; l.changed(); }, TYPING, 'debounce'); return; }
         const u = resolve();
         if (u === url) return l.pager?.follow?.();
         url = u;

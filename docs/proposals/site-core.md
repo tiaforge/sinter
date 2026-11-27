@@ -128,6 +128,8 @@ which the compiler writes and `mount` receives: the tests read them as the build
 | `TEXTRUN`, `SHOW`, `CLASSX`, `ATTR` | a binding of the kind: `data-sn-text` on a `<template>` (a text binding with a name), `data-sn-show`, `data-sn-class` with a computed key (a class binding without a name), `data-sn-attr` or any attribute binding | the writer of that kind (`W.x`, `W.h`, `W.k`, `W.a`; `ATTR` also the scheme check, `security.ts`): 1,172 B minified for all four | a TypeError out of the render (`write` calls the missing writer; a creation function's call falls back to `write`) |
 | `KEYED`, `ORDER` | a resource with a `key`; a resource with an `order` (`ResourceDef.key`, `.order`) | the store's keyed collections (by key, arrival order, a key's patches), its sorting by `order` with the collators: 1,628 B minified for both | `createResource` throws at mount (`sinter: xs: no KEYED in this build's core`) |
 | `MOVES` | a paginated resource without `model` (`ResourceDef.paginate.model`): keyset, append, a numbered page in memory | the pager's moves by direction and cursor in `src/paginate.ts` (a feature module, which reads its flag as the core does): 1,559 B minified on RealWorld's home page | the pager throws at mount (`sinter: xs: no MOVES in this build's core`) |
+| `APIS` (not a part: the build's) | the build has `sinter({ apis })`, as `TOKEN` has a token | the request layer's lookup of a request's API, its credentials and static headers | the page module's `$apis` throws (`sinter: no APIS in this build's core`) |
+| (within `MODEL`) | a model | the pause a resource's reload waits for while a text field is typed in (`changed(soft)`) | a resource reloads at once, without the pause (the only change: no error, the same data) |
 
 Why nothing else can call them. The compiled handlers are the only callers the runtime has: no feature module calls
 `storeFns`; the page's `$f` (`app.page.$f`) is the handlers' scope; a component's handlers and its fills are functions of
@@ -138,7 +140,9 @@ The writers are called by `write`, for a binding of the IR, and by the templates
 writes from the same bindings (`makeCode`); the early script has writers of its own. The store's resources are only
 the IR's (`createLoader`, for each `ResourceDef`): an app module reads and writes them through `app.resource(name)` but
 cannot give one a key or an order. A pager is only a resource's (`ResourceDef.paginate`), and the compiler allows `model`
-on a numbered pager only, so with `MOVES` off every move is a page number the URL names. Not a part: the optimistic layers (`LAYERS` was measured: about 0.2 kB gzip more on a page with no
+on a numbered pager only, so with `MOVES` off every move is a page number the URL names. An API's settings come only from the page modules'
+`$apis`, which a build writes exactly when it has `sinter({ apis })` (`configure()` refuses `apis`); a typing mark only
+from a text field's model (`setModel`). Not a part: the optimistic layers (`LAYERS` was measured: about 0.2 kB gzip more on a page with no
 optimistic action), since an island's `app.optimistic()` uses them and no build can see it call that.
 
 ## Next

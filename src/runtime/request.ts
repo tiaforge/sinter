@@ -122,10 +122,11 @@ export function createRequestLayer(env: Env, chain: Middleware[]): RequestLayer 
       headers.set('Content-Type', 'application/json');
     }
     headers.has('Accept') || headers.set('Accept', 'application/json');
-    // `sinter({ apis })`: the API's credentials and static headers, before the middleware sees the request
-    const api = config.apis.length ? apiFor(target.href, env.href()) : null;
-    if (api?.h) for (const k in api.h) headers.has(k) || headers.set(k, api.h[k]!);
-    const credentials = api?.c ?? 'same-origin';
+    // `sinter({ apis })`: the API's credentials and static headers, before the middleware sees the request (only in a
+    // build with APIs, `APIS`: the page modules' `$apis` is their only source)
+    const api = F.APIS && config.apis.length ? apiFor(target.href, env.href()) : null;
+    if (F.APIS && api?.h) for (const k in api.h) headers.has(k) || headers.set(k, api.h[k]!);
+    const credentials = F.APIS ? api?.c ?? 'same-origin' : 'same-origin';
     // mutations outlive the page: a navigation right after a click must not cancel the write
     // (keepalive bodies are limited to 64 KiB; larger ones and uploads go without it)
     const keepalive = method != 'GET' && method != 'HEAD' && (body == null || (typeof body == 'string' && bytes(body) < 60_000));

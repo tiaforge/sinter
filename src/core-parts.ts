@@ -61,7 +61,7 @@ export function coreParts(ir: Pick<IR, 'roots' | 'templates' | 'actions' | 'reso
  * file may share a helper module with its page bundle (`SHARED`); `swap`: the build has swaps on (`SWAP`); `token`: an
  * API has a token (`TOKEN`)
  */
-export function flagsModule(parts: Iterable<string>, shared = false, swap = false, token = false): string {
+export function flagsModule(parts: Iterable<string>, shared = false, swap = false, token = false, apis = token): string {
   const on = new Set(parts);
-  return CORE_PARTS.map((p) => `export const ${p} = ${on.has(p)};`).join('\n') + `\nexport const SHARED = ${shared};\nexport const SWAP = ${swap};\nexport const TOKEN = ${token};\nexport const use = undefined;\n`;
+  return CORE_PARTS.map((p) => `export const ${p} = ${on.has(p)};`).join('\n') + `\nexport const SHARED = ${shared};\nexport const SWAP = ${swap};\nexport const TOKEN = ${token};\nexport const APIS = ${apis};\nexport const use = undefined;\n`;
 }

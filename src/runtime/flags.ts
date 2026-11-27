@@ -51,6 +51,11 @@ export const SWAP = true;
  * module (a load or action signed out, a 401, `signOut()`) are there only then. A build decides it from its `apis`.
  */
 export const TOKEN = true;
+/**
+ * Not a part of the core: the build has `sinter({ apis })` (the page modules' `$apis`). The request layer finds a request's
+ * API (its credentials and static headers) only then. A build decides it from its `apis`.
+ */
+export const APIS = true;
 /** `<template data-sn-text>`: text runs (their writer) */
 export const TEXTRUN = true;
 /** `data-sn-show` (its writer) */

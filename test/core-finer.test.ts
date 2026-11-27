@@ -3,6 +3,8 @@
 import { expect, test, vi } from 'vitest';
 import { compile } from '../src/compiler/index.js';
 import { navigate } from '../src/runtime/app.js';
+import { $apis } from '../src/runtime/config.js';
+import { flagsModule } from '../src/core-parts.js';
 import { mockRequests, render } from '../src/testing/index.js';
 import * as flags from './core-flags.js';
 
@@ -134,4 +136,30 @@ test('a pager in the URL works on a core without moves; one in memory on a core 
 test('a pager in memory on a core built without moves fails loudly at mount', async () => {
   flags.without('MOVES');
   await expect(render('<sn-resource name="xs" src="/api/xs" key="id" paginate="{ numbered: true, size: 10 }"></sn-resource><template data-sn-for="x in xs"><p data-sn-text="x.n"></p></template>', { requests: mockRequests({ 'GET /api/xs': [] }) })).rejects.toThrow('sinter: xs: no MOVES in this build\'s core');
+});
+
+test('the request layer looks up the APIs only in a build with `sinter({ apis })`', () => {
+  expect(flagsModule([], false, false, false, true)).toContain('export const APIS = true;');
+  expect(flagsModule([])).toContain('export const APIS = false;');
+  // a token is an API's: on with it
+  expect(flagsModule([], false, false, true)).toContain('export const APIS = true;');
+});
+
+test('a page module that sets APIs on a core built without them fails loudly', () => {
+  flags.without('APIS');
+  expect(() => $apis([{ n: 'main', b: '/api' }] as never)).toThrow("sinter: no APIS in this build's core");
+});
+
+test('a resource whose URL a text field changes waits for the typing to pause (models keep the pause)', async () => {
+  const requests = mockRequests({ 'GET /api/s': (req: { url: string }) => ({ q: new URL(req.url, 'http://localhost').searchParams.get('q') }) });
+  const { root, settle, flush } = await render('<div data-sn-state="{ q: \'\' }"><input id="i" data-sn-model="q"><sn-resource name="s" src="/api/s?q={q}"></sn-resource><p id="p" data-sn-text="s.q"></p></div>', { requests });
+  await settle();
+  expect(flags.MODEL).toBe(true);
+  const input = root.querySelector('#i') as HTMLInputElement;
+  input.value = 'ab';
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+  await flush();
+  expect(requests.calls.filter((c) => c.url.includes('q=ab'))).toHaveLength(0);
+  await settle();
+  expect(root.querySelector('#p')!.textContent).toBe('ab');
 });

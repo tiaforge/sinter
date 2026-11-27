@@ -99,6 +99,9 @@ How to write an entry (from 0.21.0 on; older sections keep their own form):
 - In a site whose paginated resources all keep their page in the URL (`paginate="{ …, model: $url.page }"`), the pager
   leaves out its moves in memory (keyset, append, a numbered page without `model`): 0.5 kB gzip (1.6 kB minified) less
   on RealWorld's home and profile pages. Nothing to do.
+- A build without `sinter({ apis })` leaves out the request layer's lookup of an API's credentials and headers, and one
+  whose pages have no `data-sn-model` the pause a resource's reload waits for while a text field is typed in: 0.2 kB
+  gzip less on a page with one resource. Nothing to do.
 - A page with handlers whose writes the build cannot follow (a helper or a component script that changes an object
   it was handed, a write through a variable that may hold any of the page's objects) ships a smaller page module and
   does less on each click: such a handler listed every path it might change, and now only those no other entry of its
