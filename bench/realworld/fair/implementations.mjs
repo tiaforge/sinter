@@ -46,6 +46,9 @@ export const IMPLEMENTATIONS = [
     server: 'build/index.js',
   },
   {
+    // client-side, Solid 1.3. Not in the comparison: it fails the e2e suite (8 of 140) because its routes are hash routes
+    // (`#/register`, `#/@user`): the suite's /register, /login, /profile/:username show the home page. Adding the `name`
+    // attributes the suite's selectors need changes nothing (still 8, 2026-11-27). Kept for the 2026-11-14 run.
     name: 'Solid', dir: 'solid', repo: 'https://github.com/solidjs/solid-realworld.git',
     commit: 'f6e77ecd652bf32f0dc9238f291313fd1af7e98b',
     edits: [

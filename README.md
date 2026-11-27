@@ -22,14 +22,14 @@ npm create sinter my-app
 
 <table>
 <tr>
-<td align="center"><b>606 lines</b><br><sub>for the RealWorld app.<br>Angular's official one is 2,210</sub></td>
+<td align="center"><b>631 lines</b><br><sub>for the RealWorld app.<br>Angular's official one is 2,210</sub></td>
 <td align="center"><b>100 / 100</b><br><sub>Lighthouse, mobile and desktop.<br>No layout shift</sub></td>
 <td align="center"><b>0 KB</b><br><sub>of JavaScript on a static page.<br>About 16 KB on an app page</sub></td>
 <td align="center"><b>~10× cheaper</b><br><sub>than server rendering for<br>a first frame with data</sub></td>
 </tr>
 </table>
 
-<sub>Each implementation passes RealWorld's official end-to-end suite and was measured on the same machine under the same conditions: [comparison](docs/realworld-comparison.md), [first-paint benchmark](docs/first-paint-comparison.md). The Lighthouse score depends on the data and the styles: when the largest element on the screen is filled from the API, the largest paint waits for that response. The [server layer](docs/first-paint.md#embedded-data) avoids this by putting the data in the first frame. The [running copy](https://realworld.tiaforge.dev) is served that way, and [PageSpeed Insights](https://pagespeed.web.dev/analysis?url=https%3A%2F%2Frealworld.tiaforge.dev%2F) gives it a performance score of 100 (2026-11-26).</sub>
+<sub>Each implementation passes RealWorld's official end-to-end suite in its mode (spa, or ssr for a server-rendered one) and was measured on the same machine under the same conditions: [comparison](docs/realworld-comparison.md), [first-paint benchmark](docs/first-paint-comparison.md). The Lighthouse score depends on the data and the styles: when the largest element on the screen is filled from the API, the largest paint waits for that response. The [server layer](docs/first-paint.md#embedded-data) avoids this by putting the data in the first frame. The [running copy](https://realworld.tiaforge.dev) is served that way, and [PageSpeed Insights](https://pagespeed.web.dev/analysis?url=https%3A%2F%2Frealworld.tiaforge.dev%2F) gives it a performance score of 100 (2026-11-26).</sub>
 
 ## From page to app, one step at a time
 
