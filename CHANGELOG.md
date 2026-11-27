@@ -84,6 +84,11 @@ How to write an entry (from 0.21.0 on; older sections keep their own form):
   does less on each click: such a handler listed every path it might change, and now only those no other entry of its
   list already covers. On an app page with many state scopes the page module is 17% smaller (6% gzip) and a click
   marks half as many paths; what renders is the same. Nothing to do.
+- With `compileHints: true`, the file with sinter's core now gets V8's compile hint too, as the page modules do: Chromium
+  compiles it while it loads instead of function by function on the page's first render. On a mail app's inbox
+  (CPU slowed 4x) the main thread spends 82 ms instead of 116 ms compiling before the page settles, and on its calendar
+  30 ms instead of 60 ms. Nothing to do; builds without the option are unchanged
+  ([docs/configuration.md](docs/configuration.md#checks)).
 
 ## 0.22.1 (2026-11-24)
 

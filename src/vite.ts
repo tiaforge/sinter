@@ -60,7 +60,8 @@ export interface SinterOptions extends ProjectOptions {
    * V8's explicit compile hints (default false): each page module starts with `//# allFunctionsCalledOnLoad`, so
    * Chromium compiles all of it as the page loads instead of each function on its first call. Worth it where a
    * page runs much of its code at once on its first render (a large parse in the browser: sinter-mail's mail.parse);
-   * a large page module compiles longer up front. Browsers that do not know the comment ignore it.
+   * a large page module compiles longer up front. The chunk with sinter's core gets it too: nearly all of it runs at
+   * every load. Browsers that do not know the comment ignore it.
    */
   compileHints?: boolean;
   /**
@@ -3359,7 +3360,12 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       this.emitFile({ type: 'asset', fileName: '_redirects', source: redirectsFile(routes, own) });
     },
   };
-  // `compileHints`: the hint first in each page module, its source map a line further down
+  /** the core's module, as this build resolves it (as FLAGS): dist/runtime/app.js, src/runtime/app.ts from source */
+  const CORE = (() => { for (const f of ['./runtime/app.js', './runtime/app.ts']) try { return realpathSync(fileURLToPath(new URL(f, import.meta.url))); } catch { /* the other */ } return null; })();
+  /** whether a chunk holds the core (under any name, in an entry chunk too; through a link with `preserveSymlinks`) */
+  const holdsCore = (ids: readonly string[]) => ids.some((id) => /[\\/]app\.[jt]s$/.test(id) && sameFile(id, CORE));
+  // `compileHints`: the hint first in each page module and in the chunk with the core (it runs at every page load), its
+  // source map a line further down. The early scripts' nested builds have plugins of their own, without this one
   const compileHints: Plugin = {
     name: 'sinter:compile-hints',
     enforce: 'post',
@@ -3368,7 +3374,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       if (!options.compileHints) return;
       const HINT = '//# allFunctionsCalledOnLoad\n';
       for (const c of Object.values(bundle)) {
-        if (c.type !== 'chunk' || !c.isEntry || c.code.startsWith(HINT)) continue;
+        if (c.type !== 'chunk' || !(c.isEntry || holdsCore(c.moduleIds)) || c.code.startsWith(HINT)) continue;
         c.code = HINT + c.code;
         if (c.map) c.map.mappings = ';' + c.map.mappings;
         const m = bundle[c.fileName + '.map'];
