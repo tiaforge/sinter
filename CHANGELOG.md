@@ -34,6 +34,11 @@ How to write an entry (from 0.21.0 on; older sections keep their own form):
 - Completion in a `data-sn-for` value: in an empty value, each list in scope with an item name made from it
   (`contact in contacts`, `(contact, i) in contacts`) and the syntax as snippets; after the item, `in` and
   `in contacts`; after `in`, the lists before the other names ([docs/editors.md](docs/editors.md)).
+- `sinter({ explainWrites: true })` turns on warning `SN548`: at each alias whose value the compiler cannot follow
+  (`compose = $event.detail`, `sel = last` with `last` a `data-sn-let`), what it holds and the handlers it reaches, whose
+  writes therefore mark every state scope and resource and re-render everything that reads state. Off by default, and
+  a warning in strict mode too; nothing changes in what is marked
+  ([docs/diagnostics.md](docs/diagnostics.md#sn548-untraceable-writes)).
 
 ### Changed
 

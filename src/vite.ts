@@ -341,7 +341,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   // the options themselves, as nested ones: a typo (`typechek`) fails instead of doing nothing
   retiredOptions(options);
   const OPTIONS = ['typecheck', 'compileHints', 'firstPaint', 'minifyHtml', 'images', 'redirects', 'site', 'sitemap', 'localePrefix', 'prefetch', 'embed', 'origins', 'fonts',
-    'content', 'messages', 'openapi', 'apis', 'complexity', 'expansionLimit', 'static', 'swap', 'lazy', 'libraries', 'strict'];
+    'content', 'messages', 'openapi', 'apis', 'complexity', 'expansionLimit', 'explainWrites', 'static', 'swap', 'lazy', 'libraries', 'strict'];
   const unknown = Object.keys(options).find((k) => !OPTIONS.includes(k));
   if (unknown) throw new Error(`sinter({ ${unknown} }) is not an option.${didYouMean(unknown, OPTIONS)}`);
   if (options.fonts !== undefined && options.fonts !== false && (typeof options.fonts !== 'object' || options.fonts === null)) {

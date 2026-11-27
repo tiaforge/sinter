@@ -40,6 +40,11 @@ export interface ProjectOptions {
    */
   expansionLimit?: number;
   /**
+   * SN548: a warning at each alias whose value the compiler cannot follow, which makes the writes of the handlers it
+   * reaches everything (docs/diagnostics.md#sn548-untraceable-writes). Off by default.
+   */
+  explainWrites?: boolean;
+  /**
    * SN322: pages that must ship no JavaScript, by their paths relative to the root (`'about.html'`,
    * `'docs/**'`; `*` within one folder, `**` across folders), or `true` for every page. A matched page
    * that needs the runtime fails the build, `sinter check` and the editor; a pattern no page matches too.
@@ -143,6 +148,8 @@ export interface Project {
   libraries: Library[];
   /** the `complexity` option, checked */
   complexity: ComplexityOptions;
+  /** `explainWrites` */
+  explainWrites: boolean;
   /** `expansionLimit`, checked, or undefined for the default */
   expansionLimit: number | undefined;
   /** `static`: the pages that must ship no JavaScript (SN322) */
@@ -298,7 +305,7 @@ export function project(root: string, options: ProjectOptions = {}): Project {
     if (exported.includes('Slot')) diagnostics.push({ severity: 'error', code: 'SN331', message: 'the types module exports a type named `Slot`, which is sinter\'s: `Slot<T>` in a component\'s props declares a slot that passes `T` to its fill', file, line: 1, col: 1, hint: 'rename the type (`TimeSlot`, `SlotInfo`)' });
   }
   return {
-    root, helpers, helpersFile, contentFile: contentRel ? resolve(root, contentRel) : null, actions, actionsFile, readFile, listFiles, openapi, apis, diagnostics, complexity: complexityOf(options.complexity), expansionLimit: expansionLimitOf(options.expansionLimit), 
+    root, helpers, helpersFile, contentFile: contentRel ? resolve(root, contentRel) : null, actions, actionsFile, readFile, listFiles, openapi, apis, diagnostics, complexity: complexityOf(options.complexity), expansionLimit: expansionLimitOf(options.expansionLimit), explainWrites: explainWritesOf(options.explainWrites), 
     isStatic: staticPages(root, options.static).has, swap: !!options.swap,
     lazy: lazyOf(options.lazy), strict: strictOf(options.strict),
     componentNames: components, libraries: libs.libraries,
@@ -328,7 +335,7 @@ export function lazyReachOf(p: Project): ReturnType<typeof lazyHelpers> {
 export function compileOptionsOf(p: Project, file?: string) {
   return {
     root: p.root, helpers: p.helpers, actions: p.actions, config: p.config, readFile: p.readFile, listFiles: p.listFiles,
-    openapi: p.openapi, apis: p.apis, complexity: p.complexity, ...(p.expansionLimit ? { expansionLimit: p.expansionLimit } : {}),
+    openapi: p.openapi, apis: p.apis, complexity: p.complexity, ...(p.expansionLimit ? { expansionLimit: p.expansionLimit } : {}), ...(p.explainWrites ? { explainWrites: true } : {}),
     componentNames: p.componentNames, libraries: p.libraries, lazy: p.lazy,
     ...(p.lazy.length ? { lazyModule: lazyReachOf(p).reach } : {}),
     ...(file !== undefined && p.isStatic(file) ? { static: true, prerender: true } : {}),
@@ -420,6 +427,13 @@ export function expansionLimitOf(n: number | undefined): number | undefined {
   if (n === undefined) return undefined;
   if (typeof n !== 'number' || !Number.isInteger(n) || n < 1) throw new Error(`sinter: expansionLimit: \`${String(n)}\` is not a whole number of 1 or more (the most rows and component instances a page expands at build time; default 10000)`);
   return n;
+}
+
+/** The `explainWrites` option: a boolean. */
+export function explainWritesOf(v: unknown): boolean {
+  if (v === undefined) return false;
+  if (typeof v !== 'boolean') throw new Error(`sinter({ explainWrites }): takes \`true\` or \`false\`, not ${JSON.stringify(v)}`);
+  return v;
 }
 
 /** The `complexity` option, refused when it names an unknown limit or level, or a limit is not a number of 0 or more. */
