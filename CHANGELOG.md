@@ -103,6 +103,13 @@ How to write an entry (from 0.21.0 on; older sections keep their own form):
 
 ### Performance
 
+- A config module with `configure({ request: [onUnauthorized(…)] })` no longer turns off early requests. The build reads
+  the `request` list's code: `onUnauthorized` and a middleware of your own that passes the request it was given to `next`
+  untouched keep the requests sent before the page script; `header()` and any middleware that may change, replace or
+  refuse the request turn them off for APIs without a `token`, as before. Measured on the prototype with Caley (slow
+  network emulated: 150 ms, 1.6 Mbit/s, HTTP/2, 4x CPU, cold cache), largest paint: mail 1,796 → 1,656 ms, calendar
+  1,276 → 1,228 ms. The early script grows by the request code (Caley mail: about +1.3 kB gzip). Nothing to do
+  ([docs/first-paint.md](docs/first-paint.md#request-middleware-and-sign-in)).
 - A site whose pages have no `data-sn-for`, `data-sn-if` or `<sn-component use>` loads about 1 kB less JavaScript
   (gzip; 2.4 kB minified): its build now leaves the list and branch code out of the runtime, as it was meant to.
   A page with one resource and one text binding goes from 11.2 kB to 10.2 kB. Nothing to do; sites that use lists

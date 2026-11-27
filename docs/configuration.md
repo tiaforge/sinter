@@ -152,6 +152,12 @@ configure({
 
 `configure()` takes only the keys you pass and leaves the rest as they were.
 
+Requests whose URL is known before the page script are sent early, before this module runs
+([first paint](first-paint.md#requests-start-early)). `header()`, or a `request` middleware that may change the request,
+turns that off for APIs without a `token`; `onUnauthorized()` and a middleware that passes the request it was given to
+`next` untouched do not. The build reads which is which from this module's code
+([first paint](first-paint.md#request-middleware-and-sign-in)).
+
 | Key | Type | Purpose |
 | --- | --- | --- |
 | `request` | `Middleware[]` | the [request layer](#the-request-layer) |

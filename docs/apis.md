@@ -112,7 +112,8 @@ still gets a request of its own (a dev warning says so); a token goes on the API
   `headers` gets none, and the early file's request (which sends them) is its first.
   `credentials: 'include'` writes `crossorigin="use-credentials"`.
 - Early requests leave before request middleware runs. When the config module may change requests
-  (`configure({ request })`, `header()`), nothing of an API without a `token` is requested early: a request
+  (`header()`, or a `request` middleware that does not pass the request on untouched; `onUnauthorized` does,
+  [first paint](first-paint.md#request-middleware-and-sign-in) says what counts), nothing of an API without a `token` is requested early: a request
   without what the middleware adds would be refused and sent again ([first paint](first-paint.md#request-middleware-and-sign-in)).
   An API with a `token` keeps its early requests whatever the middleware.
 - The spec's `security` refines that per operation (the operation's, else the document's):
