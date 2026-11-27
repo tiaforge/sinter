@@ -15,6 +15,11 @@ const W = (fields: string) => `<button id="w" data-sn-on-click="${fields}"></but
 /** the element children and the comments of `el`, as the browser has them */
 const shape = (el: Element) => [...el.childNodes].map((n) => (n.nodeType === 8 ? `<!--${(n as Comment).data}-->` : n.nodeType === 1 ? (n as Element).localName : null)).filter(Boolean);
 const toggle = (root: Element, id: string) => (root.querySelector(`#${id}`) as HTMLButtonElement).click();
+// The summary a build reads from the body of a helper that returns a copy sharing what it did not change (`grow` below):
+// it writes into none of its arguments, and its result may hold anything below the first. Without a summary, a helper
+// called in a handler counts as changing everything under its state arguments (docs/spec.md, Method classes), and every
+// reader below them renders again.
+const COPIES = () => ({ flows: [{ sub: [] as string[], src: ['0', '**'] }] });
 
 describe('the markup', () => {
   test('lists and branches are comments in place, their templates in the head or at the end of the body', () => {
@@ -207,7 +212,7 @@ describe('the runtime', () => {
     };
     const { root, flush } = await render(`<div data-sn-state="{ doc: tree() }">
       <button id="grow" data-sn-on-click="doc = grow(doc, 'c')"></button><button id="push" data-sn-on-click="doc.children[0].children[1].children.push({ type: 'text', id: 'd', value: 'd' })"></button>
-      <template data-sn-for="b in doc.children" data-sn-key="b.id"><sn-component use="{ el: 'x-n' }[b.type]" data-sn-with="{ node: b }"></sn-component></template></div>`, { components: C, helpers: { tree, grow } });
+      <template data-sn-for="b in doc.children" data-sn-key="b.id"><sn-component use="{ el: 'x-n' }[b.type]" data-sn-with="{ node: b }"></sn-component></template></div>`, { components: C, helpers: { tree, grow }, helperFlows: COPIES });
     const out = () => root.querySelector('b')!.textContent;
     expect(out()).toBe('ab');
     reads = 0;
@@ -238,7 +243,7 @@ describe('the runtime', () => {
       const [outer] = d.children, inner = outer.children[1];
       return { children: [{ ...outer, children: [outer.children[0], { ...inner, children: [...inner.children, text(v)] }] }] };
     };
-    const { root, flush } = await render(`<div data-sn-state="{ doc: tree() }"><button id="grow" data-sn-on-click="doc = grow(doc, 'c')"></button><x-doc data-sn-with="{ doc }"></x-doc></div>`, { components: C, helpers: { tree, grow } });
+    const { root, flush } = await render(`<div data-sn-state="{ doc: tree() }"><button id="grow" data-sn-on-click="doc = grow(doc, 'c')"></button><x-doc data-sn-with="{ doc }"></x-doc></div>`, { components: C, helpers: { tree, grow }, helperFlows: COPIES });
     const out = () => root.querySelector('b')!.textContent;
     expect(out()).toBe('alinkb');
     for (const k in reads) delete reads[k];
