@@ -139,8 +139,6 @@ export interface ResourceLoader {
   changed(typing?: boolean): void;
   /** the resolved URL of the current load (null: `when` is false, or not resolved yet) */
   url(): string | null;
-  /** the resource's `src` (store.ts `Resource.src`): `url()` without a POST's body; null for `call` and `file:` (and `for`, whose `url()` stays null) */
-  src(): string | null;
   /** `quiet`: a background reload (`refresh`): `$meta.loading` stays false, and a failure while already failing is not reported again */
   load(move?: unknown, quiet?: boolean): Promise<void>;
   refresh(hint?: object, quiet?: boolean): Promise<void>;
@@ -430,12 +428,6 @@ interface ActState {
 
 const instances = new WeakMap<object, App>();
 /**
- * Every copy of this module loaded in the page, by its `instances`: a library linked with `file:` or `npm link`
- * can bring a sinter of its own, whose `instance()` knows none of the app's mounts (docs/libraries.md#using-one).
- */
-const copies: Array<WeakMap<object, App>> = ((globalThis as any)[Symbol.for('sinter.copies')] ??= []);
-copies.push(instances);
-/**
  * A marked path: a node of the page's path table (-1: one nothing reads) and the values its `{name}`
  * segments took from the writer's scope, in order.
  */
@@ -523,12 +515,9 @@ export function signOut(): void {
 /** The instance mount() created on `root`; throws if none. */
 export function instance(root: Document | Element): App {
   const app = instances.get(root);
-  if (app) return app;
-  // mounted by another copy (a linked library's own sinter): its app says so, in dev (warning 34), as a caller that
-  // looks for its mount root through the ancestors catches the error
-  const other = copies.find((m) => m.has(root))?.get(root);
-  other?.warn(34);
-  throw Error(other ? 'sinter: mounted by another copy' : 'sinter: not mounted');
+  // (a root the app did mount: a second copy of sinter, a linked library's own, docs/libraries.md#using-one)
+  if (!app) throw Error('sinter: not mounted');
+  return app;
 }
 
 export function mount(root: Document | Element, o: MountOptions): App {
@@ -1897,7 +1886,6 @@ export function mount(root: Document | Element, o: MountOptions): App {
       def, res: r, app, pager: null as Pager | null, settled: [],
       settle(ok) { for (const f of l.settled) f(ok); },
       scope, got: loadShared, get: (u, signal, lo) => loadShared(u, signal, lo).then((g) => g.body()), failed: fail, loading, url: () => url,
-      src: () => (def.call || def.fx || url == null ? null : url.split('\0')[0]!),
       inflight: () => c != null,
       // no user event causes a load's `then`: its `$url` writes replace
       done: (v) => def.then != null && as(null, () => app.exec(def.then!, child(scope(), { $result: v }), def.w)),

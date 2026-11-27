@@ -275,15 +275,10 @@ app.on('new_email', payload => notify(payload));  // any server event, mapped or
 
 The store handle (type `Resource<T>`) reads the data (`all()`, `get(key)`, `has(key)`, `value()`, `meta`),
 writes the base (`replace`, `upsert`, `merge`, `remove`), reloads (`refresh()`) and reports changes
-(`subscribe(fn)`), with `name`, `key`, `isCollection` and `keyOf(item)`. Two read-only fields describe
-the declaration, for an element that saves to the same API:
-
-- `src`: the URL the resource loads now, its `src` resolved in its scope as the request layer gets it
-  (an API's `base` included, `/v1/tasks?open=1`; its query string as written; no pagination
-  parameters, no POST body). It follows the state and `$url` it reads. `null` while `when` is false,
-  and for a `call`, `for` or `file:` resource, which has no one URL. To build a path below it, insert
-  before the `?`.
-- `order`: the `order` attribute as written (`rank`, `-rank` for descending), `null` without one.
+(`subscribe(fn)`), with `name`, `key`, `isCollection` and `keyOf(item)`. It does not describe the
+declaration (its URL, its `order`): an element that changes the data emits an event, and the page
+saves it with an action on the element's tag, which has the request layer's optimistic change,
+`confirm` and errors ([components](components.md#events), [actions](actions.md#optimistic-updates)).
 
 `app.on` receives every event on the stream, including ones no `<sn-event>` maps, and fires after
 all mappings have run.

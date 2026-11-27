@@ -88,9 +88,8 @@ events and fills as for the app's own:
 - **One copy of sinter.** A linked library has a `node_modules` of its own, usually with its
   own sinter (its dev dependency). The plugin adds sinter to Vite's `resolve.dedupe`, so the library's
   `import … from '@tiaforge-ui/sinter'` gets the app's copy: a second copy's `instance()` knows none of the app's
-  mounts. Without the plugin (a bundler of its own, a test setup), dedupe it yourself. When two copies are loaded
-  anyway, `instance()` of the copy that did not mount the page throws `sinter: mounted by another copy`, and in
-  dev the app's copy warns with the cause, so code that catches the error still leaves a trace. A library that
+  mounts. Without the plugin (a bundler of its own, a test setup), dedupe it yourself: `instance()` throwing
+  `sinter: not mounted` on a root the app did mount is the sign of a second copy. A library that
   pins another sinter version gets the app's copy too: its `peerDependencies` range is what `SN537` checks.
   sinter itself can be linked the same way (`npm link`, `file:` to a checkout): its own files are a package to
   the plugin wherever they really are, never checked or rewritten as the app's modules.

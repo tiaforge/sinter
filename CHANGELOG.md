@@ -27,7 +27,6 @@ How to write an entry (from 0.21.0 on; older sections keep their own form):
 ### Added
 
 - An app can install an unreleased sinter from a git commit: `npm install github:tiaforge/sinter#<commit>` builds the package (`dist/`) as it installs, through a `prepare` script. `npm ci` in a checkout builds it too.
-- The store handle `instance(root).resource(name)` has `src` and `order`: the URL the resource loads now (its `src` resolved in its scope, an API's `base` included, without pagination parameters or a POST body; `null` while `when` is false and for `call`, `for` and `file:` resources) and its `order` attribute as written (`-rank`). A custom element can save to the resource's API without being told the URL again ([docs/islands.md](docs/islands.md#instance-api)).
 - `data-sn-optimistic` sees `$event`, as `data-sn-body`, `data-sn-confirm`, `then` and `catch` do (it was SN201). An action on a component's tag triggered by the component's event (`data-sn-put="/api/tasks/order" data-sn-trigger="move"`) reads `$event.detail` in its optimistic change as in its body, typed by `data-sn-emits`, so a page needs no state and hidden `run()` target to carry it. `data-sn-when` goes on a component's tag with the action, as the other action attributes do (it was SN102) ([docs/actions.md](docs/actions.md#optimistic-updates)).
 - `closePopover()` and `closePopover('id')` in handlers: hide the `popover` around the element, or the one with that
   id (a literal naming an element with `popover`, `SN309`), as `closeDialog()` does for dialogs. A same-page link in a
@@ -48,18 +47,17 @@ How to write an entry (from 0.21.0 on; older sections keep their own form):
 
 ### Fixed
 
-- `SN530` no longer reports an image whose height is a percentage of a box with a fixed height when an `@supports` rule may change that box's `display` and every display it may take gives the percentage the same basis (temper's avatar, `inline-grid` or `inline-block`); the image counts as sized, as it did without the `@supports` rule. See [SN530](docs/diagnostics.md#sn530-unsized-late-image).
+- `SN530` no longer reports an image whose height is a percentage of a box with a fixed height when an `@supports` rule may change that box's `display` and every display it may take gives the percentage the same basis (such as `inline-grid` or `inline-block`); the image counts as sized, as it did without the `@supports` rule. See [SN530](docs/diagnostics.md#sn530-unsized-late-image).
 - A page with `data-sn-transition` that navigates while a cross-document view transition runs no longer leaves an uncaught `Transition was aborted because of invalid state` in Chromium: the transition's `ready` and `updateCallbackDone` rejections are handled as `finished` already was ([docs/navigation.md](docs/navigation.md#page-transitions)).
-- An app whose `node_modules/@tiaforge-ui/sinter` links to a sinter checkout (`npm link`, `file:`) builds: the plugin took sinter's own files, outside `node_modules` by their real path, for the app's modules and failed on them (`clearPersisted()` is renamed to `clearStored()`). They are now a package wherever they are, to every check and rewrite of the app's modules ([docs/libraries.md](docs/libraries.md#using-one)).
+- An app whose `node_modules/@tiaforge-ui/sinter` links to a sinter checkout (`npm link`, `file:`) builds: the plugin took sinter's own files, outside `node_modules` by their real path, for the app's modules and failed on them, with a false report that `clearPersisted()` is renamed. They are now a package wherever they are, to every check and rewrite of the app's modules ([docs/libraries.md](docs/libraries.md#using-one)).
 - A component script's refs (`data-sn-ref`) inside a closed `<dialog>`, the dialog itself included, are set at mount, so `connected()` can reach them before the dialog opens; they were `undefined` until it opened. The dialog's other bindings and the components inside it still render when it opens ([docs/islands.md](docs/islands.md)).
 - Docs: a `data-sn-style` value rendered into the first frame is a `style` attribute, which `style-src 'self'` alone
   blocks; [docs/security.md](docs/security.md#csp-and-trusted-types) said that policy was enough. Allow
   `style-src-attr 'unsafe-inline'` for a right first frame.
 - A component library linked from outside the app (`file:`, `npm link`) no longer brings its own copy of sinter:
   the Vite plugin adds `@tiaforge-ui/sinter` to `resolve.dedupe`, so the library's scripts import the app's copy.
-  Before, the library's copy's `instance()` knew none of the app's mounts (caley: a self-saving sortable saved
-  nothing). A copy that did not mount a page now says so: `instance()` throws `sinter: mounted by another copy`, and in dev
-  the app's copy warns with the cause ([docs/libraries.md](docs/libraries.md#using-one)).
+  Before, the library's copy's `instance()` knew none of the app's mounts, so a self-saving element found no app
+  and saved nothing. With another bundler, dedupe `@tiaforge-ui/sinter` yourself ([docs/libraries.md](docs/libraries.md#using-one)).
 - A stylesheet with `@import 'virtual:…'` (a plugin's CSS, such as temper's `virtual:temper-icons.css`) is read for
   image sizes again: the import is left out and the rest of the stylesheet counts. It used to fail whole (`SN527`),
   and its images fell back to `sizes="auto, 100vw"`. An `SN527` for an `@import` that cannot be opened now names the
