@@ -33,7 +33,8 @@ describe('a DOM event\'s `$event`', () => {
   });
   test('without what the page\'s modules send (`compile()`), or with a module that makes a `click` with a detail, or one it could not read: any object', () => {
     expect(writes(PAGE, undefined, null).some(everything)).toBe(true);
-    expect(writes(PAGE, undefined, { unknown: null, risky: new Map([['click', 'x.ts:1']]) }).filter(everything)).toHaveLength(3);
+    // the write through `sel` (the two `sel = step($event, sel)` assign `sel` and change nothing inside it: a helper is pure)
+    expect(writes(PAGE, undefined, { unknown: null, risky: new Map([['click', 'x.ts:1']]) }).map(everything)).toEqual([false, false, true]);
     expect(writes(PAGE, undefined, { unknown: 'x.ts could not be read', risky: new Map() }).some(everything)).toBe(true);
   });
   test('the page shows the writes', async () => {

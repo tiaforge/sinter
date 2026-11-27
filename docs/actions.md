@@ -516,7 +516,7 @@ combobox) is one use:
 <input data-sn-model="q" data-sn-options="hits" data-sn-on-sn-dismiss="open = false">
 <ul id="hits" role="listbox" data-sn-show="open && hits.length">
   <template data-sn-for="h in hits">
-    <li role="option" data-sn-on-click="pick(h)" data-sn-text="h"></li>
+    <li role="option" data-sn-on-click="q = h; open = false" data-sn-text="h"></li>
   </template>
 </ul>
 ```

@@ -178,6 +178,11 @@ export interface CompileOptions {
   /** per helper (`fmt`, `ns$member`), whether its calls may run at build time, and why not (fold-check.ts): for SN322 */
   helperFold?: ReadonlyMap<string, FoldVerdict>;
   /**
+   * per helper (`fmt`, `ns$member`), per parameter, where its module writes into it (helper-writes.ts), with the place
+   * as `file:line:col`: a call that gives page data to such a parameter is SN214
+   */
+  helperWrites?: ReadonlyMap<string, ReadonlyArray<{ what: string; place: string } | null>>;
+  /**
    * a build: each distinct call that ran at build time and gave plain data (once per page), its arguments (another
    * call's result by its id) and its result (`resultKey`), which the build runs again in a fresh copy of the helpers
    * module at its end. `id` counts the page's calls from 0, again when the page starts afresh
@@ -2533,6 +2538,8 @@ class Compiler {
       actions: new Set([...(opts.actions?.names ?? []), ...Object.keys(opts.actions?.namespaces ?? {})]),
       usedHelpers: new Set(), usedNs: new Map(), usesNow: false, pathParams: new Set(), dialogs: new Set(), popovers: new Set(), fed: new Set(), ids: new Map(), emitted: new Set(),
       ...(opts.apis?.list.some((a) => a.token) ? { tokens: true } : {}),
+      ...(opts.dev ? { dev: true } : {}),
+      ...(opts.helperWrites?.size ? { helperWrites: opts.helperWrites } : {}),
     };
     const l = opts.locale;
     if (l) {

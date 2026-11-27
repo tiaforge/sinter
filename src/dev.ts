@@ -40,6 +40,7 @@ const MESSAGES: Record<number, string> = {
   32: 'the early script requested `%`, and a request middleware changed the request (a header, its credentials): the response is not used, and the page sent it again. Add what the middleware adds in `sinter({ apis })` (`headers`, `credentials`, `token`) instead, or answer it from the middleware with `early="off"` on the resource',
   25: 'font % is preloaded (sinter({ fonts: { preload } })), but the page did not render with it in its first % frames: the preload competes with what the first paint needs, and when the font is slow it can hold the first paint. Preload a face the first view uses, or remove it',
   36: 'a write changed `%`, which nothing it marked reaches (it marked %): what reads it shows the old value until something else renders it. A write sinter cannot see changed one of the page\'s objects (a custom element or a library that changes an object it was handed, a timer), or sinter\'s write analysis missed an alias: report it.%',
+  37: 'helper `%` changed %, which a helper may not do: it changes none of its arguments, and the page does not show what it changed. In the handler, change the state with the method itself (`tasks.sort(cmp)`, `ys[0].n++`), or return a new value from the helper and assign it (`tasks = sorted(tasks)`).%',
   22: "the page's Content-Security-Policy blocked an inline script (%): sinter's Speculation Rules are one, so the next page's HTML is not prefetched. If the policy comes from a response header, add 'inline-speculation-rules' to its script-src (a CSP in a <meta> gets their hash from the build), or set sinter({ prefetch: { html: { delivery: 'header' } } }). See docs/navigation.md",
 };
 
@@ -154,8 +155,13 @@ export function covers(w: string[], p: string[]): boolean {
     if (s == '*' || s == '#' || s == '~' || (s[0] == '{' && s.endsWith('}')) || s == p[i]) continue;
     return false;
   }
-  return true;
+  // a change below the written path, in place: not through a list's element, which the runtime's reach does not go
+  // into from above (a row renders again when its item is another, not when the list was written as a whole)
+  return !p.slice(w.length).some((x) => /^\d+$/.test(x));
 }
+
+/** a key as it reads after an expression: `[0]`, `.n`, `["a b"]` */
+const step = (k: string) => (/^\d+$/.test(k) ? `[${k}]` : /^[A-Za-z_$][\w$]*$/.test(k) ? `.${k}` : `[${JSON.stringify(k)}]`);
 
 /** Where function `f` was written, when one place in the IR uses it (a resource's or a stream event's `then`). */
 function onlyAt(app: App, f: number): string | undefined {
@@ -259,6 +265,30 @@ const dev: Feature = {
       if (/^http\/1\./i.test(protocolOf(url, app.env.href()) ?? '')) app.warn(18, url);
     };
 
+    // a helper called in a handler changes none of its arguments (docs/spec.md, Method classes): the dev page module
+    // calls it through `$.$hc(f, name, texts)(...args)`, which looks at its object arguments before and after the call
+    // (bounded as the write check is) and names what changed (warning 37). What it reported, warnings 15 and 36 do not
+    // report again at the next flush
+    let quiet = false;
+    const ran: string[] = [];
+    app.page.$hc = (f: (...a: unknown[]) => unknown, name: string, texts: string[]) => (...args: unknown[]) => {
+      const budget = { n: LIMIT };
+      const before = args.map((a) => (plain(a) ? snapshot(a, budget) : null));
+      const r = f(...args);
+      const changed: string[] = [];
+      before.forEach((s, i) => {
+        if (!s) return;
+        const out: string[][] = [];
+        changes(s, args[i], [], out);
+        for (const p of out) changed.push('`' + (texts[i] ?? `argument ${i + 1}`) + p.map(step).join('') + '`');
+      });
+      if (changed.length) {
+        quiet = true;
+        app.warn(37, name, changed.slice(0, 4).join(', ') + (changed.length > 4 ? `, and ${changed.length - 4} more` : ''), ran.length ? ` What ran: ${ran.join(', ')}` : '');
+      }
+      return r;
+    };
+
     // each concrete path a write changed is reached by a path it marked (warning 36). The state is looked at whenever
     // a flush starts, and what changed since the last look is checked against what was marked since: every writer
     // (handlers, models, actions' `then` and `catch`, resources' and streams' `then`, component scripts) marks first
@@ -270,7 +300,6 @@ const dev: Feature = {
         let slot = 0;
         return out.map((s) => (s[0] == '{' && s.endsWith('}') ? d.v[slot++] ?? s : s));
       };
-      const ran: string[] = [];
       const exec = app.exec;
       app.exec = (f, s, writes, o) => {
         const b = o as (Binding & { at?: Record<number, string> }) | undefined;
@@ -290,7 +319,7 @@ const dev: Feature = {
           const marked = dirty.filter((d) => d.w >= 0).map(segs);
           // a scope none of the marks is in: warning 15 says it
           if (!dirty.some((p) => inState(ps, p, sid))) continue;
-          for (const p of out) if (!marked.some((w) => covers(w, p))) {
+          if (!quiet) for (const p of out) if (!marked.some((w) => covers(w, p))) {
             const mine = marked.filter((w) => w[0] == `$s${sid}`).map((w) => w.join('.'));
             app.warn(36, p.join('.').replace(/^\$s\d+\./, ''), mine.length ? mine.slice(0, 6).map((x) => `\`${x.replace(/^\$s\d+\./, '')}\``).join(', ') + (mine.length > 6 ? `, and ${mine.length - 6} more` : '') : 'nothing of it', ran.length ? ` What ran: ${ran.join(', ')}` : ' No handler ran.');
           }
@@ -303,9 +332,9 @@ const dev: Feature = {
     const json = (o: unknown) => { try { return JSON.stringify(o); } catch { return ''; } };
     let last: string[] = [];
     app.beforeFlush.push((dirty) => app.states.forEach(([sid, obj], i) => {
-      if (json(obj) != last[i] && !dirty.some((p) => inState(app.ir.ps!, p, sid))) app.warn(15, Object.keys(obj).join('`, `'));
+      if (!quiet && json(obj) != last[i] && !dirty.some((p) => inState(app.ir.ps!, p, sid))) app.warn(15, Object.keys(obj).join('`, `'));
     }));
-    app.afterFlush.push(() => { last = app.states.map(([, obj]) => json(obj)); });
+    app.afterFlush.push(() => { last = app.states.map(([, obj]) => json(obj)); quiet = false; });
   },
 };
 

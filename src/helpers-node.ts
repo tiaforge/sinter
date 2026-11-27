@@ -11,6 +11,7 @@ import type { Plugin, ViteDevServer } from 'vite';
 import type { HelperManifest } from './compiler/compile.js';
 import type { Diagnostic } from './compiler/diagnostics.js';
 import { FoldCache, foldVerdicts, setAppAliases, type FoldVerdict } from './fold-check.js';
+import { helperWrites, writePlace } from './helper-writes.js';
 
 /** set while sinter loads a helpers module through a Vite server of its own: that server's sinter plugin does nothing */
 const LOADING = Symbol.for('sinter.helpers.loading');
@@ -29,6 +30,8 @@ export interface NodeHelpers {
   error: string | null;
   /** per helper, by the name compiled code calls (`fmt`, `ns$member`): may its calls run at build time */
   fold: Map<string, FoldVerdict>;
+  /** per helper, per parameter, where its module writes into it (helper-writes.ts): SN214 for a call over page data */
+  writes: Map<string, Array<{ what: string; place: string } | null>>;
   /** the app's files the static check read (the helpers module and what it reaches): a change in one reloads */
   files: string[];
 }
@@ -59,7 +62,9 @@ export async function loadHelpers(o: LoadOptions): Promise<NodeHelpers> {
   const check = () => {
     let fold = new Map<string, FoldVerdict>();
     try { fold = foldVerdicts(o.manifest, o.root, o.helpersFile, cache); } catch { /* nothing folds */ }
-    return { fold, files: [...cache.modules.keys()].filter((f) => !f.includes(`${sep}node_modules${sep}`)) };
+    const writes = new Map<string, Array<{ what: string; place: string } | null>>();
+    try { for (const [k, ws] of helperWrites(o.manifest, o.root, o.helpersFile, cache)) writes.set(k, ws.map((w) => (w ? { what: w.what, place: writePlace(w, o.root) } : null))); } catch { /* reports nothing */ }
+    return { fold, writes, files: [...cache.modules.keys()].filter((f) => !f.includes(`${sep}node_modules${sep}`)) };
   };
   if (!o.helpersFile) return { module: null, error: null, ...check() };
   // the app's aliases apply to the static check too, as they do to the module

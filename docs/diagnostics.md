@@ -182,6 +182,16 @@ A `data-sn-if`, a `data-sn-for` and the `use` of `<sn-component>` render a varia
 
 **Fix:** Read the element in a binding inside the template (each rendered element has its own `$el`), or decide with state instead of the element.
 
+## SN214 helper-changes-argument
+
+Error, for example:
+
+> `sortInPlace()` changes its argument `tasks` (`xs.sort()` at src/lib/tasks.ts:4:3), and a helper changes none of its arguments: what the page shows of `tasks` would not follow
+
+A helper changes none of its arguments, in a handler as in a binding (docs/spec.md, Method classes): the compiler sees what a handler changes only in the handler itself, so a change a helper makes inside state, a resource's data, a prop or a row's item leaves what reads it showing the old value. The build reads the helpers' modules and reports a call that gives page data to a parameter the helper writes into: an assignment to a member of it, `++`, `delete`, a mutating method (`push`, `sort`, `splice`, `set`, `add`, …) or `Object.assign()` onto it, directly or through a `const` (`const items = p.items`), a `for...of` element or a callback's element, or by passing it on to a function of the modules that does. Only writes it can see for certain count: a helper given an element (`$el`), an event or a literal is not reported (scrolling an element is what such a helper is for), and a write it cannot follow is left to the dev build, which reports a helper that changed an argument when the handler runs (dev warning 37).
+
+**Fix:** In a handler, change the state with the method itself, which the compiler sees (`tasks.sort(cmp)`, `ys[0].n++`), or make the helper return a new value and assign it (`tasks = sorted(tasks)`, with `sorted = (xs) => [...xs].sort(cmp)`). In a binding, make the helper work on a copy (`[...xs].sort()`, `{ ...o, n: 1 }`).
+
 ## SN301 unknown-resource
 
 Error, for example:

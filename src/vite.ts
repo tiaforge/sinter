@@ -1593,7 +1593,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       file: src, dev, helpers: helpersOf(p.helpers), readFile: readVia(p), ...contentOpts(v?.locale ?? (outside ? locales?.base : undefined)),
       ...(page ? { page } : {}), ...(v?.axes ? { axes: v.axes } : {}), ...(axisLists().length ? { axisLists: axisLists() } : {}), ...(axisUrlsOf(file) ? { axisUrls: axisUrlsOf(file)! } : {}), ...(pointLevels(file) ? { points: pointLevels(file)! } : {}),
       ...(lazyPkgs.length ? { lazyScript } : {}),
-      ...(helpersNow ? { helperValues: helpersNow.module, helperFold: helpersNow.fold } : {}),
+      ...(helpersNow ? { helperValues: helpersNow.module, helperFold: helpersNow.fold, helperWrites: helpersNow.writes } : {}),
       // build-time constants and pages with nothing to run do not depend on the early script: `firstPaint: false` turns off only that
       prerender: true as const,
       ...(p.changesRequests ? { changesRequests: true } : {}),
