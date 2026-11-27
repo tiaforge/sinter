@@ -112,6 +112,12 @@ How to write an entry (from 0.21.0 on; older sections keep their own form):
   settings 6,494 → 4,494, calendar 6,493 → 5,844, contacts 5,914 → 5,741; RealWorld unchanged. Nothing to do; the
   first paint is the same ([docs/first-paint.md](docs/first-paint.md#embedded-data)).
 
+- The built pages ask for their stylesheets before the page script and its module preloads (after the early script):
+  Vite wrote them last. A server sends in the order it is asked, over HTTP/2 from one large send buffer, so the
+  stylesheet arrived after every module and the first paint waited for it. Measured on Caley with nginx 1.24's
+  defaults over HTTP/2 (1.6 Mbit/s on the network path, a 150 ms round trip emulated in the browser, 4x CPU, cold
+  cache, 4 rounds): first paint 1,136 → 588 ms on the mail page, 808 → 548 ms on the calendar; mount and largest
+  paint unchanged. Nothing to do ([docs/first-paint.md](docs/first-paint.md#the-stylesheets-are-asked-for-first)).
 - A config module with `configure({ request: [onUnauthorized(…)] })` no longer turns off early requests. The build reads
   the `request` list's code: `onUnauthorized` and a middleware of your own that passes the request it was given to `next`
   untouched keep the requests sent before the page script; `header()` and any middleware that may change, replace or

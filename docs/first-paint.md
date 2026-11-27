@@ -152,6 +152,15 @@ sinter: early script of index.html: … gzip; in the page bundle too: src/format
 
 Split such a module (the helpers early bindings call in a module of their own), or accept the copy.
 
+### The stylesheets are asked for first
+
+In builds, the page's stylesheets come before the page script and its `modulepreload` links in the head (after the
+early script). A server sends in the order it is asked, and over HTTP/2 from one large send buffer: a stylesheet asked
+for after the modules arrives after all of them, and the first paint waits for it. Measured on Caley (nginx 1.24 with
+its defaults, HTTP/2, 1.6 Mbit/s on the path, 150 ms round trip, 4x CPU, cold): first paint 1,136 → 588 ms on mail,
+808 → 548 ms on calendar, mount and largest paint unchanged. Stylesheets your page writes before its scripts stay
+where they are.
+
 ### The page script is `async`
 
 In builds the page script is `async`, so it does not wait for stylesheets and starts its requests
