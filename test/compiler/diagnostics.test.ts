@@ -191,10 +191,12 @@ const SWAP_ONLY = ['SN540'];
 const OPTIONS_ONLY = ['SN348'];
 /** Where components' files are, read from the components folder by `project()`: SN349 in test/component-files.test.ts, test/libraries.test.ts and test/vite/components.test.ts. */
 const LOCATION_ONLY = ['SN349'];
+/** With `sinter({ explainWrites: true })` only: SN548 in test/compiler/explain-writes.test.ts. */
+const EXPLAIN_ONLY = ['SN548'];
 
 describe('every diagnostic code has a failing fixture', () => {
   test('all codes covered', () => {
-    expect(new Set([...cases.map((c) => c[0]), ...CHECK_ONLY, ...IMAGES_ONLY, ...STATIC_ONLY, ...LAZY_ONLY, ...APIS_ONLY, ...BUILD_ONLY, ...STYLES_ONLY, ...PRERENDER_ONLY, ...LIBRARY_ONLY, ...SWAP_ONLY, ...OPTIONS_ONLY, ...LOCATION_ONLY])).toEqual(new Set(Object.keys(CODES)));
+    expect(new Set([...cases.map((c) => c[0]), ...CHECK_ONLY, ...IMAGES_ONLY, ...STATIC_ONLY, ...LAZY_ONLY, ...APIS_ONLY, ...BUILD_ONLY, ...STYLES_ONLY, ...PRERENDER_ONLY, ...LIBRARY_ONLY, ...SWAP_ONLY, ...OPTIONS_ONLY, ...LOCATION_ONLY, ...EXPLAIN_ONLY])).toEqual(new Set(Object.keys(CODES)));
   });
   for (const [code, html, message, check] of cases) {
     test(code, () => {

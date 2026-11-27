@@ -16,7 +16,7 @@ import * as parse5 from 'parse5';
 import { freeRefs, parseExpression, parseProgram } from './parse.js';
 import type { DefaultTreeAdapterMap } from 'parse5';
 import { type Code, type Diagnostic, didYouMean, distance, severityOf, suggest } from './diagnostics.js';
-import { analyze, applyEdits, foldsInto, nsLocal, refNames, STORE_FNS, throughField, wild, type SlotScope, type ComponentScope, type ExprOptions, type ExprResult, type LetEntry, type LoopEntry, type PageInfo, type Read, type ResourceInfo, type Scope } from './expr.js';
+import { type AliasSite, analyze, applyEdits, foldsInto, nsLocal, refNames, STORE_FNS, throughField, wild, type SlotScope, type ComponentScope, type ExprOptions, type ExprResult, type LetEntry, type LoopEntry, type PageInfo, type Read, type ResourceInfo, type Scope } from './expr.js';
 import { callerAttribute, COMPONENT_NAME, componentPaths, DOM_EVENTS, inlineScriptLang, inlineScriptPath, inlineScripts, type InlineScript, isArrayType, LIBRARY_LAYER, rootCss, scopeCss, SLOT_TYPE, typeMembers, withoutSlots, type Member } from './components.js';
 import type { Node } from 'acorn';
 import type * as acorn from 'acorn';
@@ -294,6 +294,8 @@ export interface CompileOptions {
   constants?: Map<string, ConstantWrite[]>;
   /** the most rows and component instances a page expands at build time, in all (default `EXPANSION_LIMIT`; `sinter({ expansionLimit })`) */
   expansionLimit?: number;
+  /** `sinter({ explainWrites })`: SN548 names each alias that makes handlers' writes impossible to follow */
+  explainWrites?: boolean;
   /** internal, set by `compileParts` for its second pass: the trees the first found over the limit (`SN536` again, there) */
   overLimit?: Map<string, number>;
   /**
@@ -5416,7 +5418,9 @@ class Compiler {
       this.stateInits.push({ sid, fields: r.entries!.map((e) => ({ key: e.key, code: e.code, deps: e.deps })), persist: node.persist ?? null });
       // a field initialized with one of the page's objects (a prop, a resource's item) is an alias of it
       for (const e of r.entries!) {
-        for (const p of e.pieces ?? []) (this.page.aliases ??= []).push({ t: wild([`$s${sid}`, e.key, ...p.sub]), s: p.src && wild(p.src) });
+        const a0 = this.page.aliases?.length ?? 0;
+        for (const p of e.pieces ?? []) (this.page.aliases ??= []).push({ t: wild([`$s${sid}`, e.key, ...p.sub]), s: p.src && wild(p.src), ...(!p.src && p.why ? { why: p.why } : {}) });
+        if (this.opts.explainWrites) this.aliasSites(a0, el, 'data-sn-state', attr(el, 'data-sn-state') ?? '', e.offset);
         if (!e.prim) (this.page.objectFields ??= new Set()).add(`$s${sid}.${e.key}`);
       }
       const site: Site = { el, attr: 'data-sn-state', shift: 0 };
@@ -7214,7 +7218,9 @@ class Compiler {
       const ev = attrName.startsWith('data-sn-on-') ? attrName.slice('data-sn-on-'.length) : TRIGGER_TIME.has(attrName) || attrName === 'data-sn-optimistic' || attrName === 'data-sn-then' || attrName === 'data-sn-catch' ? attr(el, 'data-sn-trigger') ?? 'click' : null;
       if (ev) o = { ...o, detailSource: `@ev:${host.id}:${ev}` };
     }
+    const a0 = this.page.aliases?.length ?? 0;
     const r = analyze(src, scope, this.page, { ...o, report: this.reporter(el, attrName, shift) });
+    if (this.opts.explainWrites) this.aliasSites(a0, el, attrName, src, shift);
     for (const a of r.assigns ?? []) this.addSources(`@${a.path}`, a.src);
     if (scope.component?.id !== undefined) for (const e of r.emitted ?? []) this.addSources(`@ev:${scope.component.id}:${e.event}`, e.src);
     for (const c of r.srcRefs ?? []) this.srcCalls.push({ el, attr: attrName, shift, ...c });
@@ -12635,7 +12641,7 @@ class Compiler {
   applyAliases() {
     // a component's script assigns its state's fields anything, a prop's object included
     for (const us of this.uses.values()) for (const u of us) if (u.sid !== undefined && this.componentFiles.get(u.name)?.script) {
-      (this.page.aliases ??= []).push({ t: [`$s${u.sid}`, '*'], s: null });
+      (this.page.aliases ??= []).push({ t: [`$s${u.sid}`, '*'], s: null, why: `\`<${u.name}>\`'s script may give its state's fields any object` });
       (this.page.objectFields ??= new Set()).add(`$s${u.sid}.*`);
     }
     // a field only ever given primitives (its initializer and every assignment) holds none of the page's objects
@@ -12658,11 +12664,12 @@ class Compiler {
     // `**`: anything below, at any depth
     const under = (p: string[], x: string[]) => { const k = p.indexOf('**'), q = k < 0 ? p : p.slice(0, k); return q.length <= x.length && q.every((y, i) => seg(y, x[i]!)); };
     const deep = (p: string[]) => { const k = p.indexOf('**'); return k < 0 ? p : p.slice(0, k + 1); };
-    const extend = (ws: string[]): string[] => {
+    /** `ws` with what it reaches through aliases; with `causes`, the untraceable aliases that would make it everything (-1: its size), instead */
+    const extend = (ws: string[], causes?: Set<number>): string[] => {
       // each path with the alias it came through, which it does not go back through
       const out = new Set(ws), queue: Array<[string, number]> = ws.map((w) => [w, -1]);
       while (queue.length) {
-        if (out.size > 400) { for (const a of ALL) out.add(a); break; }
+        if (out.size > 400) { if (causes) causes.add(-1); else for (const a of ALL) out.add(a); break; }
         const [w, from] = queue.shift()!, W = w.split('.'), end = W[W.length - 1]!;
         // the object the write changes: the one holding the field it assigns, or the one a method changes
         const whole = (mutated.has(w) && end !== '#') || end === '**', O = end === '#' || end === '**' ? W.slice(0, -1) : whole ? W : W.slice(0, -1);
@@ -12670,14 +12677,14 @@ class Compiler {
         const add = (p: string[]) => { const k = p.join('.'); if (!out.has(k)) { out.add(k); queue.push([k, via]); } };
         const changes = (t: string[], s: string[] | null) => {
           if (under(t, O)) {
-            if (!s) return ALL.forEach((a) => add([a]));
+            if (!s) return void (causes ? causes.add(via) : ALL.forEach((a) => add([a])));
             const out = t.includes('**') ? [...s, '**'] : [...s, ...W.slice(t.length)];
             // the object written is a marked row element (`~`, by identity): the rows that hold it, not all of them
             if (!t.includes('**') && O[t.length - 1] === '~' && out[s.length - 1] === '*') out[s.length - 1] = '~';
             add(deep(out));
           } else if (whole && O.length < t.length && under(O, t)) {
             // a change of everything inside an object that holds the alias (a list's order, `#`, changes no object in it)
-            if (s) add(deep([...s, '**'])); else ALL.forEach((a) => add([a]));
+            if (s) add(deep([...s, '**'])); else if (causes) causes.add(via); else ALL.forEach((a) => add([a]));
           }
         };
         for (const [i, a] of list.entries()) {
@@ -12692,16 +12699,67 @@ class Compiler {
       return [...out];
     };
     const done = new WeakSet<PathRef[]>();
+    // SN548: for each alias the compiler cannot trace, the handlers whose writes reach it (and so everything)
+    const blamed = this.opts.explainWrites ? new Map<number, string[]>() : null;
+    let owner = '';
     const fix = (ws: PathRef[] | undefined) => {
       if (!ws?.length || done.has(ws)) return;
       done.add(ws);
+      if (blamed) {
+        const causes = new Set<number>();
+        extend(strs(ws), causes);
+        for (const i of causes) { const l = blamed.get(i) ?? []; l.push(owner); blamed.set(i, l); }
+      }
       const next = extend(strs(ws));
       if (next.length !== ws.length) ws.splice(0, ws.length, ...next);
     };
-    for (const n of [...this.roots, ...this.templates.flatMap((t) => t.nodes)]) for (const b of n.b) fix(b.w);
-    for (const a of this.actions) fix(a.w);
-    for (const r of this.resources) fix(r.w);
-    for (const x of this.syncs) for (const e of x.events) fix(e.w);
+    for (const n of [...this.roots, ...this.templates.flatMap((t) => t.nodes)]) for (const b of n.b) { if (blamed) owner = this.ownerOf(b); fix(b.w); }
+    for (const a of this.actions) { if (blamed) owner = 'an action\'s `then`'; fix(a.w); }
+    for (const r of this.resources) { if (blamed) owner = `\`<sn-resource name="${r.name}">\``; fix(r.w); }
+    for (const x of this.syncs) for (const e of x.events) { if (blamed) owner = `\`<sn-event name="${e.name}">\``; fix(e.w); }
+    if (blamed) this.explainWrites(blamed, list);
+  }
+
+  /** where a handler is, for SN548: its attribute, file and line */
+  private ownerOf(b: Binding): string {
+    const at = b.f === undefined ? null : this.fnAt[b.f];
+    if (!at) return `a \`${b.k}\` binding`;
+    const o = this.origins.get(at.el) ?? { file: this.opts.file, src: '', chain: [] };
+    const { line } = at.el.sourceCodeLocation ? this.lineCol(o.src, this.valueOffset(at.el, at.attr) + at.shift) : { line: 1 };
+    return `\`${at.attr ?? at.el.tagName}\` (${this.relFile(o.file)}:${line})`;
+  }
+
+  private relFile(f: string): string {
+    return f.startsWith(this.opts.root) ? f.slice(this.opts.root.length).replace(/^\//, '') : f;
+  }
+
+  /** The untraceable aliases an expression made (from `a0` on): their place, kept with them (a linked definition's aliases keep theirs). */
+  private aliasSites(a0: number, el: P5Element, attrName: string, src: string, shift: number) {
+    const list = this.page.aliases ?? [];
+    if (list.length <= a0) return;
+    const o = this.origins.get(el) ?? { file: this.opts.file, src: '', chain: [] };
+    const { line, col } = el.sourceCodeLocation ? this.lineCol(o.src, this.valueOffset(el, attrName) + shift) : { line: 1, col: 1 };
+    const at: AliasSite = { text: src.replace(/\s+/g, ' ').trim(), file: o.file, line, col };
+    for (let i = a0; i < list.length; i++) if (!list[i]!.s && !list[i]!.at) list[i]!.at = at;
+  }
+
+  /**
+   * SN548, once per alias the compiler cannot trace that makes some handler's writes everything: where it was made, what
+   * it holds, and the handlers it reaches (the first few). One alias of these marks all of a page's state from any handler
+   * that writes inside an object, so the page's lists of them are short: removing each makes those handlers precise.
+   */
+  private explainWrites(blamed: Map<number, string[]>, list: NonNullable<PageInfo['aliases']>) {
+    for (const [i, owners] of blamed) {
+      const a = i >= 0 ? list[i] : undefined;
+      const n = new Set(owners).size, shown = [...new Set(owners)].slice(0, 3).join(', ') + (n > 3 ? `, and ${n - 3} more` : '');
+      const what = a?.why ?? (i < 0 ? 'a write reaches more than 400 paths through aliases' : 'it holds a value the compiler cannot follow');
+      const message = i < 0
+        ? `the writes of ${n === 1 ? 'a handler' : `${n} handlers`} cannot be followed (${what}), so ${n === 1 ? 'it re-renders' : 'they re-render'} everything that reads state: ${shown}`
+        : `\`${a?.t.join('.').replace(/^\$s\d+\./, '')}\` may hold any of the page's objects (${what}), so the writes of ${n === 1 ? 'a handler' : `${n} handlers`} cannot be followed and re-render everything that reads state: ${shown}`;
+      const at = a?.at;
+      this.diagnostics.push({ severity: 'warning', code: 'SN548', message: at ? `${message}. It was made by \`${at.text.length > 80 ? at.text.slice(0, 77) + '…' : at.text}\`` : message, file: at?.file ?? this.opts.file, line: at?.line ?? 1, col: at?.col ?? 1,
+        hint: 'give the alias a value the compiler can follow: a state path, a list\'s element, `structuredClone(…)` of the value, or a primitive (`String(…)`, `Number(…)`) (docs/diagnostics.md#sn548-untraceable-writes)' });
+    }
   }
 
   writtenState(): Set<string> {

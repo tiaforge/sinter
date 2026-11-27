@@ -118,6 +118,7 @@ export const CODES = {
   SN545: 'late-live-region',
   SN546: 'image-alt',
   SN547: 'close-component-name',
+  SN548: 'untraceable-writes',
 } as const;
 
 export type Code = keyof typeof CODES;
@@ -143,9 +144,10 @@ export const ENVIRONMENT_CODES: ReadonlySet<string> = new Set(['SN525', 'SN526',
 
 /**
  * Warnings that are a measure, not a mistake: `--strict` leaves them warnings. `SN507` has its own
- * switch, `sinter({ complexity: { level: 'error' } })`; `SN536` is the build-time expansion limit.
+ * switch, `sinter({ complexity: { level: 'error' } })`; `SN536` is the build-time expansion limit; `SN548`,
+ * which `sinter({ explainWrites: true })` turns on, says where a page's writes stop being followed.
  */
-export const HEURISTIC_CODES: ReadonlySet<string> = new Set(['SN507', 'SN536']);
+export const HEURISTIC_CODES: ReadonlySet<string> = new Set(['SN507', 'SN536', 'SN548']);
 
 /** Whether `--strict` turns a warning with this code into an error (unless allowed). */
 export function strictPromotes(code: string): boolean {

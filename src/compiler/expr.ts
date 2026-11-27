@@ -167,7 +167,7 @@ export interface PageInfo {
    * Aliases (docs/spec.md, Aliases): the object at path `t` may be the one at `s` (null: one the compiler
    * cannot trace), from every handler and state initializer of the page; `*` stands for any key or row
    */
-  aliases?: Array<{ t: string[]; s: string[] | null }>;
+  aliases?: Array<{ t: string[]; s: string[] | null; why?: string; at?: AliasSite }>;
   /** written paths that change the object at the path (a method, `Object.assign`), not the field holding it */
   mutated?: Set<string>;
   /** state fields (`$s0.x`) that may hold an object: one assigned or initialized with something not surely a primitive, or written below */
@@ -240,7 +240,12 @@ export interface ObjectEntry {
  * `['*']` any element or key) may be the one at path `src`, or one the compiler cannot trace (null). A value
  * with no pieces holds no object of the page's (a primitive, a fresh copy).
  */
-export interface Piece { sub: string[]; src: string[] | null }
+export interface Piece {
+  sub: string[];
+  src: string[] | null;
+  /** with no `src`: what the compiler could not follow, for SN548 (`` `reduce(…)` is the result of `reduce()` ``) */
+  why?: string;
+}
 
 export interface ExprResult {
   ok: boolean;
@@ -435,7 +440,7 @@ const EVENT_NATIVE = new Set(['target', 'currentTarget', 'key', 'code', 'type', 
   'offsetX', 'offsetY', 'deltaX', 'deltaY', 'altKey', 'ctrlKey', 'metaKey', 'shiftKey', 'repeat', 'isComposing', 'data', 'inputType',
   'timeStamp', 'submitter', 'newState', 'oldState', 'relatedTarget', 'dataTransfer', 'clipboardData', 'touches', 'changedTouches', 'state', 'origin']);
 /** the pieces of a value spread or copied into another (`[...x]`, `{ ...x }`, `Object.assign(t, x)`): the value's own contents */
-const contentsOf = (ps: Piece[]): Piece[] => ps.map((p) => (p.sub.length ? p : { sub: ['*'], src: p.src && [...p.src, '*'] }));
+const contentsOf = (ps: Piece[]): Piece[] => ps.map((p) => (p.sub.length ? p : { sub: ['*'], src: p.src && [...p.src, '*'], ...(p.why ? { why: p.why } : {}) }));
 /** a path with its row segments (`{$i3}`, `{i}`, `~`) as `*`: an alias holds whichever row it was */
 export const wild = (segs: string[]): string[] => segs.map((x) => (x[0] === '{' || x === '~' ? '*' : x));
 
@@ -468,6 +473,9 @@ interface LocalInfo { alias: string[] | null; resource: string | null; prim?: tr
 type Locals = Map<string, LocalInfo>;
 
 interface Edit { start: number; end: number; text: string }
+
+/** Where an alias the compiler cannot trace was made (SN548): the expression, and its place in the markup. */
+export interface AliasSite { text: string; file: string; line: number; col: number }
 
 /** The root and static segments of a member chain. */
 interface ChainPath {
@@ -826,18 +834,19 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
    * a let, a component event's detail, a function) holds an untraceable one.
    */
   function classify(e: Node, locals: Locals): Piece[] {
-    const ANY: Piece[] = [{ sub: [], src: null }];
+    /** a value the compiler cannot follow, with what it is: a page object, any of them */
+    const opaque = (what: string, n: Node = e): Piece[] => [{ sub: [], src: null, why: `\`${src.slice(n.start, n.end).replace(/\s+/g, ' ').slice(0, 60)}\` is ${what}` }];
     const union = (...xs: Node[]) => xs.flatMap((x) => classify(x, locals));
     // a helper's result holds fresh values, or objects found in its arguments, at any depth (docs/spec.md, Aliases)
-    const helperResult = (args: Node[]): Piece[] => args.flatMap((a) => (a.type === 'SpreadElement' ? contentsOf(classify(a.argument as Node, locals)) : a.type === 'ArrowFunctionExpression' ? returned(a, ANY) : classify(a, locals))
-      .map((p) => ({ sub: ['**'], src: p.src && [...p.src, '**'] })));
+    const helperResult = (args: Node[]): Piece[] => args.flatMap((a) => (a.type === 'SpreadElement' ? contentsOf(classify(a.argument as Node, locals)) : a.type === 'ArrowFunctionExpression' ? returned(a, opaque('a callback\'s argument', a)) : classify(a, locals))
+      .map((p) => ({ sub: ['**'], src: p.src && [...p.src, '**'], ...(p.why ? { why: p.why } : {}) })));
     /** what a callback returns, its first parameter standing for an element of `recv`, the second for its index */
     const returned = (fn: Node | undefined, recv: Piece[]): Piece[] => {
-      if (!fn || fn.type !== 'ArrowFunctionExpression' || fn.body.type === 'BlockStatement') return ANY;
+      if (!fn || fn.type !== 'ArrowFunctionExpression' || fn.body.type === 'BlockStatement') return opaque('what a callback with a block body returns', fn ?? e);
       const one = recv.length === 1 && !recv[0]!.sub.length ? recv[0]!.src : null;
       const inner = new Map(locals);
       for (const [i, x] of (fn.params as Node[]).entries()) {
-        if (x.type !== 'Identifier') return ANY;
+        if (x.type !== 'Identifier') return opaque('a destructured callback parameter', x);
         inner.set(x.name, i === 0 ? { alias: one && [...one, '*'], resource: null } : i === 1 ? { alias: null, resource: null, prim: true } : { alias: one, resource: null });
       }
       return classify(fn.body as Node, inner);
@@ -851,19 +860,19 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
       case 'ConditionalExpression': return union(e.consequent as Node, e.alternate as Node);
       case 'LogicalExpression': return union(e.left as Node, e.right as Node);
       case 'ArrayExpression': return (e.elements as Array<Node | null>).flatMap((x) => (!x ? [] : x.type === 'SpreadElement'
-        ? contentsOf(classify(x.argument as Node, locals)).map((p) => ({ sub: ['*', ...p.sub.slice(1)], src: p.src }))
-        : classify(x, locals).map((p) => ({ sub: ['*', ...p.sub], src: p.src }))));
+        ? contentsOf(classify(x.argument as Node, locals)).map((p) => ({ sub: ['*', ...p.sub.slice(1)], src: p.src, ...(p.why ? { why: p.why } : {}) }))
+        : classify(x, locals).map((p) => ({ sub: ['*', ...p.sub], src: p.src, ...(p.why ? { why: p.why } : {}) }))));
       case 'ObjectExpression': return (e.properties as any[]).flatMap((x): Piece[] => {
         if (x.type === 'SpreadElement') return contentsOf(classify(x.argument as Node, locals));
         const key = !x.computed && x.key.type === 'Identifier' ? x.key.name : !x.computed && x.key.type === 'Literal' ? String(x.key.value) : '*';
-        return x.kind !== 'init' || x.method ? ANY.map((p) => ({ sub: [key], src: p.src })) : classify(x.value as Node, locals).map((p) => ({ sub: [key, ...p.sub], src: p.src }));
+        return x.kind !== 'init' || x.method ? opaque('a method or accessor', x).map((p) => ({ sub: [key], src: p.src, ...(p.why ? { why: p.why } : {}) })) : classify(x.value as Node, locals).map((p) => ({ sub: [key, ...p.sub], src: p.src, ...(p.why ? { why: p.why } : {}) }));
       });
-      case 'NewExpression': return e.callee.type === 'Identifier' && /^(Date|URL|URLSearchParams|RegExp|Error|TypeError|RangeError)$/.test(e.callee.name) ? [] : ANY;
+      case 'NewExpression': return e.callee.type === 'Identifier' && /^(Date|URL|URLSearchParams|RegExp|Error|TypeError|RangeError)$/.test(e.callee.name) ? [] : opaque('a new object of a class the compiler does not know');
       case 'Identifier': case 'MemberExpression': {
         const cp = chainPath(e, locals);
         if (cp?.segs && (cp.res.kind === 'state' || cp.res.kind === 'loop' || cp.res.kind === 'local' || cp.res.kind === 'resource' || cp.res.kind === 'magic')) return [{ sub: [], src: cp.segs }];
         if (cp?.res.kind === 'magic') {
-          if (cp.root === '$event') return cp.props[0] && (EVENT_NATIVE.has(cp.props[0]) || (cp.props[0] === 'detail' && opts.freshDetail)) ? [] : ANY;
+          if (cp.root === '$event') return cp.props[0] && (EVENT_NATIVE.has(cp.props[0]) || (cp.props[0] === 'detail' && opts.freshDetail)) ? [] : opaque(cp.props[0] === 'detail' ? 'an event\'s detail' : 'the event');
           // the action's response, an error, the element: never the page's state
           return [];
         }
@@ -875,17 +884,17 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
           // a member of a value that is no path (`find(xs, id).items`): the pieces under that member. A piece anywhere
           // below the value (`**`: what a helper returns of its argument, `pick(ys)`) may be the member or below it: it stays
           const prop = !e.computed && e.property.type === 'Identifier' ? e.property.name : e.computed && e.property.type === 'Literal' ? String(e.property.value) : '*';
-          return classify(e.object as Node, locals).flatMap((p) => (!p.sub.length ? [{ sub: [], src: p.src && [...p.src, prop] }]
-            : p.sub[0] === '**' ? [p] : p.sub[0] === '*' || prop === '*' || p.sub[0] === prop ? [{ sub: p.sub.slice(1), src: p.src }] : []));
+          return classify(e.object as Node, locals).flatMap((p) => (!p.sub.length ? [{ sub: [], src: p.src && [...p.src, prop], ...(p.why ? { why: p.why } : {}) }]
+            : p.sub[0] === '**' ? [p] : p.sub[0] === '*' || prop === '*' || p.sub[0] === prop ? [{ sub: p.sub.slice(1), src: p.src, ...(p.why ? { why: p.why } : {}) }] : []));
         }
-        return ANY;
+        return opaque(cp?.res.kind === 'let' ? 'a `data-sn-let`' : cp?.res.kind === 'loop' ? (cp.res.entry.kind === 'index' ? 'a loop index' : 'an item of a list that is no state path') : cp?.res.kind === 'local' ? 'a callback\'s parameter over a list that is no path' : 'a value the compiler cannot follow');
       }
       case 'CallExpression': {
         const callee = (e.callee.type === 'ChainExpression' ? e.callee.expression : e.callee) as Node;
         const args = e.arguments as Node[];
         if (callee.type === 'Identifier' && !locals.has(callee.name)) {
           if (FRESH_CALLS.has(callee.name) || BUILTIN_HELPERS.includes(callee.name) || STORE_FNS.includes(callee.name)) return [];
-          return resolveQuiet(callee.name, locals)?.kind === 'helper' ? helperResult(args) : ANY;
+          return resolveQuiet(callee.name, locals)?.kind === 'helper' ? helperResult(args) : opaque(`the result of \`${callee.name}()\``);
         }
         if (callee.type === 'MemberExpression') {
           const m = callee as acorn.MemberExpression & Node;
@@ -893,32 +902,32 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
           if (m.object.type === 'Identifier' && page.namespaces.has(m.object.name) && !locals.has(m.object.name)) return helperResult(args);
           if (m.object.type === 'Identifier' && !locals.has(m.object.name) && (resolveQuiet(m.object.name, locals)?.kind ?? 'global') === 'global') {
             const o = m.object.name;
-            if (FRESH_STATICS.has(o) && !(o === 'JSON' && method !== 'parse' && method !== 'stringify') || FRESH_STATICS.has(`${o}.${method}`)) return o === 'Number' || o === 'Math' || o === 'JSON' || o === 'Date' || o === 'Intl' || method === 'isArray' || method === 'keys' ? [] : ANY;
-            if (o === 'Object' && (method === 'values' || method === 'entries') && args[0]) return contentsOf(classify(args[0], locals)).map((p) => ({ sub: method === 'entries' ? ['*', '*', ...p.sub.slice(1)] : p.sub, src: p.src }));
+            if (FRESH_STATICS.has(o) && !(o === 'JSON' && method !== 'parse' && method !== 'stringify') || FRESH_STATICS.has(`${o}.${method}`)) return o === 'Number' || o === 'Math' || o === 'JSON' || o === 'Date' || o === 'Intl' || method === 'isArray' || method === 'keys' ? [] : opaque(`the result of \`${o}.${method}()\``);
+            if (o === 'Object' && (method === 'values' || method === 'entries') && args[0]) return contentsOf(classify(args[0], locals)).map((p) => ({ sub: method === 'entries' ? ['*', '*', ...p.sub.slice(1)] : p.sub, src: p.src, ...(p.why ? { why: p.why } : {}) }));
             if (o === 'Array' && method === 'from' && args[0] && args.length === 1) return contentsOf(classify(args[0], locals));
-            if (o === 'Array' && method === 'from' && args[0] && args.length === 2) return returned(args[1], classify(args[0], locals)).map((p) => ({ sub: ['*', ...p.sub], src: p.src }));
-            if (o === 'Array' && method === 'of') return args.flatMap((a) => classify(a, locals).map((p) => ({ sub: ['*', ...p.sub], src: p.src })));
-            return ANY;
+            if (o === 'Array' && method === 'from' && args[0] && args.length === 2) return returned(args[1], classify(args[0], locals)).map((p) => ({ sub: ['*', ...p.sub], src: p.src, ...(p.why ? { why: p.why } : {}) }));
+            if (o === 'Array' && method === 'of') return args.flatMap((a) => classify(a, locals).map((p) => ({ sub: ['*', ...p.sub], src: p.src, ...(p.why ? { why: p.why } : {}) })));
+            return opaque(`the result of \`${o}.${method}()\``);
           }
           if (method && FRESH_METHODS.has(method)) return [];
-          const recv = method ? classify(m.object as Node, locals) : ANY;
+          const recv = method ? classify(m.object as Node, locals) : opaque('a computed member');
           if (method && SELF_METHODS.has(method)) return recv;
-          if (method && ELEMENT_METHODS.has(method)) return recv.flatMap((p) => (!p.sub.length ? [{ sub: [], src: p.src && [...p.src, '*'] }] : [{ sub: p.sub.slice(1), src: p.src }]));
+          if (method && ELEMENT_METHODS.has(method)) return recv.flatMap((p) => (!p.sub.length ? [{ sub: [], src: p.src && [...p.src, '*'], ...(p.why ? { why: p.why } : {}) }] : [{ sub: p.sub.slice(1), src: p.src, ...(p.why ? { why: p.why } : {}) }]));
           if (method && ELEMENTS_METHODS.has(method)) {
-            const extra = method === 'concat' ? args.flatMap((a) => contentsOf(classify(a, locals)).concat(classify(a, locals).map((p) => ({ sub: ['*', ...p.sub], src: p.src }))))
-              : method === 'with' && args[1] ? classify(args[1], locals).map((p) => ({ sub: ['*', ...p.sub], src: p.src })) : [];
+            const extra = method === 'concat' ? args.flatMap((a) => contentsOf(classify(a, locals)).concat(classify(a, locals).map((p) => ({ sub: ['*', ...p.sub], src: p.src, ...(p.why ? { why: p.why } : {}) }))))
+              : method === 'with' && args[1] ? classify(args[1], locals).map((p) => ({ sub: ['*', ...p.sub], src: p.src, ...(p.why ? { why: p.why } : {}) })) : [];
             return [...contentsOf(recv), ...extra];
           }
           if (method === 'map' || method === 'flatMap') {
             const out = returned(args[0], recv);
-            return [...out.map((p) => ({ sub: ['*', ...p.sub], src: p.src })), ...(method === 'flatMap' ? out : [])];
+            return [...out.map((p) => ({ sub: ['*', ...p.sub], src: p.src, ...(p.why ? { why: p.why } : {}) })), ...(method === 'flatMap' ? out : [])];
           }
           // `reduce`, an unknown method: anything
-          return ANY;
+          return opaque(`the result of \`${method ?? 'a computed method'}()\``);
         }
-        return ANY;
+        return opaque('the result of a call');
       }
-      default: return ANY;
+      default: return opaque('a value the compiler cannot follow');
     }
   }
 
@@ -990,7 +999,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
   function alias(t: string[] | null, ps: Piece[]) {
     if (!t || !ps.length) return;
     const list = (page.aliases ??= []);
-    for (const p of ps) list.push({ t: wild([...t, ...p.sub]), s: p.src && wild(p.src) });
+    for (const p of ps) list.push({ t: wild([...t, ...p.sub]), s: p.src && wild(p.src), ...(!p.src && p.why ? { why: p.why } : {}) });
   }
   const mutation = (w: string) => { (page.mutated ??= new Set()).add(w); return w; };
 
@@ -1433,7 +1442,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
                 : method === 'splice' ? n.arguments.slice(2) : method === 'set' ? n.arguments.slice(1) : MUTATORS.has(method) ? [] : n.arguments;
               for (const a of stored as Node[]) {
                 const ps = a.type === 'SpreadElement' ? contentsOf(classify(a.argument as Node, locals)) : classify(a, locals);
-                alias([...recv.segs, '*'], MUTATORS.has(method) ? ps : ps.map(() => ({ sub: [], src: null })));
+                alias([...recv.segs, '*'], MUTATORS.has(method) ? ps : ps.map(() => ({ sub: [], src: null, why: `what \`${method}()\`, a method the compiler does not know, keeps of its argument` })));
               }
             } else if (mode === 'handler' && recv.segs && recv.root === '$url') {
               writes.add(recv.segs.slice(0, 2).join('.'));
@@ -1457,7 +1466,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
                 writes.add(mutation(track(cp, cp.segs, n).join('.')));
                 holdsObject(cp.segs);
                 if (method === 'assign') for (const a of n.arguments.slice(1) as Node[]) alias(cp.segs, contentsOf(classify(a, locals)));
-                else for (const a of n.arguments.slice(1) as Node[]) alias([...cp.segs, '*'], classify(a, locals).map(() => ({ sub: [], src: null })));
+                else for (const a of n.arguments.slice(1) as Node[]) alias([...cp.segs, '*'], classify(a, locals).map(() => ({ sub: [], src: null, why: `what \`Object.${method}()\` stores` })));
               }
             }
           }
