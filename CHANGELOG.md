@@ -121,15 +121,18 @@ How to write an entry (from 0.21.0 on; older sections keep their own form):
 - A config module with `configure({ request: [onUnauthorized(…)] })` no longer turns off early requests. The build reads
   the `request` list's code: `onUnauthorized` and a middleware of your own that passes the request it was given to `next`
   untouched keep the requests sent before the page script; `header()` and any middleware that may change, replace or
-  refuse the request turn them off for APIs without a `token`, as before. Measured on the prototype with Caley (slow
-  network emulated: 150 ms, 1.6 Mbit/s, HTTP/2, 4x CPU, cold cache), largest paint: mail 1,796 → 1,656 ms, calendar
-  1,276 → 1,228 ms. The early script grows by the request code (Caley mail: about +1.3 kB gzip). Nothing to do
+  refuse the request turn them off for APIs without a `token`, as before. Measured on the prototype with Caley over
+  HTTP/2 (nginx 1.24 defaults, 1.6 Mbit/s on the network path, 150 ms round trip emulated in the browser, 4x CPU, cold
+  cache, 4 rounds): largest paint mail 2,020 → 1,944 ms, calendar 1,024 → 980 ms; first row 1,917 → 1,876 ms and
+  1,007 → 923 ms. The direction held from the earlier, fully emulated runs; the size is uncertain (at the edge of the
+  spread). The early script grows by the request code (Caley mail: about +1.3 kB gzip). Nothing to do
   ([docs/first-paint.md](docs/first-paint.md#request-middleware-and-sign-in)).
 - The `<link rel="modulepreload">` links `data-sn-preload` writes have `fetchpriority="low"`: the package is code for
-  later, and no longer takes the connection from the page's own scripts, stylesheets and early script. Measured on
-  Caley's mail page (openpgp preloaded; slow network emulated: 150 ms, 1.6 Mbit/s, HTTP/2, 4x CPU, cold cache): page
-  scripts end 1,360 → 1,225 ms, first paint 1,360 → 1,284 ms, largest paint 1,796 → 1,732 ms; the preloaded module
-  still finishes at about the same time. Nothing to do ([docs/lazy.md](docs/lazy.md)).
+  later and should not take the connection from what the page needs to start. No gain was measured on a real server:
+  nginx sends in the order it is asked, and the preload is asked for last, so its bytes came last anyway (Caley mail,
+  HTTP/2, 1.6 Mbit/s on the network path: largest paint 2,020 → 2,024 ms). The figures given for it before came from
+  the browser's own bandwidth emulation, which honours priorities in a way a server does not. The attribute stays: it
+  costs nothing and helps where a server interleaves by priority. Nothing to do ([docs/lazy.md](docs/lazy.md)).
 - A site whose pages have no `data-sn-for`, `data-sn-if` or `<sn-component use>` loads about 1 kB less JavaScript
   (gzip; 2.4 kB minified): its build now leaves the list and branch code out of the runtime, as it was meant to.
   A page with one resource and one text binding goes from 11.2 kB to 10.2 kB. Nothing to do; sites that use lists
