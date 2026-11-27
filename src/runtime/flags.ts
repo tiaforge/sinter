@@ -59,6 +59,10 @@ export const SHOW = true;
 export const CLASSX = true;
 /** `data-sn-attr`, `data-sn-href` and the other attribute bindings (their writer, with the URL attributes' scheme check) */
 export const ATTR = true;
+/** a resource with a `key`: keyed collections in the store (`src/runtime/store.ts`) */
+export const KEYED = true;
+/** a resource with an `order`: the store's sorting, by locale for strings */
+export const ORDER = true;
 /** `openDialog()` or `closeDialog()` in a handler (the compiled handlers name it: `$.$f.openDialog`) */
 export const FN_DIALOG = true;
 /** `upsert()`, `merge()` or `remove()` in a handler or an optimistic change */

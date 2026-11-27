@@ -184,10 +184,14 @@ const entries = {
 // minified for a page with none): the minimal page to 9.25 KB (9,430 B), with swaps to 11.25 KB (11,415 B), with a token to
 // 10.375 KB (10,517 B), the multilingual status page to 10.625 KB (10,756 B), the article to 57 KB (58,358 B). The minimal
 // page with a link keeps 9.875 KB (10,016 B: its link is an attribute binding)
+// Lowered on 2026-11-27, when the store's keyed collections and its ordering became parts of the site's core (KEYED,
+// ORDER: 1,628 B minified for a site whose resources have neither): the minimal page to 8.625 KB (8,744 B), with swaps to
+// 10.5 KB (10,727 B), with a link to 9.125 KB (9,312 B), with a token to 9.625 KB (9,814 B), the multilingual status page to
+// 9.875 KB (10,070 B). RealWorld has keyed lists and an ordered one (the comments): unchanged
 const BUDGET = {
-  'multilingual de/status': 10.625 * 1024, 'multilingual de/status, html': 0.875 * 1024,
-  minimal: 9.25 * 1024, 'minimal, swaps': 11.25 * 1024, 'realworld article': 57 * 1024,
-  'minimal, link': 9.875 * 1024, 'minimal, token': 10.375 * 1024, 'minimal, token, early': 1.875 * 1024, 'realworld early, shared': 3.375 * 1024,
+  'multilingual de/status': 9.875 * 1024, 'multilingual de/status, html': 0.875 * 1024,
+  minimal: 8.625 * 1024, 'minimal, swaps': 10.5 * 1024, 'realworld article': 57 * 1024,
+  'minimal, link': 9.125 * 1024, 'minimal, token': 9.625 * 1024, 'minimal, token, early': 1.875 * 1024, 'realworld early, shared': 3.375 * 1024,
 };
 let failed = false;
 const gz = (b) => gzipSync(b, { level: 9 }).length;

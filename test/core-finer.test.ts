@@ -3,7 +3,7 @@
 import { expect, test, vi } from 'vitest';
 import { compile } from '../src/compiler/index.js';
 import { navigate } from '../src/runtime/app.js';
-import { render } from '../src/testing/index.js';
+import { mockRequests, render } from '../src/testing/index.js';
 import * as flags from './core-flags.js';
 
 const parts = (html: string) => compile(`<html><body>${html}</body></html>`, {
@@ -77,4 +77,32 @@ test('a binding that reaches a writer the core left out fails loudly: a TypeErro
   // a core built without attribute bindings, a page with one: its first render throws
   flags.without('ATTR');
   await expect(render('<div data-sn-state="{ s: \'/a\' }"><button data-sn-on-click="s = \'/b\'">b</button><a data-sn-attr="{ title: s }">x</a></div>')).rejects.toThrow(TypeError);
+});
+
+test('the store keeps keyed collections and ordering when a resource has a key or an order, and only then', () => {
+  expect(parts('<sn-resource name="u" src="/api/u"></sn-resource><p data-sn-text="u.n"></p>')).toEqual(['RESOURCE']);
+  expect(parts('<sn-resource name="xs" src="/api/xs" key="id"></sn-resource><template data-sn-for="x in xs"><p data-sn-text="x.n"></p></template>')).toEqual(['LIST', 'RESOURCE', 'KEYED']);
+  expect(parts('<sn-resource name="xs" src="/api/xs" key="id" order="n"></sn-resource><template data-sn-for="x in xs"><p data-sn-text="x.n"></p></template>')).toEqual(['LIST', 'RESOURCE', 'KEYED', 'ORDER']);
+});
+
+test('keyed and ordered resources work on a core with the parts; a single value on one without', async () => {
+  const requests = mockRequests({ 'GET /api/xs': [{ id: 2, n: 'b' }, { id: 1, n: 'a' }], 'GET /api/u': { n: 'me' } });
+  const { root, settle } = await render('<sn-resource name="xs" src="/api/xs" key="id" order="n"></sn-resource><ul id="l"><template data-sn-for="x in xs"><li data-sn-text="x.n"></li></template></ul>', { requests });
+  await settle();
+  expect([flags.KEYED, flags.ORDER]).toEqual([true, true]);
+  expect(root.querySelector('#l')!.textContent).toBe('ab');
+  flags.reset();
+  const one = await render('<sn-resource name="u" src="/api/u"></sn-resource><p id="p" data-sn-text="u.n"></p>', { requests });
+  await one.settle();
+  expect([flags.KEYED, flags.ORDER]).toEqual([false, false]);
+  expect(one.root.querySelector('#p')!.textContent).toBe('me');
+});
+
+test('a resource with a key or an order on a core built without that part fails loudly at mount', async () => {
+  const requests = mockRequests({ 'GET /api/xs': [{ id: 1, n: 'a' }] });
+  flags.without('KEYED');
+  await expect(render('<sn-resource name="xs" src="/api/xs" key="id"></sn-resource><template data-sn-for="x in xs"><p data-sn-text="x.n"></p></template>', { requests })).rejects.toThrow('resource xs: this build\'s core has no key');
+  flags.reset();
+  flags.without('ORDER');
+  await expect(render('<sn-resource name="xs" src="/api/xs" key="id" order="n"></sn-resource><template data-sn-for="x in xs"><p data-sn-text="x.n"></p></template>', { requests })).rejects.toThrow('has no order');
 });

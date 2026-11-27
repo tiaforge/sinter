@@ -5,7 +5,7 @@ import type { Binding, IR, NodeDef } from './ir.js';
 
 /** every part, in the order of src/runtime/flags.ts */
 export const CORE_PARTS = ['LIST', 'BRANCH', 'ACTION', 'DIALOG', 'EVENTS', 'MODEL', 'PROP', 'STYLE', 'RESOURCE', 'TWIN', 'SIGNEDOUT', 'POPOVER',
-  'TEXTRUN', 'SHOW', 'CLASSX', 'ATTR', 'FN_DIALOG', 'FN_ITEMS', 'FN_REFRESH', 'FN_PAGE', 'FN_EMIT', 'FN_RUN'] as const;
+  'TEXTRUN', 'SHOW', 'CLASSX', 'ATTR', 'KEYED', 'ORDER', 'FN_DIALOG', 'FN_ITEMS', 'FN_REFRESH', 'FN_PAGE', 'FN_EMIT', 'FN_RUN'] as const;
 export type CorePart = (typeof CORE_PARTS)[number];
 
 const BY_KIND: Partial<Record<Binding['k'], CorePart>> = { for: 'LIST', if: 'BRANCH', ch: 'BRANCH', model: 'MODEL', prop: 'PROP', style: 'STYLE' };
@@ -40,6 +40,8 @@ export function coreParts(ir: Pick<IR, 'roots' | 'templates' | 'actions' | 'reso
   for (const t of ir.templates) t?.nodes.forEach(node);
   if (ir.actions.length) used.add('ACTION');
   if (ir.resources.length) used.add('RESOURCE');
+  if (ir.resources.some((r) => r.key)) used.add('KEYED');
+  if (ir.resources.some((r) => r.order)) used.add('ORDER');
   // embedded data that is the signed-out answer (`ResourceDef.so`): not used while a token is stored
   if (ir.resources.some((r) => r.so)) used.add('SIGNEDOUT');
   // an action's element with an id (or bound attributes): its twin in an if's new branch may take a running action over

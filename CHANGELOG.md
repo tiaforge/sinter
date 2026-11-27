@@ -92,6 +92,10 @@ How to write an entry (from 0.21.0 on; older sections keep their own form):
   (`data-sn-class="{ [name]: on }"`) and attributes (`data-sn-attr`, `data-sn-href`, with the check of URL attributes'
   schemes) is left out of a build whose pages have no such binding: 0.5 kB gzip (1.2 kB minified) less on a page with
   only text bindings, 0.1 kB on RealWorld. Nothing to do.
+- The store's keyed collections and its sorting are left out of a build whose resources have no `key` and no `order`:
+  0.7 kB gzip (1.6 kB minified) less on such a site, 0.7 kB on the multilingual example's pages. Nothing to do; an app
+  module can still read and write a resource through `instance(…).resource(name)` as before
+  ([docs/proposals/site-core.md](docs/proposals/site-core.md#finer-parts)).
 - A page with handlers whose writes the build cannot follow (a helper or a component script that changes an object
   it was handed, a write through a variable that may hold any of the page's objects) ships a smaller page module and
   does less on each click: such a handler listed every path it might change, and now only those no other entry of its

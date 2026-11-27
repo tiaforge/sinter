@@ -35,7 +35,7 @@ describe('the parts a page uses, from its IR', () => {
 <template data-sn-for="x in xs"><p data-sn-style="{ color: x.c }" data-sn-text="x.n"></p></template>
 <template data-sn-if="q"><b>q</b></template>
 <form data-sn-post="/api/xs"><button>send</button></form>
-<dialog><span data-sn-text="q"></span></dialog></div>`)).toEqual(['LIST', 'BRANCH', 'ACTION', 'DIALOG', 'EVENTS', 'MODEL', 'STYLE', 'RESOURCE']);
+<dialog><span data-sn-text="q"></span></dialog></div>`)).toEqual(['LIST', 'BRANCH', 'ACTION', 'DIALOG', 'EVENTS', 'MODEL', 'STYLE', 'RESOURCE', 'KEYED']);
   });
   test('a page with nothing to run: none', () => {
     expect(parts('<p>hello</p>')).toEqual([]);
