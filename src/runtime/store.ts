@@ -109,7 +109,7 @@ const collator = (l = '') => collators.get(l) ?? (collators.set(l, new Intl.Coll
 export function createResource<T extends object = any>(name: string, o: ResourceOptions): Resource<T> {
   const meta: Meta = { loading: false, error: null, loadedAt: null, total: null, live: null };
   // a key or an order in a build whose pages have none (the KEYED and ORDER parts): this resource is not of its pages
-  if ((!F.KEYED && o.key) || (!F.ORDER && o.order)) throw Error(`sinter: resource ${name}: this build's core has no ${o.key && !F.KEYED ? 'key' : 'order'}`);
+  if ((!F.KEYED && o.key) || (!F.ORDER && o.order)) throw Error(`sinter: ${name}: no ${o.key && !F.KEYED ? 'KEYED' : 'ORDER'} in this build's core`);
   const coll = F.KEYED && !!o.key, field = F.ORDER ? o.order?.replace(/^-/, '') : undefined, dir = o.order?.[0] == '-' ? -1 : 1;
   const subs = new Set<(c: Change<T>) => void>();
   const prep = (x: any) => (o.prep ? o.prep(x) : x);

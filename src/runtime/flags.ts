@@ -76,6 +76,11 @@ export const FN_EMIT = true;
 /** `run()` in a handler */
 export const FN_RUN = true;
 /**
+ * a paginated resource without `model` (keyset, append, or numbered with its page in memory): the pager's moves by
+ * direction and cursor (src/paginate.ts). Off, the pager only follows a `model` page in the URL.
+ */
+export const MOVES = true;
+/**
  * Called with each page's IR and expression functions as it mounts; nothing here, nor in a build. The test suite's flags
  * (test/core-flags.ts) turn on the parts the mounted pages use and no others, so every test runs on the smallest core for
  * its pages.

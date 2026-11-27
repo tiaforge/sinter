@@ -4,6 +4,8 @@ import type { Paginate } from './ir.js';
 import type { App, Feature, Pager, ResourceLoader } from './runtime/app.js';
 import { SinterError } from './runtime/config.js';
 import { base, firstParams, pageParams, toPage } from './runtime/pages.js';
+// off in a build whose every pager keeps its page in the URL (`model`): the moves in memory go (src/runtime/flags.ts)
+import { MOVES } from './runtime/flags.js';
 
 type Dir = 'first' | 'prev' | 'next' | 'last';
 
@@ -21,6 +23,8 @@ export { firstParams } from './runtime/pages.js';
 /** One resource's pager: `page()` calls `go`. */
 function pager(loader: ResourceLoader): Pager & { go(target: string | number): void } {
   const cfg = loader.def.paginate!, app = loader.app, res = loader.res;
+  // a pager that moves in memory, in a build whose pagers all follow the URL (the MOVES part): not one of its pages'
+  if (!MOVES && !cfg.model) throw Error(`sinter: ${loader.def.name}: no MOVES in this build's core`);
   let move: Move = { dir: cfg.mode === 'numbered' ? 'page' : 'first', page: 1, params: firstParams(cfg), from: null, to: null };
   /** `model` (paginate): the page of the last request, and whether the last load failed */
   let requested = 1, failed = false;
@@ -64,7 +68,7 @@ function pager(loader: ResourceLoader): Pager & { go(target: string | number): v
 
   return {
     reset(why = 2) {
-      if (!cfg.model) {
+      if (MOVES && !cfg.model) {
         move = cfg.mode === 'numbered' ? at(1) : { dir: 'first', page: 1, params: firstParams(cfg), from: null, to: null };
         return;
       }
@@ -83,7 +87,7 @@ function pager(loader: ResourceLoader): Pager & { go(target: string | number): v
 
     current() {
       // `model` (paginate): every request (a reload, a retry) is the page the URL names
-      if (cfg.model) return at(param());
+      if (!MOVES || cfg.model) return at(param());
       if (cfg.mode === 'append' && move.dir !== 'first') {
         // reload reloads everything loaded so far in one request
         const n = Math.max(cfg.size, res.all().length);
@@ -93,11 +97,11 @@ function pager(loader: ResourceLoader): Pager & { go(target: string | number): v
     },
 
     params(mv) {
-      if (cfg.model) requested = (mv as Move).page;
+      if (!MOVES || cfg.model) requested = (mv as Move).page;
       return (mv as Move).params;
     },
 
-    appends: (mv) => cfg.mode === 'append' && (mv as Move).dir === 'next',
+    appends: (mv) => MOVES && cfg.mode === 'append' && (mv as Move).dir === 'next',
 
     go(target) {
       // a computed target: a direction, or a page number where the resource can jump; else the error path, no request
@@ -110,7 +114,7 @@ function pager(loader: ResourceLoader): Pager & { go(target: string | number): v
         return loader.failed(e);
       }
       const meta = res.meta;
-      if (cfg.model) return toUrl(target);
+      if (!MOVES || cfg.model) return toUrl(target);
       // nowhere to go: prev and next do nothing past the ends (before the first load too), in every mode
       if (target == 'prev' ? !meta.hasPrev : target == 'next' && !meta.hasNext) return;
       const items = res.all();
@@ -157,14 +161,14 @@ function pager(loader: ResourceLoader): Pager & { go(target: string | number): v
       const full = more ?? n >= size;
       const pages = total != null ? Math.max(1, Math.ceil(total / size)) : null;
       let from: number | null = null, to: number | null = null, hasPrev = false, hasNext = false;
-      switch (mo.dir) {
-        case 'page':
-          from = n ? (mo.page - 1) * size + 1 : 0;
-          to = n ? from + n - 1 : 0;
-          hasPrev = mo.page > 1;
-          hasNext = more ?? (pages != null ? mo.page < pages : full);
-          meta.page = mo.page;
-          break;
+      // a page by number (a `model` pager's every move)
+      if (!MOVES || mo.dir == 'page') {
+        from = n ? (mo.page - 1) * size + 1 : 0;
+        to = n ? from + n - 1 : 0;
+        hasPrev = mo.page > 1;
+        hasNext = more ?? (pages != null ? mo.page < pages : full);
+        meta.page = mo.page;
+      } else switch (mo.dir) {
         case 'first':
           from = n ? 1 : 0; to = n; hasPrev = false; hasNext = full;
           break;
@@ -196,7 +200,7 @@ function pager(loader: ResourceLoader): Pager & { go(target: string | number): v
           break;
       }
       // keyset with jumps: the page that holds the last item shown (after `last`, the last page)
-      if (cfg.skipParam && mo.dir !== 'page') meta.page = to != null ? Math.max(1, Math.ceil(to / size)) : null;
+      if (MOVES && cfg.skipParam && mo.dir !== 'page') meta.page = to != null ? Math.max(1, Math.ceil(to / size)) : null;
       Object.assign(meta, { pages, from, to, hasPrev, hasNext });
       res.onDirty('meta');
     },

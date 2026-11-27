@@ -5,7 +5,7 @@ import type { Binding, IR, NodeDef } from './ir.js';
 
 /** every part, in the order of src/runtime/flags.ts */
 export const CORE_PARTS = ['LIST', 'BRANCH', 'ACTION', 'DIALOG', 'EVENTS', 'MODEL', 'PROP', 'STYLE', 'RESOURCE', 'TWIN', 'SIGNEDOUT', 'POPOVER',
-  'TEXTRUN', 'SHOW', 'CLASSX', 'ATTR', 'KEYED', 'ORDER', 'FN_DIALOG', 'FN_ITEMS', 'FN_REFRESH', 'FN_PAGE', 'FN_EMIT', 'FN_RUN'] as const;
+  'TEXTRUN', 'SHOW', 'CLASSX', 'ATTR', 'KEYED', 'ORDER', 'FN_DIALOG', 'FN_ITEMS', 'FN_REFRESH', 'FN_PAGE', 'FN_EMIT', 'FN_RUN', 'MOVES'] as const;
 export type CorePart = (typeof CORE_PARTS)[number];
 
 const BY_KIND: Partial<Record<Binding['k'], CorePart>> = { for: 'LIST', if: 'BRANCH', ch: 'BRANCH', model: 'MODEL', prop: 'PROP', style: 'STYLE' };
@@ -49,6 +49,8 @@ export function coreParts(ir: Pick<IR, 'roots' | 'templates' | 'actions' | 'reso
   if (ir.ev?.length) used.add('EVENTS');
   if (ir.po) used.add('POPOVER');
   for (const c of fns) for (const m of c.matchAll(/\$f\.(\w+)/g)) { const p = BY_FN[m[1]!]; if (p) used.add(p); }
+  // a pager that moves in memory (keyset, append, numbered without `model`): src/paginate.ts keeps those moves
+  if (ir.resources.some((r) => r.paginate && !r.paginate.model)) used.add('MOVES');
   // a model listens for `input`/`change`, a dialog's bindings for `toggle`: dispatch is where they do
   if (used.has('MODEL') || used.has('DIALOG')) used.add('EVENTS');
   return CORE_PARTS.filter((p) => used.has(p));

@@ -6,8 +6,9 @@ const src = resolve(import.meta.dirname, 'src');
 export default defineConfig({
   resolve: {
     alias: [
-      // the core's flags, switchable: each test runs on the smallest core for the pages it mounts (docs/proposals/site-core.md)
-      { find: /^\.\/flags\.js$/, replacement: resolve(import.meta.dirname, 'test/core-flags.ts') },
+      // the core's flags, switchable: each test runs on the smallest core for the pages it mounts (docs/proposals/site-core.md);
+      // the core's own import and the feature modules' (`./runtime/flags.js`: paginate's MOVES)
+      { find: /^\.\/(?:runtime\/)?flags\.js$/, replacement: resolve(import.meta.dirname, 'test/core-flags.ts') },
       { find: '@tiaforge-ui/sinter/testing', replacement: `${src}/testing/index.ts` },
       { find: '@tiaforge-ui/sinter/check', replacement: `${src}/check/index.ts` },
       { find: /^@tiaforge-ui\/sinter\/messages\/(.+)$/, replacement: `${src}/messages/$1.ts` },

@@ -101,8 +101,37 @@ test('keyed and ordered resources work on a core with the parts; a single value 
 test('a resource with a key or an order on a core built without that part fails loudly at mount', async () => {
   const requests = mockRequests({ 'GET /api/xs': [{ id: 1, n: 'a' }] });
   flags.without('KEYED');
-  await expect(render('<sn-resource name="xs" src="/api/xs" key="id"></sn-resource><template data-sn-for="x in xs"><p data-sn-text="x.n"></p></template>', { requests })).rejects.toThrow('resource xs: this build\'s core has no key');
+  await expect(render('<sn-resource name="xs" src="/api/xs" key="id"></sn-resource><template data-sn-for="x in xs"><p data-sn-text="x.n"></p></template>', { requests })).rejects.toThrow('sinter: xs: no KEYED in this build\'s core');
   flags.reset();
   flags.without('ORDER');
-  await expect(render('<sn-resource name="xs" src="/api/xs" key="id" order="n"></sn-resource><template data-sn-for="x in xs"><p data-sn-text="x.n"></p></template>', { requests })).rejects.toThrow('has no order');
+  await expect(render('<sn-resource name="xs" src="/api/xs" key="id" order="n"></sn-resource><template data-sn-for="x in xs"><p data-sn-text="x.n"></p></template>', { requests })).rejects.toThrow('sinter: xs: no ORDER in this build\'s core');
+});
+
+test('the pager keeps its moves in memory when a resource paginates without `model`, and only then', () => {
+  const list = '<template data-sn-for="x in xs"><p data-sn-text="x.n"></p></template>';
+  expect(parts(`<sn-resource name="xs" src="/api/xs" key="id" paginate="{ numbered: true, size: 10, model: $url.page }"></sn-resource>${list}`)).not.toContain('MOVES');
+  expect(parts(`<sn-resource name="xs" src="/api/xs" key="id" paginate="{ numbered: true, size: 10 }"></sn-resource>${list}`)).toContain('MOVES');
+  expect(parts(`<sn-resource name="xs" src="/api/xs" key="id" paginate="{ keyset: { before: $item.id }, size: 10 }"></sn-resource>${list}`)).toContain('MOVES');
+});
+
+test('a pager in the URL works on a core without moves; one in memory on a core with them', async () => {
+  const requests = mockRequests({ 'GET /api/xs': (req: { url: string }) => { const n = +(new URL(req.url, 'http://localhost').searchParams.get('page') ?? 1); return { t: 3, xs: [{ id: n, n: 'p' + n }] }; } });
+  const page = (p: string) => `<sn-resource name="xs" src="/api/xs" key="id" select="xs" total="t" paginate="${p}"></sn-resource><ul id="l"><template data-sn-for="x in xs"><li data-sn-text="x.n"></li></template></ul><button id="n" data-sn-on-click="page(xs, 'next')">n</button>`;
+  const url = await render(page('{ numbered: true, size: 1, model: $url.page }'), { requests, url: 'http://localhost/?page=2' });
+  await url.settle();
+  expect(flags.MOVES).toBe(false);
+  expect(url.root.querySelector('#l')!.textContent).toBe('p2');
+  url.app.destroy();
+  flags.reset();
+  const mem = await render(page('{ numbered: true, size: 1 }'), { requests });
+  await mem.settle();
+  expect(flags.MOVES).toBe(true);
+  (mem.root.querySelector('#n') as HTMLElement).click();
+  await mem.settle();
+  expect(mem.root.querySelector('#l')!.textContent).toBe('p2');
+});
+
+test('a pager in memory on a core built without moves fails loudly at mount', async () => {
+  flags.without('MOVES');
+  await expect(render('<sn-resource name="xs" src="/api/xs" key="id" paginate="{ numbered: true, size: 10 }"></sn-resource><template data-sn-for="x in xs"><p data-sn-text="x.n"></p></template>', { requests: mockRequests({ 'GET /api/xs': [] }) })).rejects.toThrow('sinter: xs: no MOVES in this build\'s core');
 });
