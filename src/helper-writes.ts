@@ -21,7 +21,7 @@ export type HelperWrites = Map<string, Array<ParamWrite | null>>;
 
 type N = { type: string; start: number; end: number; [k: string]: any };
 /** a call that passes a parameter on: the callee (a function of this module, or an import), the argument's position */
-interface PassOn { to: { local: string } | { spec: string; name: string }; arg: number; param: number; at: number }
+export interface PassOn { to: { local: string } | { spec: string; name: string }; arg: number; param: number; at: number }
 interface Fn { params: number; direct: Array<{ at: number; what: string } | null>; passes: PassOn[] }
 interface Module { code: string; fns: Map<string, Fn> }
 
@@ -57,7 +57,7 @@ function chainRoot(n: N): N | null {
 const propName = (m: N): string | null => (!m.computed && m.property.type === 'Identifier' ? m.property.name : m.computed && m.property.type === 'Literal' && typeof m.property.value === 'string' ? m.property.value : null);
 
 /** the identifiers a function's code assigns as a whole (`p = …`, `p += …`, `p++`, `for (p of …)`), in any scope */
-function reassigned(body: N): Set<string> {
+export function reassigned(body: N): Set<string> {
   const out = new Set<string>();
   const go = (n: N | null | undefined) => {
     if (!n || typeof n.type !== 'string') return;
@@ -236,6 +236,15 @@ function readModule(file: string, code: string): Module {
   const module: Module = { code, fns: new Map() };
   let ast: N;
   try { ast = parseModule(code, file) as unknown as N; } catch { parsed.set(file, { code, module }); return module; }
+  const { top, imports, bodies } = moduleContext(ast);
+  currentCode = code;
+  for (const [name, body] of bodies) module.fns.set(name, analyzeFn(body, top, imports));
+  parsed.set(file, { code, module });
+  return module;
+}
+
+/** A module's top-level functions (by name, with their bodies) and its imports (local name to specifier and export). */
+function moduleContext(ast: N) {
   const top = new Map<string, true>(), imports = new Map<string, { spec: string; name: string }>(), bodies: Array<[string, N]> = [];
   const declare = (d: N) => {
     if (d.type === 'FunctionDeclaration' && d.id) { top.set(d.id.name, true); bodies.push([d.id.name, d]); }
@@ -248,10 +257,19 @@ function readModule(file: string, code: string): Module {
     else if (st.type === 'ExportDefaultDeclaration' && fnLike(st.declaration)) { const name = st.declaration.id?.name ?? 'default'; top.set(name, true); bodies.push([name, st.declaration]); }
     else declare(st);
   }
+  return { top, imports, bodies };
+}
+
+/**
+ * What one function of a parsed module does with its parameters (sinter.config's request middleware, project.ts): per
+ * parameter, its first direct write (`at`: offset in `code`), and the calls that pass a parameter (or a chain of it) on to a
+ * function of the module (`local`) or an import (`spec`, `name`).
+ */
+export function functionFacts(fn: N, ast: N, code: string): { direct: Array<{ at: number; what: string } | null>; passes: PassOn[] } {
+  const { top, imports } = moduleContext(ast);
   currentCode = code;
-  for (const [name, body] of bodies) module.fns.set(name, analyzeFn(body, top, imports));
-  parsed.set(file, { code, module });
-  return module;
+  const f = analyzeFn(fn, top, imports);
+  return { direct: f.direct, passes: f.passes };
 }
 
 /**

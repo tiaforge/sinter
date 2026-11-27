@@ -191,7 +191,7 @@
     },
     {
       "name": "data-sn-preload",
-      "description": "the build preloads packages of sinter({ lazy }) with the page (<link rel=\"modulepreload\">): fetched with the page bundle, run on first call or by data-sn-import (lazy packages, comma-separated)"
+      "description": "the build preloads packages of sinter({ lazy }) with the page (<link rel=\"modulepreload\" fetchpriority=\"low\">): fetched with the page bundle, after what the page needs to start, run on first call or by data-sn-import (lazy packages, comma-separated)"
     },
     {
       "name": "data-sn-ref",

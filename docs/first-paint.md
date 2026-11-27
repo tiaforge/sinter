@@ -243,6 +243,28 @@ browser gives its response to the page's request whatever headers that adds, so 
 be sent. With an OpenAPI spec, operations whose `security` is public or answered with cookies are still
 preloaded ([apis](apis.md#requests)).
 
+What counts as changing requests is read from the config module's code. A `request` list whose entries each pass the
+request on untouched keeps the early requests:
+
+- `onUnauthorized(…)` imported from sinter: it only reads the response;
+- a middleware of your own, written inline, as a function or `const` of the config module, or exported by an app module
+  it imports, that hands the request it was given, unchanged, to `next`: every call of `next` passes that first
+  parameter itself, the parameter is never reassigned or written into (nor by a function it is passed to), and the first
+  `next(req)` comes first in the body, outside any `if`, loop, `try` or nested function, with no `return` or `throw`
+  before it (a middleware that can answer or refuse before calling `next` counts as changing requests).
+
+```js
+configure({ request: [
+  onUnauthorized(loginRedirect({ to: '/login/' })),   // keeps early requests
+  async (req, next) => { const res = await next(req); log(req.url, res.status); return res; },   // keeps them
+  (req, next) => next(new Request(req, { headers: { 'X-App': '1' } })),   // changes requests: none early
+] });
+```
+
+`header()`, a `request` list the build cannot read (a spread, a variable it cannot resolve, a hook from a package or a
+factory call), or a `request` anywhere else in the module count as changing requests. If the build is wrong about a
+middleware, nothing breaks: a request the chain changed does not take the early response and is sent again, once.
+
 A token the page keeps goes on its API instead, `sinter({ apis: { main: { token: { storage: 'local:jwt' } } } })`
 ([apis](apis.md#a-token)): the early script reads it from the same storage and sends it, so the API's resources are
 requested early again, with the token, whatever the middleware; never by a preload link, which cannot carry it.

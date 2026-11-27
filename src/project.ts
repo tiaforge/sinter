@@ -10,6 +10,7 @@ import type { OpenApiSpec } from './compiler/openapi.js';
 import { defaultApiRenamed, resolveApis, type ApiOptions, type ApisDef } from './compiler/apis.js';
 import { COMPLEXITY_LIMITS, type ComplexityOptions } from './compiler/complexity.js';
 import { eventSenders } from './event-senders.js';
+import { changesRequests } from './request-hooks.js';
 import { writeComponentTypes } from './components-build.js';
 import { componentHtml, findComponents } from './component-files.js';
 import { inlineScripts } from './compiler/components.js';
@@ -314,7 +315,7 @@ export function project(root: string, options: ProjectOptions = {}): Project {
     componentNames: components, libraries: libs.libraries,
     componentsTypes: writeComponentTypes(root, readFile, libs.libraries),
     config: configRel ? url(configRel) : null,
-    changesRequests: configRel ? changesRequests(configSource(configRel, readFile(resolve(root, configRel)))) : false,
+    changesRequests: configRel ? changesRequests(configSource(configRel, readFile(resolve(root, configRel))), resolve(root, configRel), root, readFile) : false,
     configuresLocale: [configRel, earlyRel].some((rel) => !!rel && configuresLocale(resolve(root, rel), root, readFile)),
     early: earlyRel ? url(earlyRel) : null,
     modules: [helpersFile, actionsFile, configRel && resolve(root, configRel), earlyRel && resolve(root, earlyRel)].filter((f): f is string => !!f),
@@ -542,7 +543,5 @@ export function configuresLocale(file: string, root: string, read: (file: string
   });
 }
 
-/** Whether a config module's source may change requests: `configure({ request })`, `header()`. Errs toward yes. */
-export function changesRequests(source: string): boolean {
-  return /\brequest\s*[:,}]|\bheader\s*\(/.test(source.replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, ''));
-}
+/** Whether a config module may change requests (`configure({ request })`, `header()`): request-hooks.ts. Errs toward yes. */
+export { changesRequests } from './request-hooks.js';
