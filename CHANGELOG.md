@@ -145,6 +145,12 @@ How to write an entry (from 0.21.0 on; older sections keep their own form):
   stays untraceable (`sinter({ explainWrites: true })`, `SN548`, says why). The same check now decides what the entry
   on a DOM event's `$event` above assumed. `compile()` without `eventSenders` and the testing module's
   `render()` without `events` read no modules: there every `$event` is untraceable ([docs/spec.md](docs/spec.md)).
+- A component with a script no longer makes every handler that writes inside an object mark every state scope, when
+  its script provably keeps none of the page's objects in its state: the build reads the script, and each write to
+  `this.state` must be a primitive or a fresh value (a literal, a comparison, `structuredClone(…)`) and `this.state`
+  read only for primitives. An event a script emits is followed by the same rule (`this.emit('media', media)` with
+  `const media = w < 640 ? 'narrow' : 'wide'`). Otherwise nothing changes; `SN548` names the statement
+  ([docs/spec.md](docs/spec.md)).
 
 ## 0.22.1 (2026-11-24)
 

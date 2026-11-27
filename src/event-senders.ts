@@ -2,7 +2,7 @@
 // points (the helpers, actions, config and early modules, the components' scripts, the page's own scripts) through
 // every import, into packages, and finds each place that makes an event. A handler's `$event` then holds none of the
 // page's objects (a DOM event's), or what the page's `emit()`s pass (an event sinter sends), only when every event of
-// that name the page can see made carries no detail or a primitive one. What it cannot read (a module it cannot find, an
+// that name the page can see made carries no detail or one that holds none of the page's objects (script-values.ts). What it cannot read (a module it cannot find, an
 // event made under a name that is no literal, a class that extends an event's, an event's detail written afterwards)
 // makes every name untraceable: nothing is assumed of code the build did not read. sinter's own modules make the events
 // of `emit()`, which the compiler reads in the markup.
@@ -14,6 +14,7 @@ import { resolveImport, selfPackage, FoldCache } from './fold-check.js';
 const BROWSER = ['browser', 'production', 'import', 'module', 'default'];
 import { parseModule } from './compiler/index.js';
 import { lineCol } from './line-col.js';
+import { allowedValue, moduleConsts } from './script-values.js';
 
 /** What a page's modules send: `unknown`, why no name can be trusted (null: every one can); `risky`, by event name, why that one cannot. */
 export interface EventSenders {
@@ -32,14 +33,6 @@ const SINTER_DIR = resolve(dirname(new URL(import.meta.url).pathname), '..');
 const ownModule = (f: string) => [`${SINTER_DIR}${sep}src${sep}`, `${SINTER_DIR}${sep}dist${sep}`].some((d) => f.startsWith(d)) && !f.includes(`${sep}node_modules${sep}`);
 const STYLE = /\.(css|scss|sass|less|styl|svg|png|jpe?g|gif|webp|avif|woff2?|ttf|json|html|md|txt)(\?.*)?$/;
 
-/** a value that is surely a primitive (a literal, arithmetic, a comparison, a template): no object of the page's */
-const primitive = (e: N | undefined): boolean => !!e && (
-  (e.type === 'Literal' && !e.regex) || e.type === 'TemplateLiteral' || e.type === 'BinaryExpression' || e.type === 'UpdateExpression'
-  || (e.type === 'UnaryExpression' && e.operator !== 'delete')
-  || (e.type === 'Identifier' && /^(undefined|NaN|Infinity)$/.test(e.name))
-  || (e.type === 'ConditionalExpression' && primitive(e.consequent) && primitive(e.alternate))
-  || (e.type === 'LogicalExpression' && primitive(e.left) && primitive(e.right))
-  || ((e.type === 'TSAsExpression' || e.type === 'TSNonNullExpression' || e.type === 'ParenthesizedExpression') && primitive(e.expression)));
 const literalName = (e: N | undefined): string | null => (e?.type === 'Literal' && typeof e.value === 'string' ? e.value
   : e?.type === 'TemplateLiteral' && !e.expressions.length ? e.quasis[0].value.cooked : null);
 const EVENT_CLASS = /^(Custom|Mouse|Keyboard|Pointer|Focus|Input|Wheel|Touch|Drag|Clipboard|Composition|Ui|UI|Submit|Toggle|Animation|Transition|Progress|Error|Message|PopState|HashChange|PageTransition|Storage|Before[A-Za-z]*)?Event$/;
@@ -53,6 +46,7 @@ function scanModule(file: string, text: string, root: string): ModuleScan {
   const no = (why: string, n: N) => { unknown ??= `${why} (${at(n)})`; };
   let ast: N;
   try { ast = parseModule(text, file) as unknown as N; } catch (e) { return { stamp: '', imports, unknown: `\`${file}\` could not be read: ${(e as Error).message}`, risky }; }
+  const consts = moduleConsts(ast);
   const source = (s: N | null | undefined, n: N) => {
     if (!s) return;
     const v = literalName(s);
@@ -60,7 +54,7 @@ function scanModule(file: string, text: string, root: string): ModuleScan {
   };
   const event = (name: string | null, detail: N | null | false, n: N, cls: string) => {
     if (name === null) return no(`a \`new ${cls}(…)\` named by a value`, n);
-    if (detail === false || primitive(detail ?? undefined)) return;
+    if (detail === false || allowedValue(detail, consts)) return;
     risky.push([name, `\`${name}\` is made with a detail the build cannot follow (${at(n)})`]);
   };
   const walk = (n: N | null | undefined, parent: N | null) => {

@@ -592,7 +592,10 @@ function compilePage(html: string, options: RenderOptions, strict: Strict = { on
   // (not for a single-file component: its `<script>` is its script, and `scripts` gives the class that stands for it)
   for (const name of Object.keys(options.scripts ?? {})) {
     if (inlineScripts(files[`${base(name)}.html`] ?? '').length) continue;
-    files[`${base(name)}.ts`] ??= 'export default class {}';
+    // (the stand-in is the class's own code: the build reads a script for what it keeps in its state, docs/spec.md, Aliases)
+    const given = options.scripts![name];
+    const classes = typeof given === 'function' ? [given] : Object.values((given ?? {}) as Record<string, unknown>).filter((v) => typeof v === 'function');
+    files[`${base(name)}.ts`] ??= classes.length ? classes.map((c, i) => `export ${i ? '' : 'default '}${(c as () => void).toString()}`).join('\n') : 'export default class {}';
   }
   for (const name of Object.keys(options.earlyRenderers ?? {})) files[`${base(name)}.early.ts`] ??= 'export default () => {};';
   const proj = options.project;

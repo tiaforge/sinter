@@ -24,6 +24,7 @@ import { configure } from '../../src/index.js';
 import { memo } from '../../src/memo.js';
 import { eventSenders, mockRequests, mockStream, render } from '../../src/testing/index.js';
 import { reset as resetCore } from '../core-flags.js';
+import { Component } from '../../src/components.js';
 import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -120,7 +121,10 @@ const ALIAS = ['sel && (sel.n = sel.n + 10)', 'box && (box.it.n = box.it.n + 3)'
   "$el.parentElement.querySelector('.zb')?.click()", "$el.parentElement.querySelector('.zb')?.click(); u && (u.n = u.n + 1)",
   "$el.parentElement.querySelector('.ce')?.click()", "$el.parentElement.querySelector('.ce')?.click(); sel && (sel.n = sel.n + 3)",
   // an element's event that carries one of the page's objects: untraceable, written through
-  "$el.parentElement.querySelector('x-grab')?.click(); h && (h.n = h.n + 9)"];
+  "$el.parentElement.querySelector('x-grab')?.click(); h && (h.n = h.n + 9)",
+  // a script's state given a copy or the prop's object, then written through
+  "$el.parentElement.querySelector('.sf')?.click()", "$el.parentElement.querySelector('.sfw')?.click()",
+  "$el.parentElement.querySelector('.sk')?.click()", "$el.parentElement.querySelector('.skw')?.click()"];
 
 const ISLAND = 'x-pinger';
 if (!customElements.get(ISLAND)) {
@@ -138,6 +142,14 @@ if (!customElements.get(GRABBER)) {
     connectedCallback() { this.addEventListener('click', () => this.dispatchEvent(new CustomEvent('grab', { detail: this.item, bubbles: true }))); }
   });
 }
+/** the components' scripts: `c-sf` follows the rules (src/script-values.ts), `c-sk` breaks them */
+class CSf extends Component<{ item: { n: number } | null }, {}, {}, { c: number; cp: { n: number } | null }> {
+  connected() { this.root.addEventListener('click', (e) => { if (e.target === this.root) { this.state.c = this.state.c + 1; this.state.cp = structuredClone(this.props.item); } }); }
+}
+class CSk extends Component<{ item: { n: number } | null }, {}, {}, { held: { n: number } | null }> {
+  connected() { this.root.addEventListener('click', (e) => { if (e.target === this.root) this.state.held = this.props.item; }); }
+}
+const SCRIPTS = { 'c-sf': CSf, 'c-sk': CSk };
 /** what this file's code sends (the page's events), read as a build reads the page's modules: `ping` with no detail, `grab` with one it cannot follow */
 const SENDERS = eventSenders([fileURLToPath(import.meta.url)], dirname(fileURLToPath(import.meta.url)));
 
@@ -185,6 +197,7 @@ function page(r: () => number) {
   <ol class="gs"><template data-sn-for="(g, i) in gs"><li class="g" data-sn-state="{ c: 0 }" data-sn-let="{ GR: inc(i) }"><span data-sn-text="g + i + ':' + GR + ':' + c + ':' + T"></span><button class="gb" data-sn-on-click="c = c + GR"></button></li></template></ol>
   <template data-sn-for="z in ys.filter((y) => y.n > 0)"><button class="zb" data-sn-on-click="u = z; u.n = u.n + 2"></button></template>
   <c-e data-sn-with="{ ys }" data-sn-on-pick="sel = $event.detail"></c-e>
+  <c-sf data-sn-with="{ item: ys.length ? ys[0] : null }"></c-sf><c-sk data-sn-with="{ item: ys.length ? ys[0] : null }"></c-sk>
   <template data-sn-for="t in todos" data-sn-key="t.id"><button class="opt" data-sn-patch="/api/t" data-sn-body="{ id: t.id }" data-sn-optimistic="merge(t, { n: 50 })"></button></template>
   ${handlers.map((h, i) => `<button id="h${i}" data-sn-on-click="${h}"></button>`).join('\n  ')}
 </main>`;
@@ -193,6 +206,10 @@ function page(r: () => number) {
 /** the components; `c-l` has a let of its own over a helper */
 const COMPONENTS = {
   'c-v': '<template data-sn-props="{ v: number }"><b class="cv" data-sn-text="v"></b></template>',
+  // components with a script: one that gives its state only a number and a copy of its prop (followed), one that keeps the
+  // prop's object (untraceable); each with a button that writes through its state
+  'c-sf': '<template data-sn-props="{ item: { n: number } | null }"><span class="sf" data-sn-state="{ c: 0, cp: null }"><i class="sfc" data-sn-text="c + \':\' + (cp ? cp.n : \'-\')"></i><button class="sfw" data-sn-on-click="cp && (cp.n = cp.n + 1)"></button></span></template>',
+  'c-sk': '<template data-sn-props="{ item: { n: number } | null }"><span class="sk" data-sn-state="{ held: null }"><i class="skc" data-sn-text="held ? held.n : \'-\'"></i><button class="skw" data-sn-on-click="held && (held.n = held.n + 4)"></button></span></template>',
   // an event whose detail is one of its props' objects
   'c-e': '<template data-sn-props="{ ys: Array<{ n: number }> }" data-sn-emits="{ pick: { n: number } }"><button class="ce" data-sn-on-click="ys.length && emit(\'pick\', ys[ys.length - 1])"></button></template>',
   'c-l': '<template data-sn-props="{ xs: number[] }"><div data-sn-let="{ C: sum(xs) }"><b class="cl" data-sn-text="C + \':\' + xs.length"></b></div></template>',
@@ -217,7 +234,7 @@ function memoryStorage(): Storage {
 function seen(v: Awaited<ReturnType<typeof render>>, storage: Storage) {
   const main = v.root.querySelector('main')!, sec = main.querySelector('section')!;
   const text = (sel: string) => [...main.querySelectorAll(sel)].map((x) => x.textContent).join(',');
-  return `${text('p.v')} | ${text('p.f')} | ${text('p.al')} | ${text('ul li')} | ${text('li.y span')} | ${text('li.g span')} | ${text('li.k')} | ${text('b.cv')} | ${text('b.cl')} | ${text('b.ps')} | ${JSON.stringify(v.state(main).get())} | ${JSON.stringify(v.state(sec).get())} | ${storage.getItem('sn:fz')}`;
+  return `${text('i.sfc')} ${text('i.skc')} | ${text('p.v')} | ${text('p.f')} | ${text('p.al')} | ${text('ul li')} | ${text('li.y span')} | ${text('li.g span')} | ${text('li.k')} | ${text('b.cv')} | ${text('b.cl')} | ${text('b.ps')} | ${JSON.stringify(v.state(main).get())} | ${JSON.stringify(v.state(sec).get())} | ${storage.getItem('sn:fz')}`;
 }
 
 const SEEDS = Number(process.env.SN_FUZZ_SEEDS ?? 150);
@@ -245,7 +262,7 @@ test('random handlers: the page with memoized helpers agrees with the plain one,
         const { html } = page(rng(seed));
         const stream = mockStream();
         const storage = memoryStorage();
-        const v = await render(html, { helpers: memoized ? MEMOIZED : HELPERS, components: COMPONENTS, requests: requests(), streams: { '/s': stream }, storage, strict: false, events: SENDERS, ...(early && memoized ? { firstPaint: true } : {}) });
+        const v = await render(html, { helpers: memoized ? MEMOIZED : HELPERS, components: COMPONENTS, requests: requests(), streams: { '/s': stream }, storage, strict: false, events: SENDERS, scripts: SCRIPTS, ...(early && memoized ? { firstPaint: true } : {}) });
         await v.settle();
         const main = v.root.querySelector('main')!;
         const out: string[] = [seen(v, storage)];

@@ -2,6 +2,11 @@
 // rewritten page plus its IR and function table.
 import type { SourceMap } from './sourcemap.js';
 import type { EventSenders } from '../event-senders.js';
+import { freshState } from '../script-values.js';
+import { parseModule } from './index.js';
+import { lineCol } from '../line-col.js';
+/** `freshState` of a component script, by its file and text */
+const SCRIPT_STATE = new Map<string, string | null>();
 import { rewriteImages, sourceFile, type ImageHost, type ImageResult } from './images.js';
 import { boxSizesCss, type ReserveTrace, Layout, PLACEHOLDER_BASE, type Affine, type Reserved, type StyleSheet } from './layout.js';
 import { shows } from './status-eval.js';
@@ -12653,8 +12658,11 @@ class Compiler {
    */
   applyAliases(doc?: DefaultTreeAdapterMap['document']) {
     // a component's script assigns its state's fields anything, a prop's object included
+    // (unless the build reads it and finds it gives them only values that hold none of the page's objects: script-values.ts)
     for (const us of this.uses.values()) for (const u of us) if (u.sid !== undefined && this.componentFiles.get(u.name)?.script) {
-      (this.page.aliases ??= []).push({ t: [`$s${u.sid}`, '*'], s: null, why: `\`<${u.name}>\`'s script may give its state's fields any object` });
+      const why = this.scriptState(u.name);
+      if (!why) continue;
+      (this.page.aliases ??= []).push({ t: [`$s${u.sid}`, '*'], s: null, why: `\`<${u.name}>\`'s script may give its state's fields any object: ${why}` });
       (this.page.objectFields ??= new Set()).add(`$s${u.sid}.*`);
     }
     // what a handler's `$event` holds: a DOM event's (`@dom:<event>`), none of the page's objects; another event's detail
@@ -12791,6 +12799,26 @@ class Compiler {
     };
     if (doc) visit(doc as unknown as P5Node);
     return [files, inline];
+  }
+
+  /** Why the script of component `name` may keep one of the page's objects in its state (`freshState`), or null when it surely does not. */
+  private scriptState(name: string): string | null {
+    const c = this.componentFiles.get(name);
+    if (!c?.script) return null;
+    const inline = /\.html\.script\.[jt]s$/.test(c.script);
+    const file = inline ? c.file : c.script.startsWith('/') && !c.script.startsWith(this.opts.root) ? this.opts.root + c.script : c.script;
+    let texts: string[];
+    try { texts = inline ? (c.inline ?? []).map((x) => x.code) : [this.opts.readFile(file)]; } catch { return `the build could not read \`${c.script}\``; }
+    for (const text of texts) {
+      const key = `${file}\0${text}`;
+      let why = SCRIPT_STATE.get(key);
+      if (why === undefined) {
+        try { why = freshState(parseModule(text, inline ? `${file}.ts` : file) as never, (n) => { const { line, col } = lineCol(text, n.start); return `${this.relFile(file)}:${line}:${col}`; }); } catch (e) { why = `the build could not parse \`${c.script}\`: ${(e as Error).message}`; }
+        SCRIPT_STATE.set(key, why);
+      }
+      if (why) return why;
+    }
+    return null;
   }
 
   /** where a handler is, for SN548: its attribute, file and line */
