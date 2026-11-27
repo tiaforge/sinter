@@ -68,6 +68,10 @@ How to write an entry (from 0.21.0 on; older sections keep their own form):
 - The VS Code extension starts the language server again: it failed with `onDidChangeLogLevel is not a function`.
 - In Safari, `navigate()` or a same-page link with another query sometimes changed the address bar but not `$url`
   bindings (array parameters too); they now follow the link's URL ([docs/navigation.md](docs/navigation.md#same-page-links)).
+- `compileHints: true` now takes effect on a page module (and the core's file) that loads something on demand: a
+  lazy package, a swap. Vite writes its preload list first in such a file, which left V8's hint on the second line,
+  where Chromium ignores it, so those files were compiled as without the option. Nothing to do
+  ([docs/configuration.md](docs/configuration.md#checks)).
 - A write through a variable that holds a member of a helper's result updates what reads the original: after
   `sel = pick(rows).items`, a later `sel.push(x)` or `sel[0] = x` left bindings on `rows[0].items` as they were
   (the page showed the old value until something else rendered it). A helper's own result (`sel = pick(rows)`) and

@@ -3365,21 +3365,27 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   /** whether a chunk holds the core (under any name, in an entry chunk too; through a link with `preserveSymlinks`) */
   const holdsCore = (ids: readonly string[]) => ids.some((id) => /[\\/]app\.[jt]s$/.test(id) && sameFile(id, CORE));
   // `compileHints`: the hint first in each page module and in the chunk with the core (it runs at every page load), its
-  // source map a line further down. The early scripts' nested builds have plugins of their own, without this one
+  // source map a line further down. The early scripts' nested builds have plugins of their own, without this one.
+  // Last of all (`order: 'post'`): V8 reads the hint on a file's first line only, and Vite writes `const __vite__mapDeps=…`
+  // first in a chunk with dynamic imports, in its own `generateBundle`: written before that, the hint was on line 2
+  // there and did nothing
   const compileHints: Plugin = {
     name: 'sinter:compile-hints',
     enforce: 'post',
     apply: 'build',
-    generateBundle(_, bundle) {
-      if (!options.compileHints) return;
-      const HINT = '//# allFunctionsCalledOnLoad\n';
-      for (const c of Object.values(bundle)) {
-        if (c.type !== 'chunk' || !(c.isEntry || holdsCore(c.moduleIds)) || c.code.startsWith(HINT)) continue;
-        c.code = HINT + c.code;
-        if (c.map) c.map.mappings = ';' + c.map.mappings;
-        const m = bundle[c.fileName + '.map'];
-        if (m?.type === 'asset' && typeof m.source === 'string') { const j = JSON.parse(m.source) as { mappings: string }; j.mappings = ';' + j.mappings; m.source = JSON.stringify(j); }
-      }
+    generateBundle: {
+      order: 'post',
+      handler(_, bundle) {
+        if (!options.compileHints) return;
+        const HINT = '//# allFunctionsCalledOnLoad\n';
+        for (const c of Object.values(bundle)) {
+          if (c.type !== 'chunk' || !(c.isEntry || holdsCore(c.moduleIds)) || c.code.startsWith(HINT)) continue;
+          c.code = HINT + c.code;
+          if (c.map) c.map.mappings = ';' + c.map.mappings;
+          const m = bundle[c.fileName + '.map'];
+          if (m?.type === 'asset' && typeof m.source === 'string') { const j = JSON.parse(m.source) as { mappings: string }; j.mappings = ';' + j.mappings; m.source = JSON.stringify(j); }
+        }
+      },
     },
   };
   // the cross-check's answer, waited for last (after Vite's HTML step): a plugin named as the main one, so a difference
