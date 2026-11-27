@@ -39,6 +39,11 @@ How to write an entry (from 0.21.0 on; older sections keep their own form):
   writes therefore mark every state scope and resource and re-render everything that reads state. Off by default, and
   a warning in strict mode too; nothing changes in what is marked
   ([docs/diagnostics.md](docs/diagnostics.md#sn548-untraceable-writes)).
+- Dev builds check that every write marked what it changed: when part of the state changed and no path marked since
+  reaches it (a custom element or a library changed an object of the page it was handed, or sinter missed an alias),
+  runtime warning 36 names the path, what was marked and the handlers that ran, where before the page showed the old
+  value until something else rendered it. In strict mode it fails the page, as other runtime warnings do. Production
+  builds are unchanged ([docs/spec.md](docs/spec.md)).
 
 ### Changed
 

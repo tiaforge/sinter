@@ -25,6 +25,8 @@ export interface PathTable {
   r: Array<Entry[] | 0>;
   /** the paths the runtime marks itself (`$locale`, `$url`, `$now`, `$r.<name>`, `$meta.<name>`, `$s<sid>.**`, `$s<sid>.$error`), by name */
   x: Record<string, number>;
+  /** dev builds: each node's segment, for the dev module's check that each write marked what it changed (warning 36) */
+  n?: string[];
 }
 
 /** Literal string parts and function indexes, joined with encodeURIComponent. */
@@ -570,11 +572,11 @@ const noSrc = <T extends { src: unknown }>({ src: _, ...rest }: T) => rest;
 const noUrl = ({ url: _, ...rest }: ActionDef) => rest;
 const noId = ({ id: _, ...rest }: TemplateDef) => rest;
 
-export function compactIR(full: IR): IR {
+export function compactIR(full: IR, o: { names?: boolean } = {}): IR {
   const ir = structuredClone(full);
   // (before the paths are numbered: a path only the writes left out named gets no node)
   pruneWrites(ir);
-  const ps = numberPaths(ir);
+  const ps = numberPaths(ir, !!o.names);
   const { syncs, ...rest } = ir;
   // what the mount listens for: decided here, so it walks no bindings for it
   const nodes = [...ir.roots, ...ir.templates.flatMap((t) => t.nodes)];

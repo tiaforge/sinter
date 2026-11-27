@@ -821,7 +821,7 @@ export async function render(html: string, options: RenderOptions = {}): Promise
   // a page that fails to mount leaves nothing behind: the next render starts afresh
   try { app = mount(doc, {
     // the IR as the page module carries it
-    ir: compactIR(parts.ir), fns, env,
+    ir: compactIR(parts.ir, { names: options.dev ?? true }), fns, env,
     // as in a build, where every page has the app's prefetch feature
     features: [...parts.features.map((f) => FEATURES[f]!), prefetch(ahead, ahead.some((p) => p.a) ? lists : undefined)],
     request: [...config.request, ...(requests ? [requests] : [])],

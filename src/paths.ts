@@ -140,7 +140,7 @@ export function fixedPaths(ir: Pick<IR, 'resources' | 'roots' | 'templates' | 'l
  * numbered in pre-order with children sorted by name, so the same page always gets the same ids.
  * Returns the table the runtime reads instead of the names.
  */
-export function numberPaths(ir: IR): PathTable {
+export function numberPaths(ir: IR, withNames = false): PathTable {
   const deps = new Set<string>(), writes = new Set<string>(fixedPaths(ir));
   eachPath(ir, (p) => deps.add(p), (p) => writes.add(p));
   type T = { kids: Map<string, T>; id: number };
@@ -150,12 +150,13 @@ export function numberPaths(ir: IR): PathTable {
     for (const s of p.split('.')) { let c = t.kids.get(s); if (!c) t.kids.set(s, (c = { kids: new Map(), id: -1 })); t = c; }
   };
   for (const p of [...deps, ...writes]) insert(p);
-  const parents: number[] = [], kinds: Record<number, string> = {};
+  const parents: number[] = [], kinds: Record<number, string> = {}, names: string[] = [];
   const visit = (t: T, parent: number) => {
     for (const k of [...t.kids.keys()].sort()) {
       const c = t.kids.get(k)!;
       c.id = parents.length;
       parents.push(parent);
+      names.push(k);
       if (special(k)) kinds[c.id] = k;
       visit(c, c.id);
     }
@@ -194,7 +195,7 @@ export function numberPaths(ir: IR): PathTable {
   eachPath(ir, num, num);
   // trailing nodes nothing writes need no entry
   while (reach.length && reach[reach.length - 1] === 0) reach.pop();
-  return { p: parents, ...(Object.keys(kinds).length ? { k: kinds } : {}), r: reach, x };
+  return { p: parents, ...(Object.keys(kinds).length ? { k: kinds } : {}), r: reach, x, ...(withNames ? { n: names } : {}) };
 }
 
 /** Whether dirty path `d` (a node, -1 for none) is a change inside state scope `sid`: its top segment is `$s<sid>`. */

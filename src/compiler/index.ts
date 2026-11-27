@@ -450,7 +450,8 @@ function pageLines(parts: CompiledParts, options: Pick<CompileOptions, 'helpers'
   if (parts.remote) lines.push(`import { remote } from '${RUNTIME}/remote';`);
   lines.push('');
   if (parts.remote) lines.push(`const $ri = remote(${JSON.stringify(parts.remote)});`);
-  lines.push(`const ir = ${JSON.stringify(compactIR(parts.ir))};`);
+  // (a dev build: with the paths' names, for the dev module's write check)
+  lines.push(`const ir = ${JSON.stringify(compactIR(parts.ir, { names: !!options.dev }))};`);
   lines.push('const fns = [');
   parts.fns.forEach((f, i) => lines.fn('  ', f, ',', parts.sources?.fns[i]));
   lines.push('];');

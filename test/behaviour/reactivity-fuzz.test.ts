@@ -7,12 +7,14 @@
 // prop setter fires an event in the middle of a flush, `<sn-sync>` upserts, refetches and a dropped stream, an
 // optimistic action, actions whose then and catch read lets, a component's own let and a persisted scope, a plain
 // object of primitives changed in place and replaced by an equal copy, the locale, with reads of lets stored into
-// state between all of them; the buttons are clicked in a random order, with and without a flush between. Three
+// state between all of them; the buttons are clicked in a random order, with and without a flush between. Four
 // oracles:
 // - memo(): the same page with every helper wrapped in memo() gives the same page, state and stored reads, by
 //   structure (a memoized result is a frozen copy);
 // - the truth: after each settle, every state scope marked whole changes nothing on the page (a write path that
 //   marks too little shows here, lets or not);
+// - the dev module's write check (warning 36): every concrete path of the state that a step changed is reached by a
+//   path it marked, whether a binding shows it or not;
 // - the first paint: on a third of the seeds the memoized page is the early script's first paint taken over.
 // Writes through aliases (`sel = y; sel.n += 10`; docs/spec.md, Aliases): direct, inside another object, in another
 // list, a helper's element, one from reduce() the compiler cannot follow, and writes through the list they alias; and
@@ -234,7 +236,11 @@ test('random handlers: the page with memoized helpers agrees with the plain one,
         // the truth, whatever both pages share: every scope marked whole changes nothing on the page
         // (what the page shows: marking the persisted scope saves it, which is no binding)
         const blank = memoryStorage();
+        let checked = 0;
         const fresh = async () => {
+          // the second truth: the dev module found no change that no mark reached (warning 36)
+          const missed = v.warnings().filter((w) => w.code == 36);
+          if (missed.length > checked) { stale.push(`${memoized ? 'memoized' : 'plain'} page, after step ${out.length - 1}: ${missed[checked]!.message}`); checked = missed.length; }
           const was = seen(v, blank);
           for (const el of [main, main.querySelector('section')!]) v.state(el).update(() => {});
           await v.settle();
