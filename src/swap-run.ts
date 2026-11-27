@@ -188,12 +188,13 @@ export function inline(doc: Document) {
 /**
  * The web fonts the build moved to after `load` (`<noscript data-sn-fonts>`, docs/first-paint.md#fonts-after-the-load),
  * which the next page's early file, not run by a swap, would add: a stylesheet of its head (parsed without scripting,
- * the `<noscript>` holds the link element), which `heads` brings in with the others, unless the page shown has it already.
+ * the `<noscript>` holds the link element), which `heads` brings in with the others (or keeps the page shown's, the same URL).
  */
 export function fonts(doc: Document, base: URL) {
   for (const l of doc.querySelectorAll<HTMLLinkElement>('head noscript[data-sn-fonts] link')) {
-    const href = new URL(l.getAttribute('href')!, base).href;
-    if (![...document.querySelectorAll<HTMLLinkElement>('link[rel~=stylesheet]')].some((x) => x.href == href)) doc.head.append(l);
+    // always: `heads` pairs it with the page shown's link by URL and keeps that one; left out, the page shown's
+    // link is dropped by this swap and put back by the next (the font changing on every other swap)
+    doc.head.append(l);
   }
 }
 
