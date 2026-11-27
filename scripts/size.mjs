@@ -168,10 +168,15 @@ const entries = {
 // on the article (index and profile +32 B). The minimal pages' raises of the same day (for the resource handle's `src`
 // and `order` and a registry of runtime copies) were taken back on 2026-11-27 with those two: the minimal pages are
 // as on 2026-11-25
+// Lowered on 2026-11-27, when a core without lists and branches stopped carrying their code (`walk()` in src/runtime/app.ts
+// asks the LIST and BRANCH flags in a statement of their own: after `if (… || true) continue;` the minifier kept the rest of
+// the loop, 2.4 kB minified; `core, no parts` 7,207 B to 6,229 B): the minimal page to 10.125 KB (10,246 B), with swaps to
+// 12 KB (12,208 B), with a link to 10.25 KB (10,375 B), with a token to 11.125 KB (11,322 B), the multilingual status page
+// to 11.375 KB (11,555 B). RealWorld has lists and branches: unchanged
 const BUDGET = {
-  'multilingual de/status': 12.625 * 1024, 'multilingual de/status, html': 0.875 * 1024,
-  minimal: 11 * 1024, 'minimal, swaps': 12.875 * 1024, 'realworld article': 57.375 * 1024,
-  'minimal, link': 11.125 * 1024, 'minimal, token': 12 * 1024, 'minimal, token, early': 1.875 * 1024, 'realworld early, shared': 3.375 * 1024,
+  'multilingual de/status': 11.375 * 1024, 'multilingual de/status, html': 0.875 * 1024,
+  minimal: 10.125 * 1024, 'minimal, swaps': 12 * 1024, 'realworld article': 57.375 * 1024,
+  'minimal, link': 10.25 * 1024, 'minimal, token': 11.125 * 1024, 'minimal, token, early': 1.875 * 1024, 'realworld early, shared': 3.375 * 1024,
 };
 let failed = false;
 const gz = (b) => gzipSync(b, { level: 9 }).length;

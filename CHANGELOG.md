@@ -69,6 +69,13 @@ How to write an entry (from 0.21.0 on; older sections keep their own form):
 - In Safari, `navigate()` or a same-page link with another query sometimes changed the address bar but not `$url`
   bindings (array parameters too); they now follow the link's URL ([docs/navigation.md](docs/navigation.md#same-page-links)).
 
+### Performance
+
+- A site whose pages have no `data-sn-for`, `data-sn-if` or `<sn-component use>` loads about 1 kB less JavaScript
+  (gzip; 2.4 kB minified): its build now leaves the list and branch code out of the runtime, as it was meant to.
+  A page with one resource and one text binding goes from 11.2 kB to 10.2 kB. Nothing to do; sites that use lists
+  or branches are unchanged.
+
 ## 0.22.1 (2026-11-24)
 
 ### Fixed

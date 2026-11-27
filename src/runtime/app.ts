@@ -1056,7 +1056,11 @@ export function mount(root: Document | Element, o: MountOptions): App {
   /** Walks bindings in document order; `force`: 0 dirty ones only, 1 also those reading a loop index, 2 all. */
   function walk(rbs: RB[], force: number) {
     for (const rb of rbs) {
-      if (!process(rb, force) || !(F.LIST || F.BRANCH) || !rb.rows) continue;
+      // the flags first, in a statement of their own: with both off, a minifier that reads `if (… || true) continue;` keeps
+      // the rest of the loop where it declares a `const` (the rows' walk, `keyOf`, `rowsOf`, the simple rows' walk), so a
+      // site without lists or branches carried them
+      if (!(F.LIST || F.BRANCH)) { process(rb, force); continue; }
+      if (!process(rb, force) || !rb.rows) continue;
       const t = rb.t;
       // Two forces: 2 renders everything below (a change inside a value, which no path names below it; the takeover of
       // rows the early script rendered); 3, for a row whose item or props were replaced by other values, stops at the
