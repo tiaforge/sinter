@@ -159,7 +159,8 @@ early script). A server sends in the order it is asked, and over HTTP/2 from one
 for after the modules arrives after all of them, and the first paint waits for it. Measured on Caley (nginx 1.24 with
 its defaults, HTTP/2, 1.6 Mbit/s on the path, 150 ms round trip, 4x CPU, cold): first paint 1,136 → 588 ms on mail,
 808 → 548 ms on calendar, mount and largest paint unchanged. Stylesheets your page writes before its scripts stay
-where they are.
+where they are. To measure page loads like this, see [bench/realnet](../bench/realnet/README.md): the browser's own
+network throttling hides how a server orders its bytes.
 
 ### The page script is `async`
 

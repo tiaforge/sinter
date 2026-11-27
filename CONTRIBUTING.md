@@ -100,6 +100,7 @@ npm run typecheck
 npm run build     # dist/: what the package publishes, and what e2e/ and the examples install; npm test does not need it
 npm run size      # size per page and module, with budgets
 npm run bench     # store and flush benchmarks (docs/benchmark.md)
+sudo bench/realnet/example-realworld.sh   # page loads on a bandwidth-limited network path, behind nginx (bench/realnet/README.md)
 npm run docs      # regenerate llms.txt and llms-full.txt, html-custom-data.json (also the VS Code extension's), docs/diagnostics.md and docs/attributes.md
 npm run release -- 0.3.0   # sinter, the create starter, sinter-markdown (its peer range from 0.3.0), sinter-axum and Sinter.AspNetCore all to 0.3.0, the starter's temper to the
                            # latest on npm, date the changelog,
