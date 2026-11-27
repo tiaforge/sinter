@@ -107,6 +107,32 @@ test('early state: fields that need no data, persisted values, and the branch of
   expect(early).toContain("import { run, $k, at, byId, iff, sp, st, text, w } from '@tiaforge-ui/sinter/runtime/early';");
 });
 
+test('early bindings over resources, per resource: an embedded one\'s data, a fetched one\'s status, nothing of a fetched one\'s data', () => {
+  const { early, ir } = build(`<!doctype html><html><head><script type="application/json" data-sn-resource="a">{"name":"Ada"}</script></head>
+    <body data-sn-state="{ q: 'x' }">
+      <sn-resource name="a" src="/api/a"></sn-resource>
+      <sn-resource name="b" src="/api/b"></sn-resource>
+      <sn-resource name="c" src="/api/c?q={q}"></sn-resource>
+      <p data-sn-text="a.name"></p>
+      <p data-sn-text="b.label"></p>
+      <p data-sn-text="a.name + b.label"></p>
+      <template data-sn-if="$meta.b.loading"><i>loading b</i></template>
+      <p data-sn-text="c.title"></p>
+      <template data-sn-if="$meta.c.loading"><i>loading c</i></template>
+      <p data-sn-text="$url.c ? c.title : a.name"></p>
+    </body></html>`);
+  // the embedded resource's data, and the fetched predictable one's status (written in: loading at mount)
+  expect(early).toContain('$.$r.a.name');
+  expect(ir.emb).toEqual({ a: expect.objectContaining({ select: null }) });
+  // and a binding that reads a fetched one's data in one branch only: it paints early when the URL picks the other
+  expect(ir.roots.flatMap((n: { b: Array<{ k: string }> }) => n.b.map((b) => b.k))).toEqual(['text', 'if', 'text']);
+  expect(early).toContain('$.$url.c ? $.$r.c.title : $.$r.a.name');
+  // not what reads a fetched one's data on every path, also beside embedded data (it would throw early: b's data is
+  // null at mount, c's is not there); not the status of one whose URL reads state
+  expect(early).not.toContain('label');
+  expect(early).not.toContain('$meta');
+});
+
 test('no early module when nothing runs early and the app has no early module', () => {
   expect(build(page('<sn-resource name="u" src="/api/u?d={date(at)}"></sn-resource><p data-sn-text="u.x"></p>')).early).toBeNull();
   // the app's early module, on a page that has something to run (later, not early)

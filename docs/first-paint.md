@@ -172,6 +172,14 @@ then `contacts` has that data and makes no first request. The early script reads
 bindings over it, `data-sn-for` loops included, are in the first frame. The page script adopts
 the rows that are there instead of cloning them again.
 
+This is decided per resource. A binding that reads, whatever the state, the data of a resource without
+embedded data (`feed.length`, a `data-sn-for` over `feed`) is not in the early script, nor are the
+helpers only it calls: that data cannot be there before the page script, since the early script renders
+as the HTML is parsed and never waits for a response (an early request's response goes to the page
+script). A binding that reads it in one branch only (`$url.feed ? feed : contacts`) stays: it paints
+when the URL picks `contacts`. A resource's status before data still is early (a "Loading…" branch,
+[below](#loading-branches)).
+
 Who writes the JSON is up to you. A server that only fetches your API and writes the response
 into the page is enough: it renders nothing. The placeholders must sit in `<head>`, once per resource;
 anything else is ignored. An empty placeholder means "no data", and the page requests it itself, so

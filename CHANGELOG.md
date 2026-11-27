@@ -103,6 +103,15 @@ How to write an entry (from 0.21.0 on; older sections keep their own form):
 
 ### Performance
 
+- The early script no longer carries bindings that could never paint: one that reads, on every path, the data or
+  status of a resource that is neither embedded in the page nor predictable (or a field of a predictable object
+  resource, null before data) is left to the page script, with the templates, state fields and helpers only it needs.
+  Before, on a page with any embedded or predictable resource, such bindings were written in and skipped when they
+  threw. A binding that reads such a resource in one branch only (`$url.feed ? feed : articles`) stays early. Caley,
+  early file gzip (page + shared): mail 10,333 → 7,753 B (under the 10 kB budget again with early requests on),
+  settings 6,494 → 4,494, calendar 6,493 → 5,844, contacts 5,914 → 5,741; RealWorld unchanged. Nothing to do; the
+  first paint is the same ([docs/first-paint.md](docs/first-paint.md#embedded-data)).
+
 - A config module with `configure({ request: [onUnauthorized(…)] })` no longer turns off early requests. The build reads
   the `request` list's code: `onUnauthorized` and a middleware of your own that passes the request it was given to `next`
   untouched keep the requests sent before the page script; `header()` and any middleware that may change, replace or
