@@ -77,6 +77,51 @@ export function eachPath(ir: IR, dep: (p: any, set: (n: number) => void) => void
   for (const a of ir.actions as ActionDef[]) list(a, 'w', write);
 }
 
+/**
+ * A write list without the paths another of its own writes covers, in place (the IR's paths still strings; call it on
+ * a copy). A handler whose writes the compiler cannot follow (through an alias it cannot trace) writes everything
+ * below every state scope and resource (`$s<sid>.**`, `$r.<name>.**`: compile.ts `applyAliases`) and, beside those,
+ * every single path it found on the way: on a page with many scopes, a hundred paths a handler, each a mark per run.
+ *
+ * `X.**` reaches every dependency a write below `X` reaches, with no more checks than that write has (the checks
+ * `staticReach` collects along `X` are the same for both, and it returns at `**`), and it reaches each as a change
+ * anywhere inside the value: every question the runtime asks of a round's dirty paths (`hit`, `hits`, `inside`, the
+ * rows a change reaches, a state scope changed) is whether some dirty path does, so with `X.**` in the list the other
+ * path changes no answer (test/paths.test.ts asks them all of random lists). What stays as it is: a write of `X` itself
+ * (it replaces the value, which a dependency on the structure of the list holding it reads, `#`; a change inside does
+ * not), a model's first write (the path its control is bound to, which typing.ts reads there), the list of a persisted
+ * model (persist.ts matches its paths as dependencies), and what a `X.**` that reaches a dependency shorter than `X`
+ * would cover (the runtime's `inside` counts a `**` as inside a value only from at or above the dependency).
+ */
+export function pruneWrites(ir: IR): void {
+  const deps = new Set<string>(), lists = new Set<string[]>(), kept = new Set<unknown>(), first = new Set<unknown>();
+  const own = (o: { w?: unknown }) => { if (o.w) lists.add(o.w as string[]); };
+  const nodes = (ns: NodeDef[]) => { for (const n of ns) for (const b of n.b) { if (b.k == 'model') (b.p != null ? kept : first).add(b.w); own(b); } };
+  eachPath(ir, (p) => deps.add(p), () => {});
+  nodes(ir.roots);
+  for (const t of ir.templates) nodes(t.nodes);
+  ir.resources.forEach(own);
+  for (const s of ir.syncs ?? []) s.events.forEach(own);
+  ir.actions.forEach(own);
+  // the `X` of a write `X.**` that covers (`X` plain names below a state scope or a resource): null when it does not
+  const covers = new Map<string, string | null>();
+  const cover = (w: string): string | null => {
+    let x = covers.get(w);
+    if (x !== undefined) return x;
+    const m = /^((?:\$s\d+|\$r\.[^.{*#~]+)(?:\.[^.{*#~]+)*)\.\*\*$/.exec(w), n = m ? m[1]!.split('.').length : 0;
+    x = m && ![...deps].some((d) => d.split('.').length < n && staticReach(w, d)) ? m[1]! : null;
+    covers.set(w, x);
+    return x;
+  };
+  for (const l of lists) {
+    if (kept.has(l) || l.some((p) => typeof p != 'string')) continue;
+    const xs = l.map(cover).filter((x) => x != null);
+    if (!xs.length) continue;
+    const out = l.filter((p, i) => (!i && first.has(l)) || !xs.some((x) => p.startsWith(x + '.') && p != x + '.**'));
+    if (out.length < l.length) l.splice(0, l.length, ...out);
+  }
+}
+
 /** The paths the runtime marks by itself, by name in the table's `x`: the page's fixed inputs, each resource, each state scope. */
 export function fixedPaths(ir: Pick<IR, 'resources' | 'roots' | 'templates' | 'lm'>): string[] {
   const sids = new Set<number>();
