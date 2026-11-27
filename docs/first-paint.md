@@ -152,6 +152,15 @@ sinter: early script of index.html: … gzip; in the page bundle too: src/format
 
 Split such a module (the helpers early bindings call in a module of their own), or accept the copy.
 
+### The stylesheets are asked for first
+
+In builds, the page's stylesheets come before the page script and its `modulepreload` links in the head (after the
+early script). A server sends in the order it is asked, and over HTTP/2 from one large send buffer: a stylesheet asked
+for after the modules arrives after all of them, and the first paint waits for it. Measured on Caley (nginx 1.24 with
+its defaults, HTTP/2, 1.6 Mbit/s on the path, 150 ms round trip, 4x CPU, cold): first paint 1,136 → 588 ms on mail,
+808 → 548 ms on calendar, mount and largest paint unchanged. Stylesheets your page writes before its scripts stay
+where they are.
+
 ### The page script is `async`
 
 In builds the page script is `async`, so it does not wait for stylesheets and starts its requests
@@ -171,6 +180,14 @@ A resource can start with its data inside the page. If the head contains
 then `contacts` has that data and makes no first request. The early script reads it too, so
 bindings over it, `data-sn-for` loops included, are in the first frame. The page script adopts
 the rows that are there instead of cloning them again.
+
+This is decided per resource. A binding that reads, whatever the state, the data of a resource without
+embedded data (`feed.length`, a `data-sn-for` over `feed`) is not in the early script, nor are the
+helpers only it calls: that data cannot be there before the page script, since the early script renders
+as the HTML is parsed and never waits for a response (an early request's response goes to the page
+script). A binding that reads it in one branch only (`$url.feed ? feed : contacts`) stays: it paints
+when the URL picks `contacts`. A resource's status before data still is early (a "Loading…" branch,
+[below](#loading-branches)).
 
 Who writes the JSON is up to you. A server that only fetches your API and writes the response
 into the page is enough: it renders nothing. The placeholders must sit in `<head>`, once per resource;

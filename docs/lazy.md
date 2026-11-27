@@ -91,9 +91,9 @@ otherwise for the pages that need it sooner:
   head can still ask for it.
 - A load `data-sn-import` starts that fails is silent; the call that needs the package reports it.
 - On a slow network a big preload competes with the page bundle and the page's data: measure before
-  preloading. The links have low priority, since the code is for later and must not compete with what the page
-  needs to start (its scripts, stylesheets and early script, which share one connection over HTTP/2): the browser
-  gives the connection to those first. The two attributes are apart for that reason. `vite dev` writes no preload links.
+  preloading. The links have low priority, since the code is for later: a browser or server that orders by
+  priority sends what the page needs to start first. Most servers send in the order they are asked, and the preload
+  links come last in the head, so with them the low priority changes little (no gain measured with nginx's defaults). The two attributes are apart for that reason. `vite dev` writes no preload links.
   Measured in Caley's mail page (openpgp, 129.6 kB gzip; 150 ms, 1.6 Mbit/s, 4x CPU, 3 cold loads,
   2026-11-11): `data-sn-import` had openpgp ready at 2295–2364 ms, as the component that imported it
   before; with `data-sn-preload` as well, 2180–2218 ms, the list and the message body no later, but the

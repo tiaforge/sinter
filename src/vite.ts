@@ -2502,6 +2502,9 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         // and mounts once the document is parsed and the early script has rendered (see the page module)
         // (on a page with nothing to run, the chunk is the page's own script: it stays a plain, deferred module script)
         if (ctx.chunk && runtimeOf.get(rel)?.length !== 0) html = html.replace(`<script type="module" crossorigin src="${base}${ctx.chunk.fileName}">`, (t) => t.slice(0, -1) + ' async>');
+        // the stylesheets Vite added after the page module and its preloads go before them: a server sends in the order
+        // it is asked (HTTP/2 from one large send buffer), so the render-blocking stylesheets must be asked for first
+        if (ctx.chunk) html = stylesheetsFirst(html, `<script type="module" crossorigin src="${base}${ctx.chunk.fileName}"`);
         // the embedded-data placeholders last in the head, after the tags Vite added (the page module, its
         // preloads, the stylesheets): a server that streams the page up to the first one sends all of those first
         const slots = embedPages.get(rel)?.data;
@@ -3446,6 +3449,34 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     },
   };
   return [main, htmlOut, post, cssImages, fonts, htmlIn, fontCheck, pages, compileHints, crossLate];
+}
+
+/**
+ * The `<link rel="stylesheet">` tags of the `<head>` that come after the page's entry module script (`entry`: the
+ * start of its tag), moved to just before it, in their order and as written: Vite writes the entry script, its
+ * modulepreloads, then the stylesheets, and a server sends in the order the browser asks (over HTTP/2 from one send
+ * buffer the modules can fill first). Stylesheets before the script stay where they are; those in a `<noscript>` or a
+ * `<template>` are not moved; nothing else moves.
+ */
+export function stylesheetsFirst(html: string, entry: string): string {
+  const end = html.search(/<\/head\s*>/i), at = html.indexOf(entry);
+  if (end < 0 || at < 0 || at > end) return html;
+  const head = html.slice(at, end);
+  // the ranges of `<noscript>` and `<template>` elements after the script: their links are not the page's own
+  const inert: Array<[number, number]> = [];
+  for (const m of head.matchAll(/<(noscript|template)\b[\s\S]*?<\/\1\s*>/gi)) inert.push([m.index!, m.index! + m[0].length]);
+  const moved: string[] = [];
+  let rest = '', from = 0;
+  for (const m of head.matchAll(/<link\b[^>]*\brel=["']?stylesheet["']?[^>]*>[ \t]*\r?\n?[ \t]*/gi)) {
+    if (inert.some(([a, b]) => m.index! >= a && m.index! < b)) continue;
+    rest += head.slice(from, m.index);
+    moved.push(m[0].trim());
+    from = m.index! + m[0].length;
+  }
+  if (!moved.length) return html;
+  rest += head.slice(from);
+  const indent = /([ \t]*)$/.exec(html.slice(0, at))![1];
+  return html.slice(0, at) + moved.map((t) => `${t}\n${indent}`).join('') + rest + html.slice(end);
 }
 
 /**

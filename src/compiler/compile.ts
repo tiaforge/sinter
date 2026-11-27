@@ -13137,7 +13137,52 @@ class Compiler {
       if (!file) return null;
       return { name: name!, file, props: `($) => (${code.slice(e.elements[1].start, e.elements[1].end)})` };
     };
-    const value = (b: Binding) => !b.e && b.f !== undefined && statusOnly(strs(b.d)) && known(strs(b.d)) && !late(this.fns[b.f]!) && !this.painted.has(b)
+    /**
+     * Whether a binding's function reads, on every path through it, a resource the early script cannot know: one without
+     * embedded data that is not predictable (`$.$r.<name>`, `$.$meta.<name>`). The early scope throws there, so the binding
+     * would never paint early: it is the page module's, with the templates, state and helpers only it needs. A read in one
+     * branch only (`$url.feed ? feed : articles`, a `&&` or `||` right side, a callback) may not happen: that binding stays.
+     */
+    const alwaysThrows = (code: string): boolean => {
+      let ast: any;
+      try { ast = parseExpression(code); } catch { return false; }
+      if (ast?.type !== 'ArrowFunctionExpression' || ast.params[0]?.type !== 'Identifier' || ast.params[0].name !== '$') return false;
+      const unknown = (n: any) => {
+        if (n.type !== 'MemberExpression' || n.object.type !== 'MemberExpression' || n.object.computed || n.object.object.type !== 'Identifier' || n.object.object.name !== '$') return false;
+        const kind = n.object.property.name, name = n.computed ? (n.property.type === 'Literal' ? n.property.value : null) : n.property.name;
+        if (typeof name !== 'string') return false;
+        if (kind === '$r') return !embedded.has(name) && !pre.has(name);
+        if (kind === '$meta') return !fixed.has(name) && !pre.has(name);
+        return false;
+      };
+      const must = (n: any): boolean => {
+        if (!n || typeof n.type !== 'string') return false;
+        if (unknown(n)) return true;
+        // a field of a predictable object resource: null at mount (written in as such), so reading into it throws
+        if (n.type === 'MemberExpression' && !n.optional && n.object.type === 'MemberExpression' && !n.object.computed && n.object.object.type === 'MemberExpression'
+          && !n.object.object.computed && n.object.object.object.type === 'Identifier' && n.object.object.object.name === '$' && n.object.object.property.name === '$r') {
+          const d = pre.get(n.object.property.name);
+          if (d && !d.key && !d.ls) return true;
+        }
+        switch (n.type) {
+          case 'ConditionalExpression': return must(n.test) || (must(n.consequent) && must(n.alternate));
+          case 'LogicalExpression': return must(n.left);
+          case 'ArrowFunctionExpression': case 'FunctionExpression': return false;
+          case 'ChainExpression': return must(n.expression);
+          case 'MemberExpression': return must(n.object) || (n.computed && !n.optional && must(n.property));
+          case 'CallExpression': return must(n.callee) || (!n.optional && n.arguments.some(must));
+          case 'SequenceExpression': return n.expressions.some(must);
+        }
+        for (const k of Object.keys(n)) {
+          if (k === 'type' || k === 'start' || k === 'end') continue;
+          const v = n[k];
+          if (Array.isArray(v) ? v.some((c) => c && must(c)) : v && typeof v === 'object' && must(v)) return true;
+        }
+        return false;
+      };
+      return must(ast.body);
+    };
+    const value = (b: Binding) => !b.e && b.f !== undefined && statusOnly(strs(b.d)) && known(strs(b.d)) && !late(this.fns[b.f]!) && !this.painted.has(b) && !alwaysThrows(this.fns[b.f]!)
       // a let that waits for a lazy helper module is not early
       && !this.fns[b.f]!.includes('$.$z(');
     // a component's early renderer, where the use's props are known early: it fills the root, and the instance adopts it
