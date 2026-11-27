@@ -144,6 +144,25 @@ async function tab(browser: Awaited<ReturnType<NonNullable<typeof chromium>['lau
 }
 const shape = (page: Page, sel: string) => page.$eval(sel, (el) => [...el.childNodes].map((n) => (n.nodeType === 8 ? `<!--${(n as Comment).data}-->` : n.nodeType === 1 ? (n as Element).localName : null)).filter(Boolean));
 
+/**
+ * Opens the page `name` of the build `from` with its page module held back, runs `early` in that state, then lets the
+ * module load and mount. With the module not loaded, what is on the page is what the early script rendered: `early`
+ * waits for it there and records it. (A `DOMContentLoaded` listener of the test's own, registered before the early
+ * script's, ran before the early script's last pass: whether the nodes were there yet depended on how the parser's
+ * tasks fell, and now and then a run found none.)
+ */
+async function open(page: Page, from: string, port: number, name: string, early?: () => Promise<void>): Promise<void> {
+  let html: string;
+  try { html = readFileSync(join(from, name, 'index.html'), 'utf8'); } catch { html = readFileSync(join(from, `${name}.html`), 'utf8'); }
+  const entry = /<script type="module"[^>]*\bsrc="([^"]+)"/.exec(html)![1]!;
+  let release!: () => void;
+  const held = new Promise<void>((r) => { release = r; });
+  await page.route((url) => url.pathname === entry, async (route) => { await held; await route.continue(); });
+  // (not `load`: it waits for the module)
+  await page.goto(`http://127.0.0.1:${port}/${name}/`, { waitUntil: 'domcontentloaded' });
+  try { await early?.(); } finally { release(); }
+}
+
 test.skipIf(!chromium)('lists, branches, choices, tables, options, SVG and dialogs under Trusted Types', async () => {
   const site = serve(out), port = await listen(site), browser = await chromium!.launch();
   try {
@@ -198,12 +217,11 @@ test.skipIf(!chromium)('a tree over embedded data: rendered by the early script 
   const site = serve(outEmbed, true), port = await listen(site), browser = await chromium!.launch();
   try {
     const { page, check } = await tab(browser);
-    // before the page module runs: what the early script rendered
-    await page.addInitScript(() => document.addEventListener('DOMContentLoaded', () => {
-      (window as any).__early = [...document.querySelectorAll('#doc *')];
-    }));
-    await page.goto(`http://127.0.0.1:${port}/tree/`);
-    await page.waitForFunction(() => (window as any).__early !== undefined);
+    // before the page module has loaded: what the early script rendered
+    await open(page, outEmbed, port, 'tree', async () => {
+      await page.waitForFunction(() => document.querySelectorAll('#doc *').length > 5);
+      await page.evaluate(() => { (window as any).__early = [...document.querySelectorAll('#doc *')]; });
+    });
     await page.waitForLoadState('networkidle');
     expect(await page.evaluate(() => (window as any).__early.length)).toBeGreaterThan(5);
     expect(await page.$eval('#doc', (a) => a.textContent)).toBe('a bc &amp; d');
@@ -219,10 +237,11 @@ test.skipIf(!chromium)('text without an element and roots that are no element, u
     const site = serve(from, embed), port = await listen(site), browser = await chromium!.launch();
     try {
       const { page, check } = await tab(browser);
-      await page.addInitScript(() => document.addEventListener('DOMContentLoaded', () => {
-        (window as any).__early = [...document.querySelectorAll('#doc p')].map((p) => [...p.childNodes]);
-      }));
-      await page.goto(`http://127.0.0.1:${port}/text/`);
+      // with embedded data the early script renders them: there before the page module has loaded
+      await open(page, from, port, 'text', embed ? async () => {
+        await page.waitForFunction(() => document.querySelectorAll('#doc p').length === 2);
+        await page.evaluate(() => { (window as any).__early = [...document.querySelectorAll('#doc p')].map((p) => [...p.childNodes]); });
+      } : undefined);
       await page.waitForFunction(() => document.querySelectorAll('#doc p').length === 2);
       await page.waitForLoadState('networkidle');
       // runs of text beside elements, side by side and empty: one node each, no wrapper
@@ -252,8 +271,11 @@ test.skipIf(!chromium)('tree slots under Trusted Types: a link fill at every dep
     const site = serve(from, embed), port = await listen(site), browser = await chromium!.launch();
     try {
       const { page, check } = await tab(browser);
-      await page.addInitScript(() => document.addEventListener('DOMContentLoaded', () => { (window as any).__early = [...document.querySelectorAll('a.mine')]; }));
-      await page.goto(`http://127.0.0.1:${port}/links/`);
+      // with embedded data the early script renders the fills: there before the page module has loaded
+      await open(page, from, port, 'links', embed ? async () => {
+        await page.waitForFunction(() => document.querySelectorAll('a.mine').length === 2);
+        await page.evaluate(() => { (window as any).__early = [...document.querySelectorAll('a.mine')]; });
+      } : undefined);
       await page.waitForFunction(() => document.querySelectorAll('a.mine').length === 2);
       await page.waitForLoadState('networkidle');
       const links = () => page.$$eval('a.mine', (a) => a.map((x) => `${x.getAttribute('href')}|${x.getAttribute('rel')}|${x.textContent}`));
