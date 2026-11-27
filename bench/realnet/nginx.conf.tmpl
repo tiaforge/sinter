@@ -1,0 +1,31 @@
+# nginx for realnet measurements (filled in by nginx.sh): TLS with a self-signed certificate, HTTP/2 on @H2_PORT@ and
+# HTTP/1.1 only on @H1_PORT@, both on the host side of the veth pair (@ADDR@). A file of the build directory is served
+# by nginx itself (`/`, `/x/` and `/x` find `index.html` and `x.html` too); anything else goes to the backend, if any.
+# Default settings otherwise, as a deployment would have them; `tuned` adds a small send buffer and HTTP/2 chunks.
+# workers as root: build directories often sit where only root may read (a scratch directory, a CI workspace)
+user root;
+worker_processes 1;
+pid @STATE@/nginx.pid;
+error_log @STATE@/error.log warn;
+events { worker_connections 1024; }
+http {
+  include @MIME@;
+  access_log off;
+  sendfile on;
+  gzip on;
+  gzip_types text/css application/javascript text/javascript application/json image/svg+xml;
+  @CHUNK@
+  ssl_certificate @STATE@/cert.pem;
+  ssl_certificate_key @STATE@/key.pem;
+  client_body_temp_path @STATE@/tmp;
+  proxy_temp_path @STATE@/tmp;
+  @UPSTREAM@
+  server {
+    listen @ADDR@:@H2_PORT@ ssl http2 @SNDBUF@;
+    @SITE@
+  }
+  server {
+    listen @ADDR@:@H1_PORT@ ssl @SNDBUF@;
+    @SITE@
+  }
+}
