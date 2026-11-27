@@ -258,10 +258,11 @@ const GLOBAL_AT = new Set(['import', 'font-face', 'keyframes', '-webkit-keyframe
  * In `@scope`, a selector without `:scope` or `&` matches only below the scope root, so the root
  * itself (`.preview`, the `.compact` of `.compact p`) would never match. Each such selector gets a
  * copy whose first compound may be the root, `.compact p, :where(:scope):is(.compact) p`, with the
- * same specificity (`:where()` adds none). Selectors are otherwise as written.
+ * same specificity (`:where()` adds none). `:scope` and `&` as written name the component's root only, not the
+ * slot content it passes on (`rootOnly`). Selectors are otherwise as written.
  */
 export function scopeCss(css: string, name: string, layer?: string): string {
-  const { global, scoped } = splitCss(css);
+  const { global, scoped } = splitCss(css, name);
   const sel = JSON.stringify(name);
   const out = [...global];
   const block = `@scope ([data-sn-c=${sel}], [data-sn-s=${sel}]) to ([data-sn-c], [data-sn-s]) {\n${scoped.join('\n')}\n}`;
@@ -341,14 +342,39 @@ function withRoot(rule: csstree.Rule) {
   for (const x of extra) rule.prelude.children.appendData(x);
 }
 
-function splitCss(css: string): { global: string[]; scoped: string[] } {
+/**
+ * `:scope` as written is the component's root. The slot content the component passes into other components' slots
+ * is a scope root of the same `@scope` (`data-sn-s="<name>"`), so that its rules reach the markup it wrote there, and
+ * `:scope` alone would match it too. So `:scope` → `:scope:where([data-sn-c="<name>"])` and `&` (`:where(:scope)` at the
+ * top of `@scope`) → `:where(:scope:where(…))`, with the same specificity. In a rule's selectors, not in rules nested in
+ * it (as `withRoot`). Before `withRoot`: its `:where(:scope)` copies are meant for that slot content too.
+ */
+function rootOnly(rule: csstree.Rule, root: string) {
+  if (rule.prelude.type !== 'SelectorList') return;
+  const first = (sel: string) => (csstree.parse(sel, { context: 'selector' }) as csstree.Selector).children.first!;
+  csstree.walk(rule.prelude, {
+    visit: 'NestingSelector',
+    enter(_node, item, list) { if (list) list.replace(item, list.createItem(first(':where(:scope)'))); },
+  });
+  csstree.walk(rule.prelude, {
+    visit: 'PseudoClassSelector',
+    enter(node, item, list) {
+      if (node.name.toLowerCase() !== 'scope' || !list) return;
+      const mark = first(`:where([data-sn-c=${root}])`);
+      if (item.next) list.insertData(mark, item.next); else list.appendData(mark);
+    },
+  });
+}
+
+function splitCss(css: string, name: string): { global: string[]; scoped: string[] } {
   const ast = csstree.parse(css, { parseValue: false, parseAtrulePrelude: false }) as csstree.StyleSheet;
   const global: string[] = [], scoped: string[] = [];
+  const root = JSON.stringify(name);
   ast.children.forEach((node) => {
     if (node.type === 'Atrule' && (GLOBAL_AT.has(node.name.toLowerCase()) || (node.name.toLowerCase() === 'layer' && !node.block))) { global.push(csstree.generate(node)); return; }
     // the rules of the scope, inside `@media` and `@supports` too; not rules nested in rules (relative to their parent)
     const visit = (n: csstree.CssNode) => {
-      if (n.type === 'Rule') return withRoot(n);
+      if (n.type === 'Rule') { rootOnly(n, root); return withRoot(n); }
       if (n.type === 'Atrule' && n.block) n.block.children.forEach(visit);
     };
     visit(node);
