@@ -87,7 +87,7 @@ test('the next page\'s stylesheets go in before the commit, applied only from it
   } finally { document.head.innerHTML = was; }
 });
 
-test('the next page\'s fonts after `load` (<noscript data-sn-fonts>): a stylesheet of its head, unless the page shown has it', () => {
+test('the next page\'s fonts after `load` (<noscript data-sn-fonts>): a stylesheet of its head, which a swap keeps when the page shown has it', () => {
   const was = document.head.innerHTML, base = new URL('/next/', location.href);
   // happy-dom loads no stylesheet: a link it does not load counts as loaded, with no error printed
   const settings = (window as unknown as { happyDOM: { settings: { handleDisabledFileLoadingAsSuccess: boolean } } }).happyDOM.settings, quiet = settings.handleDisabledFileLoadingAsSuccess;
@@ -99,13 +99,20 @@ test('the next page\'s fonts after `load` (<noscript data-sn-fonts>): a styleshe
     fonts(d, base);
     expect([...d.head.children].map((x) => x.localName)).toEqual(['link', 'noscript', 'noscript', 'link']);
     expect(d.head.lastElementChild!.getAttribute('href')).toBe('../assets/fonts-a.css');
-    // the page shown has it (its early file added it after its load): not again
+    // the page shown has it (its early file added it after its load): the swap keeps that link, every swap
+    // (dropped when the next page's head lacked it, and put back by the swap after: the font changed on every other swap)
     const l = document.createElement('link');
     l.rel = 'stylesheet';
     l.href = new URL('../assets/fonts-a.css', base).href;
     document.head.append(l);
-    const d2 = next();
-    fonts(d2, base);
-    expect(d2.head.querySelectorAll(':scope > link')).toHaveLength(1);
+    const s = { sheets: new Set([l]) } as unknown as SwapState;
+    for (let i = 0; i < 3; i++) {
+      const d2 = next();
+      fonts(d2, base);
+      const h = heads(s, d2, base)!;
+      h.done();
+      expect(document.head.querySelectorAll('link[rel=stylesheet][href*="fonts-a"]')).toHaveLength(1);
+      expect(document.head.contains(l)).toBe(true);
+    }
   } finally { document.head.innerHTML = was; settings.handleDisabledFileLoadingAsSuccess = quiet; }
 });
