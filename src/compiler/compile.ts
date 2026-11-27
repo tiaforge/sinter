@@ -12676,6 +12676,9 @@ class Compiler {
     const mutated = this.page.mutated ?? new Set<string>();
     const sids = [...new Set(this.stateInits.map((x) => x.sid))].sort((a, b) => a - b);
     const ALL = [...sids.map((x) => `$s${x}.**`), ...this.resources.map((r) => `$r.${r.name}.**`)];
+    // resource data is read-only (SN205; dev builds freeze it): a write through state never changes an object of a
+    // resource's, so what it may change through an alias is state only (store functions name the resource they change)
+    const STATE = ALL.filter((a) => a.startsWith('$s'));
     // a segment of `p` stands for one of `x`: equal, or either is any key or row; a list's structure (`#`) only for itself
     const seg = (a: string, b: string) => a === b || (a !== '#' && b !== '#' && (a === '*' || b === '*' || b[0] === '{' || b === '~' || a[0] === '{' || a === '~'));
     // `**`: anything below, at any depth
@@ -12692,16 +12695,18 @@ class Compiler {
         const whole = (mutated.has(w) && end !== '#') || end === '**', O = end === '#' || end === '**' ? W.slice(0, -1) : whole ? W : W.slice(0, -1);
         let via = -1;
         const add = (p: string[]) => { const k = p.join('.'); if (!out.has(k)) { out.add(k); queue.push([k, via]); } };
+        const fromState = W[0] !== '$r', every = fromState ? STATE : ALL;
         const changes = (t: string[], s: string[] | null) => {
+          if (fromState && s?.[0] === '$r') return;
           if (under(t, O)) {
-            if (!s) return void (causes ? causes.add(via) : ALL.forEach((a) => add([a])));
+            if (!s) return void (causes ? causes.add(via) : every.forEach((a) => add([a])));
             const out = t.includes('**') ? [...s, '**'] : [...s, ...W.slice(t.length)];
             // the object written is a marked row element (`~`, by identity): the rows that hold it, not all of them
             if (!t.includes('**') && O[t.length - 1] === '~' && out[s.length - 1] === '*') out[s.length - 1] = '~';
             add(deep(out));
           } else if (whole && O.length < t.length && under(O, t)) {
             // a change of everything inside an object that holds the alias (a list's order, `#`, changes no object in it)
-            if (s) add(deep([...s, '**'])); else if (causes) causes.add(via); else ALL.forEach((a) => add([a]));
+            if (s) add(deep([...s, '**'])); else if (causes) causes.add(via); else every.forEach((a) => add([a]));
           }
         };
         for (const [i, a] of list.entries()) {

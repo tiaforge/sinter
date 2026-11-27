@@ -62,12 +62,12 @@ describe('followed: a let, a loop\'s item over a computed list, a callback\'s pa
     expect(text(r, 'li')).toBe('1,80');
   });
 
-  test('a loop over a resource: an item of it is the resource\'s element; a let of the loop\'s index holds nothing', () => {
+  test('a loop over a resource: an item of it is the resource\'s element (which a write through state never changes); a let of the loop\'s index holds nothing', () => {
     const ws = writes(`<sn-resource name="rs" src="/r"></sn-resource><main data-sn-state="{ sel: null, box: null }"><b data-sn-text="(sel ? sel.n : 0) + (box ? box.n : 0)"></b>
       <template data-sn-for="(r, j) in rs"><i data-sn-let="{ J: [j] }"><button data-sn-on-click="sel = r; box = J"></button></i></template>
       <button data-sn-on-click="sel.n = 3"></button><button data-sn-on-click="box.n = 4"></button></main>`);
     expect(ws.map(everything)).toEqual([false, false, false]);
-    expect(ws.find((w) => w.includes('$s0.sel.n'))).toEqual(['$r.rs.*.n', '$s0.sel.n']);
+    expect(ws.find((w) => w.includes('$s0.sel.n'))).toEqual(['$s0.sel.n']);
   });
 
   test('what the compiler cannot follow in a let still marks everything', () => {

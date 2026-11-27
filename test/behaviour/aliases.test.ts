@@ -133,10 +133,11 @@ describe('what the compiler adds to a handler\'s writes', () => {
       <button data-sn-on-click="sel = pick(ys, 0)"></button><button data-sn-on-click="sel.n = 5"></button><button data-sn-on-click="ys[0].n = 6"></button></main>`);
     expect(ws.slice(1)).toEqual([['$s0.sel.n', '$s0.ys.**'], ['$s0.sel.**', '$s0.ys.0.n']]);
   });
-  test('an untraceable alias written through: every state scope and resource; a change inside any object: what reads the alias', () => {
+  test('an untraceable alias written through: every state scope (no resource: resource data is read-only); a change inside any object: what reads the alias', () => {
     const ws = writes(`<sn-resource name="r" src="/r"></sn-resource><main data-sn-state="{ ys: [{ n: 1 }], sel: null }"><b data-sn-text="ys[0].n + (sel ? sel.n : 0) + r.length"></b>
       <button data-sn-on-click="sel = ys.reduce((a, y) => y, null)"></button><button data-sn-on-click="sel.n = 5"></button><button data-sn-on-click="ys[0].n = 6"></button></main>`);
-    expect(ws[1]).toEqual(expect.arrayContaining(['$s0.**', '$r.r.**']));
+    expect(ws[1]).toEqual(expect.arrayContaining(['$s0.**']));
+    expect(ws[1]).not.toContain('$r.r.**');
     expect(ws[2]).toEqual(['$s0.sel.**', '$s0.ys.0.n']);
   });
 });
