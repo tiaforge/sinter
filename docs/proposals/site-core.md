@@ -76,8 +76,9 @@ loaded yet.
 ## What it risks
 
 - **A part the IR does not show.** The flags must cover everything a page can reach. The parts were chosen so that
-  each one is reached only through the IR: bindings, nodes, actions, resources. What feature modules and the app's
-  own code call (`app.request`, `storeFns`, `record`) stays in the floor. `coreParts` is conservative: a handler
+  each one is reached only through the IR: bindings, nodes, actions, resources (and, for the store functions, the
+  handlers' code: [finer parts](#finer-parts)). What feature modules and the app's own code call (`app.request`,
+  `record`, `app.optimistic`) stays in the floor. `coreParts` is conservative: a handler
   counts as `EVENTS` wherever it is, a model or a dialog adds `EVENTS`, any action adds `ACTION`. Two mistakes were
   caught while writing it and are covered: a branch template can be "simple" too (its handlers bound on their first
   event), and a model listens through the event dispatch.
@@ -115,6 +116,22 @@ passed.
 element's property). It checks that the code of those parts is only in the second build, and runs both first pages in
 Chromium.
 
+## Finer parts
+
+Added on 2026-11-27, from an audit of what RealWorld's home page ships that none of its pages can reach. Each is
+decided like the parts above, in `coreParts`, from the IR or from the page's expression functions (`CompiledParts.fns`,
+which the compiler writes and `mount` receives: the tests read them as the build does).
+
+| part | kept when | what goes without it | reached anyway |
+| --- | --- | --- | --- |
+| `FN_DIALOG`, `FN_ITEMS`, `FN_REFRESH`, `FN_PAGE`, `FN_EMIT`, `FN_RUN` | a handler or an optimistic change names one of the group's store functions (`$.$f.merge(…)` in its code): `openDialog`/`closeDialog`; `upsert`/`merge`/`remove`; `refresh`; `page`; `emit`; `run` | that group of `app.storeFns()` (733 B minified for all six) | a TypeError in the handler (`… is not a function`), which `exec` logs |
+
+Why nothing else can call them. The compiled handlers are the only callers the runtime has: no feature module calls
+`storeFns`; the page's `$f` (`app.page.$f`) is the handlers' scope; a component's handlers and its fills are functions of
+the page's table, so their code is read with the page's. App code could reach `instance(root).storeFns()`, which the
+islands' API never documented ([islands.md](../islands.md#instance-api)). `navigate` and `signOut` are no part: the
+package's `navigate()` and `signOut()` call them through `storeFns(null)`. `closePopover` was the `POPOVER` part already.
+
 ## Next
 
 In order of what they save:
@@ -125,8 +142,7 @@ In order of what they save:
   what an app module may call.
 - **Finer parts where RealWorld spends.** Within `RESOURCE` (3.3 KB): ordering by locale, the optimistic layers
   (`record`), `then`. Within `LIST`: adopting the early script's rows, which only pages whose early script renders
-  rows need. Within the floor: `storeFns` (`reset`, `run`, `emit`, `showModal`), which the compiled functions name.
-  The compiler knows which of them a page calls.
+  rows need. (The floor's store functions, which the compiled functions name, are parts now: [finer parts](#finer-parts).)
 - **Dev on the site's core.** Dev could serve the union of the pages it has compiled, so that a missing part fails
   there too. But each newly visited page that adds a part would reload the core. Not worth it while the tests run
   trimmed cores.

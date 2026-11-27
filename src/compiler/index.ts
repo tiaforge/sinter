@@ -217,7 +217,7 @@ function compileOne(html: string, options0: CompileOptions): CompileResult {
     diagnostics: parts.diagnostics, files: parts.files, ...(parts.globs ? { globs: parts.globs } : {}), ...(parts.pages ? { pages: parts.pages } : {}), ...(parts.axes ? { axes: parts.axes } : {}), ...(options.contentNs ? { contentNs: options.contentNs } : {}), styles: parts.styles, prefetch: parts.prefetch, embed: parts.embed, path: parts.ir.path ?? [], ...(parts.ir.urlArrays ? { urlArrays: parts.ir.urlArrays } : {}), ...(parts.prefetchOff ? { prefetchOff: true as const } : {}), ...(parts.loadEffect ? { loadEffect: parts.loadEffect } : {}), ...(parts.permanent ? { permanent: parts.permanent, ...(parts.keptSource ? { keptSource: parts.keptSource } : {}), ...(parts.keptBound ? { keptBound: parts.keptBound } : {}) } : {}), ...(parts.swapOff ? { swapOff: true as const } : {}),
     ...(parts.ir.urlReads ? { sameLinks: true as const } : {}),
     // the parts of the core the page module uses (a site's core keeps their union: src/core-parts.ts)
-    ...(parts.static ? {} : { core: coreParts(parts.ir) }),
+    ...(parts.static ? {} : { core: coreParts(parts.ir, parts.fns) }),
   };
   if (parts.check) out.check = parts.check;
   const lazy = parts.scripts.filter((x) => x.lazy);

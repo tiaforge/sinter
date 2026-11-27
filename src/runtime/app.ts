@@ -525,7 +525,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
   const { ir, fns } = o;
   if (ir?.v != 2 || !ir.ps) throw Error('sinter: unsupported IR');
   // (the test suite's flags: the parts this page uses turn on; nothing in a build)
-  F.use?.(ir);
+  F.use?.(ir, fns);
   const env = o.env ?? envOf(config);
   const req = createRequestLayer(env, o.request ?? config.request);
   const schemes = schemesOf(config.urlSchemes);
@@ -872,18 +872,25 @@ export function mount(root: Document | Element, o: MountOptions): App {
       let done = false;
       return (ok) => { if (!done) { done = true; for (const [r, id] of ids) ok ? r.commitLayer(id) : r.dropLayer(id); } };
     },
+    // Each group only on a site whose handlers name one of its functions (the FN_* parts: the compiled handlers are the
+    // only callers; a missing one is a TypeError in the handler, which `exec` logs). `navigate` and `signOut` stay: the
+    // package's `navigate()` and `signOut()` call them
     storeFns: (el) => ({
-      openDialog: (id: string) => { const d = dialog(id); if (d && !d.open) d.showModal(); },
-      refresh: (...n: string[]) => { for (const x of n) res(x).refresh(); },
-      // `upsert(c.replies, x)`: the item that holds the list gets it as a patch
-      upsert: (n: string | string[], a: any, f?: string, x?: any) => Array.isArray(n) ? app.ext.nested!.upsert(res, n, a, f!, x) : res(n).upsert(a),
-      merge: byItem('merge'),
-      remove: byItem('remove'),
-      page: (n: string, t: string | number) => app.ext.paginate!.page(n, t),
-      closeDialog: (id?: string) => (id ? dialog(id) : el?.closest('dialog'))?.close(),
+      ...(F.FN_DIALOG && {
+        openDialog: (id: string) => { const d = dialog(id); if (d && !d.open) d.showModal(); },
+        closeDialog: (id?: string) => (id ? dialog(id) : el?.closest('dialog'))?.close(),
+      }),
+      ...(F.FN_REFRESH && { refresh: (...n: string[]) => { for (const x of n) res(x).refresh(); } }),
+      ...(F.FN_ITEMS && {
+        // `upsert(c.replies, x)`: the item that holds the list gets it as a patch
+        upsert: (n: string | string[], a: any, f?: string, x?: any) => Array.isArray(n) ? app.ext.nested!.upsert(res, n, a, f!, x) : res(n).upsert(a),
+        merge: byItem('merge'),
+        remove: byItem('remove'),
+      }),
+      ...(F.FN_PAGE && { page: (n: string, t: string | number) => app.ext.paginate!.page(n, t) }),
       // (hiding a hidden popover does nothing; only a site whose handlers call it keeps it, `F.POPOVER`)
       ...(F.POPOVER && { closePopover: (id?: string) => ((id ? byId(id, '[popover]') : el?.closest('[popover]')) as HTMLElement | null | undefined)?.hidePopover() }),
-      emit: (n: string, detail?: unknown) => el?.dispatchEvent(new CustomEvent(n, { detail, bubbles: true, cancelable: true })),
+      ...(F.FN_EMIT && { emit: (n: string, detail?: unknown) => el?.dispatchEvent(new CustomEvent(n, { detail, bubbles: true, cancelable: true })) }),
       // to this page with only parameters it reads changed: as a same-page link (no load); else the browser navigates
       // the navigation chain where a feature installed one (links.ts), else the page loads
       navigate: (url: string, o?: { replace?: boolean }) => {
@@ -895,14 +902,16 @@ export function mount(root: Document | Element, o: MountOptions): App {
       // every API's token goes (src/token.ts), with what the page kept; the resources of those APIs load again: signed out
       signOut: () => { if (F.TOKEN) tokens.on?.signOut(env, app); },
       // the element's action, as if its trigger fired (a form is submitted); disabled or inert: nothing
-      run: (id: string) => {
-        const t = F.ACTION ? byId(id) : undefined, rb = t && handlersOf(t as Tagged)?.find((x) => x.b.x != null);
-        if (!rb) return warn(20, id);
-        if (t.matches(':disabled') || t.closest('[inert]')) return;
-        if (t.localName != 'form') return trigger(rb, null);
-        synth = true;
-        try { (t as HTMLFormElement).requestSubmit(); } finally { synth = false; }
-      },
+      ...(F.FN_RUN && {
+        run: (id: string) => {
+          const t = F.ACTION ? byId(id) : undefined, rb = t && handlersOf(t as Tagged)?.find((x) => x.b.x != null);
+          if (!rb) return warn(20, id);
+          if (t.matches(':disabled') || t.closest('[inert]')) return;
+          if (t.localName != 'form') return trigger(rb, null);
+          synth = true;
+          try { (t as HTMLFormElement).requestSubmit(); } finally { synth = false; }
+        },
+      }),
     }),
     serverEvent(name, payload) {
       for (const fn of listeners.get(name) ?? []) try { fn(payload); } catch (e) { console.error(e); }

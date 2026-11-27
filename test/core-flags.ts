@@ -10,22 +10,24 @@ import type { IR } from '../src/ir.js';
 export const TOKEN = true;
 
 export let LIST = false, BRANCH = false, ACTION = false, DIALOG = false, EVENTS = false, MODEL = false, PROP = false, STYLE = false, RESOURCE = false, TWIN = false, POPOVER = false;
+export let FN_DIALOG = false, FN_ITEMS = false, FN_REFRESH = false, FN_PAGE = false, FN_EMIT = false, FN_RUN = false;
 
 const on = new Set<string>();
 const apply = () => {
   LIST = on.has('LIST'); BRANCH = on.has('BRANCH'); ACTION = on.has('ACTION'); DIALOG = on.has('DIALOG'); EVENTS = on.has('EVENTS');
   MODEL = on.has('MODEL'); PROP = on.has('PROP'); STYLE = on.has('STYLE'); RESOURCE = on.has('RESOURCE'); TWIN = on.has('TWIN'); POPOVER = on.has('POPOVER');
+  FN_DIALOG = on.has('FN_DIALOG'); FN_ITEMS = on.has('FN_ITEMS'); FN_REFRESH = on.has('FN_REFRESH'); FN_PAGE = on.has('FN_PAGE'); FN_EMIT = on.has('FN_EMIT'); FN_RUN = on.has('FN_RUN');
 };
 
-/** a page mounts: its parts join those of the pages mounted before it in this test */
-export function use(ir: IR): void {
-  for (const p of coreParts(ir)) on.add(p);
+/** a page mounts: its parts join those of the pages mounted before it in this test (`fns`: its expression functions, whose code names the store functions) */
+export function use(ir: IR, fns: unknown[] = []): void {
+  for (const p of coreParts(ir, fns.map(String))) on.add(p);
   apply();
 }
 
 /** every part off, as at the start of a test; `all`: every part on (a test about the core itself, not a page) */
 export function reset(all = false): void {
   on.clear();
-  if (all) for (const p of ['LIST', 'BRANCH', 'ACTION', 'DIALOG', 'EVENTS', 'MODEL', 'PROP', 'STYLE', 'RESOURCE', 'TWIN', 'POPOVER']) on.add(p);
+  if (all) for (const p of ['LIST', 'BRANCH', 'ACTION', 'DIALOG', 'EVENTS', 'MODEL', 'PROP', 'STYLE', 'RESOURCE', 'TWIN', 'POPOVER', 'FN_DIALOG', 'FN_ITEMS', 'FN_REFRESH', 'FN_PAGE', 'FN_EMIT', 'FN_RUN']) on.add(p);
   apply();
 }

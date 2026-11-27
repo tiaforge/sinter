@@ -51,8 +51,21 @@ export const SWAP = true;
  * module (a load or action signed out, a 401, `signOut()`) are there only then. A build decides it from its `apis`.
  */
 export const TOKEN = true;
+/** `openDialog()` or `closeDialog()` in a handler (the compiled handlers name it: `$.$f.openDialog`) */
+export const FN_DIALOG = true;
+/** `upsert()`, `merge()` or `remove()` in a handler or an optimistic change */
+export const FN_ITEMS = true;
+/** `refresh()` in a handler */
+export const FN_REFRESH = true;
+/** `page()` in a handler */
+export const FN_PAGE = true;
+/** `emit()` in a handler */
+export const FN_EMIT = true;
+/** `run()` in a handler */
+export const FN_RUN = true;
 /**
- * Called with each page's IR as it mounts; nothing here, nor in a build. The test suite's flags (test/core-flags.ts)
- * turn on the parts the mounted pages use and no others, so every test runs on the smallest core for its pages.
+ * Called with each page's IR and expression functions as it mounts; nothing here, nor in a build. The test suite's flags
+ * (test/core-flags.ts) turn on the parts the mounted pages use and no others, so every test runs on the smallest core for
+ * its pages.
  */
-export const use: ((ir: import('../ir.js').IR) => void) | undefined = undefined;
+export const use: ((ir: import('../ir.js').IR, fns: unknown[]) => void) | undefined = undefined;
