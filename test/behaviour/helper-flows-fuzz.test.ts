@@ -41,6 +41,36 @@ const STEPS: Step[] = [
   (e, p) => ({ e: `Array.from([${e}], (x) => ({ w: x }))`, path: `[0].w${p}` }),
   (e, p) => ({ e: `wrap(${e})`, path: `.i${p}` }),
   (e, p) => ({ e: `(Math.random() < 2 ? ${e} : null)`, path: p }),
+  // (A) objects made in the helper have identity: copies of a local, a member or element of a local taken into another
+  // local and written through, writes into a loop variable and into a callback's parameter, an object stored and then changed
+  (e, p, l) => ({ pre: `const ${l} = []; const ${l}c = ${l}; ${l}c.push(${e});`, e: l, path: `[0]${p}` }),
+  (e, p, l) => ({ pre: `const ${l} = { m: {} }; const ${l}m = ${l}.m; ${l}m.v = ${e};`, e: l, path: `.m.v${p}` }),
+  (e, p, l) => ({ pre: `const ${l} = [{}]; const ${l}m = ${l}[0]; ${l}m.v = ${e};`, e: l, path: `[0].v${p}` }),
+  (e, p, l) => ({ pre: `const ${l} = [{}, {}]; for (const r of ${l}) r.v = ${e};`, e: l, path: `[1].v${p}` }),
+  (e, p, l) => ({ pre: `const ${l} = [{}]; ${l}.forEach((r) => { r.v = ${e}; });`, e: l, path: `[0].v${p}` }),
+  (e, p, l) => ({ pre: `const ${l} = [1].map(() => ({})); ${l}.filter(() => true)[0].v = ${e};`, e: l, path: `[0].v${p}` }),
+  (e, p, l) => ({ pre: `const ${l}o = {}; const ${l} = [${l}o]; ${l}o.v = ${e};`, e: l, path: `[0].v${p}` }),
+  (e, p, l) => ({ pre: `const ${l}o = {}; const ${l} = new Map([['k', ${l}o]]); ${l}o.v = ${e};`, e: `${l}.get('k')`, path: `.v${p}` }),
+  // (A, B) the grouping idiom with a block-scoped \`let\`; a value carried across iterations by a local of an enclosing block
+  (e, p, l) => ({ pre: `const ${l} = new Map(); for (const c of [${e}]) { let g = ${l}.get('k'); if (!g) { g = []; ${l}.set('k', g); } g.push(c); }`, e: `[...${l}.values()]`, path: `[0][0]${p}` }),
+  (e, p, l) => ({ pre: `const ${l} = []; { let prev = null; for (const x of [${e}, null]) { if (prev) ${l}.push(prev); prev = x; } }`, e: l, path: `[0]${p}` }),
+  (e, p, l) => ({ pre: `let ${l} = null; if (Math.random() < 2) { let t = null; for (const x of [${e}]) { if (t) ${l} = t; t = x; } ${l} = t; }`, e: l, path: p }),
+  // (C) stores from inside callbacks of built-ins; built-ins' results as they are
+  (e, p, l) => ({ pre: `const ${l} = []; 'x'.replace(/x/g, () => { ${l}.push(${e}); return ''; });`, e: l, path: `[0]${p}` }),
+  (e, p, l) => ({ pre: `const ${l} = []; [1, 2].sort(() => { ${l}.push(${e}); return 0; });`, e: l, path: `[0]${p}` }),
+  (e, p) => ({ e: `(${e}).valueOf()`, path: p }),
+  (e, p) => ({ e: `({ length: ${e} }).length`, path: p }),
+  (e, p) => ({ e: `Object.freeze({ v: ${e} })`, path: `.v${p}` }),
+  (e, p) => ({ e: `[...new Set().add(${e})]`, path: `[0]${p}` }),
+  (e, p) => ({ e: `new Map().set('k', ${e}).get('k')`, path: p }),
+  (e, p) => ({ e: `[[${e}]].flat()`, path: `[0]${p}` }),
+  (e, p) => ({ e: `[].concat([${e}])`, path: `[0]${p}` }),
+  (e, p) => ({ e: `[].concat({ v: ${e} })`, path: `[0].v${p}` }),
+  (e, p) => ({ e: `[0].with(0, ${e})`, path: `[0]${p}` }),
+  (e, p) => ({ e: `[${e}].toSpliced(0, 0)`, path: `[0]${p}` }),
+  (e, p) => ({ e: `[${e}].at(-1)`, path: p }),
+  (e, p) => ({ e: `Object.assign({}, { v: ${e} })`, path: `.v${p}` }),
+  (e, p) => ({ e: `[...new Map([['k', ${e}]]).entries()]`, path: `[0][1]${p}` }),
 ];
 
 /** one seed: the helper's module text and the path, from its result, to the object it was given */
@@ -59,6 +89,36 @@ function generate(seed: number) {
   return { code, path, i };
 }
 
+/** `pat` (a summary's path: `*` any segment, `**` any rest) matches the concrete path `p` */
+const matches = (pat: string[], p: string[]): boolean => !pat.length ? !p.length : pat[0] === '**' ? true : !!p.length && (pat[0] === '*' || pat[0] === p[0]) && matches(pat.slice(1), p.slice(1));
+/** a Map's keys and values, a Set's items are at `*` (as a page's paths have them) */
+const children = (o: object): Array<[string, unknown]> => o instanceof Map ? [...o].flatMap(([k, v]) => [['*', k], ['*', v]] as Array<[string, unknown]>)
+  : o instanceof Set ? [...o].map((v) => ['*', v] as [string, unknown]) : Object.entries(o);
+/**
+ * The exact check: run the helper on argument objects, find every object of theirs in its result (by identity), and say
+ * which no flow of the summary covers (`result path <- argument path`)
+ */
+function uncovered(h: (...a: unknown[]) => unknown, summary: Flow): string[] {
+  if (!('flows' in summary)) return [];
+  const args = [[{ n: 1 }, { n: 2 }]];
+  const at = new Map<object, string[][]>();
+  const index = (v: unknown, path: string[]) => { if (!v || typeof v !== 'object') return; if (!at.has(v)) at.set(v, []); else return; at.get(v)!.push(path); for (const [k, c] of children(v)) index(c, [...path, k]); };
+  args.forEach((a, i) => index(a, [String(i)]));
+  const out: string[] = [], seen = new Set<object>();
+  const walk = (v: unknown, path: string[]) => {
+    if (!v || typeof v !== 'object' || seen.has(v)) return;
+    const from = at.get(v);
+    if (from) {
+      if (!from.some((src) => summary.flows.some((f) => matches(f.sub, path) && matches(f.src, src)))) out.push(`the result's \`${path.join('.')}\` is the argument's \`${from[0]!.join('.')}\`, which no flow covers`);
+      return;
+    }
+    seen.add(v);
+    for (const [k, c] of children(v)) walk(c, [...path, k]);
+  };
+  walk(h(...args), []);
+  return out;
+}
+
 async function run(seed: number, flowsFor?: (real: (name: string) => Flow) => (name: string) => Flow) {
   const { code, path, i } = generate(seed);
   const dir = mkdtempSync(join(tmpdir(), 'sn-hff-'));
@@ -71,7 +131,8 @@ async function run(seed: number, flowsFor?: (real: (name: string) => Flow) => (n
   r.root.querySelector<HTMLElement>('#a')!.click(); await r.settle();
   r.root.querySelector<HTMLElement>('#b')!.click(); await r.settle();
   const want = i ? '1,12' : '11,2';
-  return { code, summary: real('h'), shown: r.root.querySelector('p')!.textContent, want, missed: r.warnings().filter((w) => w.code == 36).map((w) => w.message) };
+  const summary = real('h');
+  return { code, summary, shown: r.root.querySelector('p')!.textContent, want, missed: [...r.warnings().filter((w) => w.code == 36).map((w) => w.message), ...uncovered(h, summary)] };
 }
 
 test('generated helpers: a write through the result marks the object it came from (warning 36 stays silent, the page shows it)', async () => {

@@ -51,6 +51,25 @@ describe('accepted shapes', () => {
   });
 });
 
+describe('objects made in the helper have identity: a write through any name of one reaches every other', () => {
+  test.each([
+    ['a member of a local taken into another local', 'export function h(xs: object[]) { const out = { items: [] as object[] }; const items = out.items; for (const x of xs) items.push(x); return out; }', 'items.*<-0.*'],
+    ['a write into a loop variable over a local list', 'export function h(items: Array<{ id: number }>, owner: object) { const rows: any[] = items.map((i) => ({ id: i.id })); for (const r of rows) r.owner = owner; return rows; }', '*.owner<-1'],
+    ['a write into a `forEach` callback\'s parameter', 'export function h(items: Array<{ id: number }>, owner: object) { const rows: any[] = items.map((i) => ({ id: i.id })); rows.forEach((r) => { r.owner = owner; }); return rows; }', '*.owner<-1'],
+    ['the grouping idiom, with a block-scoped `let`', 'export function h(cs: Array<{ k: string }>) { const groups = new Map<string, object[]>(); for (const c of cs) { let g = groups.get(c.k); if (!g) { g = []; groups.set(c.k, g); } g.push(c); } return [...groups.values()]; }', '*.*<-0.*'],
+    ['a value carried across iterations by a local of an enclosing block', 'export function h(xs: object[], flag: boolean) { const out: object[] = []; if (flag) { let prev: object | null = null; for (const x of xs) { if (prev) out.push(prev); prev = x; } } return out; }', '*<-0.*'],
+    ['a store from inside a callback of a built-in', 'export function h(s: string, p: object) { const out: object[] = []; s.replace(/x/g, () => { out.push(p); return \'\'; }); return out; }', '*<-1'],
+    ['`valueOf()` returns its receiver', 'export function h(p: object) { return p.valueOf(); }', '<-0'],
+    ['`.length` is a member like any other', 'export function h(p: { length: object }) { return p.length; }', '<-0.length'],
+    ['a copy of a local, written through', 'export function h(p: object) { const a: any = {}; const b = a; b.x = p; return a; }', 'x<-0'],
+    ['an element of one local list changed through another', 'export function h(items: Array<{ id: number }>, owner: object) { const rows: any[] = items.map((i) => ({ id: i.id })); const some = rows.filter((r) => r.id > 0); some[0].owner = owner; return rows; }', '*.owner<-1'],
+  ])('%s', (_, code, flow) => {
+    const s = flowsOf(code, ['h']).h;
+    expect(Array.isArray(s), String(s)).toBe(true);
+    expect(s).toContain(flow);
+  });
+});
+
 describe('rejected constructs: no summary, with why', () => {
   test.each([
     ['a write into a parameter\'s object', 'export function h(p: { n: number }) { p.n = 1; return 1; }', /a write into an object of a parameter/],
@@ -68,6 +87,8 @@ describe('rejected constructs: no summary, with why', () => {
     ['a getter', 'export function h(p: object) { return { get v() { return p; } }; }', /a method or an accessor/],
     ['a caught value', 'export function h(p: object) { try { return p; } catch (e) { return e; } }', /`e`, a caught value/],
     ['eval', 'export function h(s: string) { return eval(s); }', /`eval`/],
+    ['a callback given to a built-in that does not say what it does with it', 'export function h(p: object) { const out: object[] = []; JSON.stringify([1], () => { out.push(p); return 1; }); return out; }', /a function given to a call that does not say what it does with it/],
+    ['a write into a module constant\'s object', 'const seen: object[] = []; export function h(p: object) { seen.push(p); return 1; }', /a write into the module's `seen`/],
   ])('%s', (_, code, why) => {
     expect(flowsOf(code, ['h']).h).toMatch(why);
   });
