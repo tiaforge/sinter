@@ -151,6 +151,10 @@ How to write an entry (from 0.21.0 on; older sections keep their own form):
   read only for primitives. An event a script emits is followed by the same rule (`this.emit('media', media)` with
   `const media = w < 640 ? 'narrow' : 'wide'`). Otherwise nothing changes; `SN548` names the statement
   ([docs/spec.md](docs/spec.md)).
+- `SN548` (`sinter({ explainWrites: true })`) says what stopped the build from following an alias: the statement of
+  a component script and its place, the module that makes an event with a detail it cannot follow, or what an
+  `emit()` passes, so the author knows which line to change
+  ([docs/diagnostics.md](docs/diagnostics.md#sn548-untraceable-writes)).
 
 ## 0.22.1 (2026-11-24)
 
