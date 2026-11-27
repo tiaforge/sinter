@@ -234,6 +234,8 @@ export interface ExprOptions {
    * pieces name the event (`@dom:click`), and `applyAliases` drops them or makes them untraceable.
    */
   domEvent?: string;
+  /** a handler of an event that is neither a DOM event nor sinter's (`compose`): its detail names the event (`@evn:compose`) */
+  eventName?: string;
   /** where `$event.detail` comes from (a component's event: `@ev:<use>:<event>`) */
   detailSource?: string;
   /** a `data-sn-let` entry or a prop: it may call a helper of a module that reaches a lazy package (else SN324) */
@@ -295,6 +297,8 @@ export interface ExprResult {
   pieces?: Piece[];
   /** handlers: the events `emit()` sends, by name (`*`: one named by a value) */
   emits?: string[];
+  /** handlers: what each `emit(event, detail)` passes (`Piece`), by the event's name */
+  emitPieces?: Array<{ event: string; pieces: Piece[] }>;
   /** `emit(event, item)`: the item's sources, by event */
   emitted?: Array<{ event: string; src: Sources }>;
   /** every `merge()`/`remove()` call, at its start, with its item's sources */
@@ -554,6 +558,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
   const assigns: NonNullable<ExprResult['assigns']> = [];
   const emitted: NonNullable<ExprResult['emitted']> = [];
   const emits: string[] = [];
+  const emitPieces: NonNullable<ExprResult['emitPieces']> = [];
   const srcRefs: NonNullable<ExprResult['srcRefs']> = [];
   const itemCalls: NonNullable<ExprResult['itemCalls']> = [];
   const mode = opts.mode;
@@ -901,6 +906,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
           if (cp.root === '$event') {
             if (cp.props[0] && (EVENT_NATIVE.has(cp.props[0]) || (cp.props[0] === 'detail' && opts.freshDetail))) return [];
             if (opts.domEvent) return [{ sub: [], src: [`@dom:${opts.domEvent}`, ...cp.props] }];
+            if (opts.eventName && cp.props[0] === 'detail') return [{ sub: [], src: [`@evn:${opts.eventName}`, ...cp.props.slice(1)] }];
             return opaque(cp.props[0] === 'detail' ? 'an event\'s detail' : 'the event');
           }
           // the action's response, an error, the element: never the page's state
@@ -1578,7 +1584,12 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
       return;
     }
     // what a component emits keeps the item's source: the caller's `remove($event.detail)` acts on it
-    if (name === 'emit') emits.push(first?.type === 'Literal' && typeof first.value === 'string' ? first.value : '*');
+    if (name === 'emit') {
+      const ev = first?.type === 'Literal' && typeof first.value === 'string' ? first.value : '*';
+      emits.push(ev);
+      const d = n.arguments[1] as Node | undefined;
+      if (d && ev !== '*') emitPieces.push({ event: ev, pieces: d.type === 'SpreadElement' ? [{ sub: [], src: null, why: 'a spread argument of `emit()`' }] : classify(d, locals) });
+    }
     if (name === 'emit' && scope.component && first?.type === 'Literal' && typeof first.value === 'string' && n.arguments[1]) {
       const src = itemSource(n.arguments[1] as Node, locals);
       if (src?.length) emitted.push({ event: first.value, src });
@@ -2076,7 +2087,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
   // what the value is an item or a list of, for `merge()` and `remove()` through rows, lets and props
   const value = body.length === 1 && !opts.object && mode === 'value' && ok ? body[0]! : null;
   const sources = value ? { itemOf: itemSource(value, root), listOf: listSource(value, root) } : {};
-  return { ok, code, inner: out, deps: [...deps].sort(), writes: [...writes].sort(), usesEl, usesIndex, entries, path, resource, ast, ...sources, ...(value ? { pieces: classify(value, root) } : {}), ...(emits.length ? { emits } : {}),
+  return { ok, code, inner: out, deps: [...deps].sort(), writes: [...writes].sort(), usesEl, usesIndex, entries, path, resource, ast, ...sources, ...(value ? { pieces: classify(value, root) } : {}), ...(emits.length ? { emits } : {}), ...(emitPieces.length ? { emitPieces } : {}),
     ...(nameEdits.length ? { nameEdits } : {}), ...(assigns.length ? { assigns } : {}), ...(emitted.length ? { emitted } : {}), ...(srcRefs.length ? { srcRefs } : {}), ...(itemCalls.length ? { itemCalls } : {}), ...(runs.length ? { runs } : {}), ...(refreshes.length ? { refreshes } : {}), ...(nameLets.length ? { nameLets: [...new Set(nameLets)] } : {}), ...(reads.length ? { reads } : {}), ...(resources ? { resources } : {}) };
 }
 

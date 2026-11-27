@@ -1,6 +1,7 @@
 // The compiler: one pure, deterministic function from annotated HTML to a
 // rewritten page plus its IR and function table.
 import type { SourceMap } from './sourcemap.js';
+import type { EventSenders } from '../event-senders.js';
 import { rewriteImages, sourceFile, type ImageHost, type ImageResult } from './images.js';
 import { boxSizesCss, type ReserveTrace, Layout, PLACEHOLDER_BASE, type Affine, type Reserved, type StyleSheet } from './layout.js';
 import { shows } from './status-eval.js';
@@ -296,6 +297,12 @@ export interface CompileOptions {
   expansionLimit?: number;
   /** `sinter({ explainWrites })`: SN548 names each alias that makes handlers' writes impossible to follow */
   explainWrites?: boolean;
+  /**
+   * What the events the page's modules can send carry (src/event-senders.ts): the app's modules (the project's entries)
+   * and these, through every import. Without it, no event's `$event` is followed: a DOM event's may be any object, and so
+   * may an event's detail (`compile()` and `render()` read no modules; the Vite plugin and `sinter check` pass it).
+   */
+  eventSenders?: (entries: string[], inline: Array<{ name: string; text: string }>) => EventSenders;
   /** internal, set by `compileParts` for its second pass: the trees the first found over the limit (`SN536` again, there) */
   overLimit?: Map<string, number>;
   /**
@@ -2696,7 +2703,7 @@ class Compiler {
     this.finishChoices();
     this.resolveSources();
     this.fileUses();
-    this.applyAliases();
+    this.applyAliases(doc);
     this.markScoped();
 
     for (const [name, id] of this.embedded) {
@@ -6950,7 +6957,7 @@ class Compiler {
       // sinter's own events (`sn-error`) carry a detail it made: none of the page's objects
       // a DOM event's `$event` is the browser's (unless the page emits one of that name: `applyAliases`)
       const base = kf ? kf[1]! : event;
-      const r = this.expr(el, a.name, scope, { mode: 'handler', magic: ['$event'], ...(choice ? { urlKind: 4 } : {}), ...(SINTER_EVENTS.includes(event) ? { freshDetail: true } : {}), ...(DOM_EVENTS.has(base) ? { domEvent: base } : {}) });
+      const r = this.expr(el, a.name, scope, { mode: 'handler', magic: ['$event'], ...(choice ? { urlKind: 4 } : {}), ...(SINTER_EVENTS.includes(event) ? { freshDetail: true } : {}), ...(DOM_EVENTS.has(base) ? { domEvent: base } : SINTER_EVENTS.includes(event) ? {} : { eventName: base }) });
       const ms = duration(get(`debounce-${event}`) ?? '', 'ms') ?? 0;
       if (ms > 0) this.features.add('debounce');
       if (r.ok) node.b.push(this.binding({ k: 'on', n: kf ? kf[1]! : event, f: this.fn(r.code), w: r.writes, ...filter, ...(ms > 0 ? { ms } : {}) }));
@@ -7222,9 +7229,11 @@ class Compiler {
     }
     const a0 = this.page.aliases?.length ?? 0;
     const r = analyze(src, scope, this.page, { ...o, report: this.reporter(el, attrName, shift) });
-    if (this.opts.explainWrites) this.aliasSites(a0, el, attrName, src, shift);
+    if (this.opts.explainWrites || r.emitPieces) this.aliasSites(a0, el, attrName, src, shift);
     for (const a of r.assigns ?? []) this.addSources(`@${a.path}`, a.src);
     for (const e of r.emits ?? []) this.page.emitted.add(e);
+    // what an `emit()` passes is the detail its event's handlers read (`@evn:<event>`), wherever on the page they are
+    for (const e of r.emitPieces ?? []) for (const p of e.pieces) (this.page.aliases ??= []).push({ t: wild([`@evn:${e.event}`, ...p.sub]), s: p.src && wild(p.src), ...(!p.src && p.why ? { why: p.why } : {}) });
     if (scope.component?.id !== undefined) for (const e of r.emitted ?? []) this.addSources(`@ev:${scope.component.id}:${e.event}`, e.src);
     for (const c of r.srcRefs ?? []) this.srcCalls.push({ el, attr: attrName, shift, ...c });
     this.at = { el, attr: attrName, shift };
@@ -12642,23 +12651,32 @@ class Compiler {
    * result, a let, an event's detail) marks every state scope and resource, and any change inside an object
    * marks everything under it. Before anything reads the writes (`writtenState`, folding, the IR).
    */
-  applyAliases() {
+  applyAliases(doc?: DefaultTreeAdapterMap['document']) {
     // a component's script assigns its state's fields anything, a prop's object included
     for (const us of this.uses.values()) for (const u of us) if (u.sid !== undefined && this.componentFiles.get(u.name)?.script) {
       (this.page.aliases ??= []).push({ t: [`$s${u.sid}`, '*'], s: null, why: `\`<${u.name}>\`'s script may give its state's fields any object` });
       (this.page.objectFields ??= new Set()).add(`$s${u.sid}.*`);
     }
-    // what a DOM event's `$event` holds (`@dom:<event>`): none of the page's objects, unless an event of that name is one
-    // a component of the page declares or an `emit()` sends, whose detail may be any (an app's custom element that
-    // dispatches a DOM event's name with an object of the page as its detail is not seen)
-    const sent = new Set(this.page.emitted);
-    for (const us of this.uses.values()) for (const u of us) for (const m of u.emits ?? []) sent.add(m.name);
-    if (this.page.aliases?.some((a) => a.s?.[0]?.startsWith('@dom:'))) {
+    // what a handler's `$event` holds: a DOM event's (`@dom:<event>`), none of the page's objects; another event's detail
+    // (`@evn:<event>`), what the page's `emit()`s of it pass (aliases of `@evn:<event>`). Each only when the build read
+    // every event of that name the page's modules can make (src/event-senders.ts) and none carries a detail it cannot
+    // follow, and for a DOM event's name, when no `emit()` and no component of the page sends one too; else untraceable
+    if (this.page.aliases?.some((a) => /^@(dom|evn):/.test(a.s?.[0] ?? ''))) {
+      const senders = this.opts.eventSenders ? this.opts.eventSenders(...this.pageModules(doc)) : null;
+      const sent = new Set(this.page.emitted);
+      for (const us of this.uses.values()) for (const u of us) for (const m of u.emits ?? []) sent.add(m.name);
+      const blocked = (ev: string): string | null => (!senders ? 'the build did not read the page\'s modules (`compile()` without `eventSenders`)'
+        : senders.unknown ?? senders.risky.get(ev) ?? (sent.has('*') ? 'an `emit()` of the page names its event by a value' : null));
       this.page.aliases = this.page.aliases.flatMap((a) => {
-        const ev = a.s?.[0]?.startsWith('@dom:') ? a.s[0].slice(5) : null;
-        if (ev === null) return [a];
-        if (!sent.has(ev) && !sent.has('*')) return [];
-        return [{ ...a, s: null, why: `\`$event\` of \`${ev}\` may be the detail of an event of that name the page sends` }];
+        const m = /^@(dom|evn):(.*)$/.exec(a.s?.[0] ?? '');
+        if (!m) return [a];
+        const ev = m[2]!, why = blocked(ev);
+        if (why) return [{ ...a, s: null, why: `\`$event\` of \`${ev}\` may be any object: ${why}` }];
+        if (m[1] === 'evn') return [a];
+        // a DOM event's name the page sends too: its detail is what the page's `emit()`s of it pass, the browser's holds none
+        if (!sent.has(ev)) return [];
+        const props = a.s!.slice(1);
+        return [{ ...a, s: [`@evn:${ev}`, ...(props[0] === 'detail' ? props.slice(1) : ['**'])] }];
       });
     }
     // a field only ever given primitives (its initializer and every assignment) holds none of the page's objects
@@ -12732,7 +12750,7 @@ class Compiler {
         extend(strs(ws), causes);
         for (const i of causes) { const l = blamed.get(i) ?? []; l.push(owner); blamed.set(i, l); }
       }
-      const next = extend(strs(ws));
+      const next = extend(strs(ws)).filter((p) => !p.startsWith('@evn:'));
       if (next.length !== ws.length) ws.splice(0, ws.length, ...next);
     };
     for (const n of [...this.roots, ...this.templates.flatMap((t) => t.nodes)]) for (const b of n.b) { if (blamed) owner = this.ownerOf(b); fix(b.w); }
@@ -12740,6 +12758,39 @@ class Compiler {
     for (const r of this.resources) { if (blamed) owner = `\`<sn-resource name="${r.name}">\``; fix(r.w); }
     for (const x of this.syncs) for (const e of x.events) { if (blamed) owner = `\`<sn-event name="${e.name}">\``; fix(e.w); }
     if (blamed) this.explainWrites(blamed, list);
+  }
+
+  /**
+   * The modules a page loads beyond the project's: the scripts of the components it uses (an inline one by its text) and
+   * its own `<script>`s; one from another origin, or an import map, is out of the build's sight (`unknown`, an entry the
+   * scan cannot find).
+   */
+  private pageModules(doc?: DefaultTreeAdapterMap['document']): [string[], Array<{ name: string; text: string }>] {
+    const files: string[] = [], inline: Array<{ name: string; text: string }> = [];
+    const file = (p: string) => (p.startsWith('/') && !p.startsWith(this.opts.root) ? this.opts.root + p : p);
+    for (const name of this.uses.keys()) {
+      const c = this.componentFiles.get(name);
+      if (!c?.script) continue;
+      // an inline one: the file's top-level scripts, by their text (each, whichever is the script)
+      if (/\.html\.script\.[jt]s$/.test(c.script)) for (const x of c.inline ?? []) inline.push({ name: c.file, text: x.code });
+      else files.push(file(c.script));
+    }
+    const visit = (n: P5Node) => {
+      if (isElement(n) && n.tagName === 'script') {
+        const type = attr(n, 'type') ?? '';
+        const src = attr(n, 'src');
+        if (type === 'importmap') files.push('importmap:');
+        else if (type === '' || type === 'module' || /javascript/.test(type)) {
+          if (src) files.push(/^[a-z]+:|^\/\//i.test(src) ? src : file(src.startsWith('/') ? src : resolvePath(dirname(this.opts.file), src)));
+          else inline.push({ name: `${this.opts.file}#script`, text: (n.childNodes as P5Node[]).map((x) => (x as { value?: string }).value ?? '').join('') });
+        }
+      }
+      for (const c of ((n as { childNodes?: P5Node[] }).childNodes ?? [])) visit(c);
+      const content = (n as { content?: P5Node }).content;
+      if (content) visit(content);
+    };
+    if (doc) visit(doc as unknown as P5Node);
+    return [files, inline];
   }
 
   /** where a handler is, for SN548: its attribute, file and line */
@@ -12762,7 +12813,7 @@ class Compiler {
     const o = this.origins.get(el) ?? { file: this.opts.file, src: '', chain: [] };
     const { line, col } = el.sourceCodeLocation ? this.lineCol(o.src, this.valueOffset(el, attrName) + shift) : { line: 1, col: 1 };
     const at: AliasSite = { text: src.replace(/\s+/g, ' ').trim(), file: o.file, line, col };
-    for (let i = a0; i < list.length; i++) if ((!list[i]!.s || list[i]!.s![0]!.startsWith('@dom:')) && !list[i]!.at) list[i]!.at = at;
+    for (let i = a0; i < list.length; i++) if ((!list[i]!.s || /^@(dom|evn):/.test(list[i]!.s![0]!) || list[i]!.t[0]!.startsWith('@evn:')) && !list[i]!.at) list[i]!.at = at;
   }
 
   /**

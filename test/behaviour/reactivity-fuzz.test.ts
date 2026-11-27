@@ -22,8 +22,10 @@
 import { expect, test } from 'vitest';
 import { configure } from '../../src/index.js';
 import { memo } from '../../src/memo.js';
-import { mockRequests, mockStream, render } from '../../src/testing/index.js';
+import { eventSenders, mockRequests, mockStream, render } from '../../src/testing/index.js';
 import { reset as resetCore } from '../core-flags.js';
+import { dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 /** how long the handlers and the click scripts get (`SN_FUZZ_DEPTH`, default 1) */
 const DEPTH = Number(process.env.SN_FUZZ_DEPTH ?? 1);
@@ -116,7 +118,9 @@ const ALIAS = ['sel && (sel.n = sel.n + 10)', 'box && (box.it.n = box.it.n + 3)'
   // event detail (its button's click): made, and written through
   'u = YL', 'h = YH', 'u = YM', 'u = YL; u && (u.n = u.n + 7)', 'h = YH; h && (h.n = h.n + 5)', 'u = YM; u && (u.n = u.n + 6)',
   "$el.parentElement.querySelector('.zb')?.click()", "$el.parentElement.querySelector('.zb')?.click(); u && (u.n = u.n + 1)",
-  "$el.parentElement.querySelector('.ce')?.click()", "$el.parentElement.querySelector('.ce')?.click(); sel && (sel.n = sel.n + 3)"];
+  "$el.parentElement.querySelector('.ce')?.click()", "$el.parentElement.querySelector('.ce')?.click(); sel && (sel.n = sel.n + 3)",
+  // an element's event that carries one of the page's objects: untraceable, written through
+  "$el.parentElement.querySelector('x-grab')?.click(); h && (h.n = h.n + 9)"];
 
 const ISLAND = 'x-pinger';
 if (!customElements.get(ISLAND)) {
@@ -125,6 +129,17 @@ if (!customElements.get(ISLAND)) {
     set n(v: number) { if (v > 0) this.dispatchEvent(new CustomEvent('ping', { bubbles: true })); }
   });
 }
+// an element that sends one of the page's objects as an event's detail (`grab`): the build sees it make the event with a
+// detail it cannot follow, so `$event.detail` of `grab` stays untraceable
+const GRABBER = 'x-grab';
+if (!customElements.get(GRABBER)) {
+  customElements.define(GRABBER, class extends HTMLElement {
+    item: unknown = null;
+    connectedCallback() { this.addEventListener('click', () => this.dispatchEvent(new CustomEvent('grab', { detail: this.item, bubbles: true }))); }
+  });
+}
+/** what this file's code sends (the page's events), read as a build reads the page's modules: `ping` with no detail, `grab` with one it cannot follow */
+const SENDERS = eventSenders([fileURLToPath(import.meta.url)], dirname(fileURLToPath(import.meta.url)));
 
 function page(r: () => number) {
   const lets = LETS.map(([n, e]) => `${n}: ${e}`).join(', ');
@@ -152,6 +167,7 @@ function page(r: () => number) {
 <sn-sync src="/s"><sn-event name="upd" resource="todos" op="upsert"></sn-event><sn-event name="re" resource="todos" op="refresh"></sn-event></sn-sync>
 <main data-sn-state="${state}" data-sn-let="{ ${lets} }" data-sn-on-bump="a = a + 10" data-sn-on-peek="pk = T + P.v" data-sn-on-ping="xs.length && (xs[0] = xs[0] + 5)">
   <${ISLAND} data-sn-with="{ n: go }"></${ISLAND}>
+  <${GRABBER} data-sn-with="{ item: ys.length ? ys[0] : null }" data-sn-on-grab="h = $event.detail"></${GRABBER}>
   <p class="v" data-sn-text="[T, P.v, N, TT, TS].join(' ')"></p>
   <p class="f" data-sn-text="W.q.w + ' ' + W.a + ' ' + YS + ' ' + L + ' ' + BG + ' ' + (cw ? cw.a + cw.q.w : '-') + ' ' + (cp ? cp.v : '-')"></p>
   <p class="al"><i data-sn-text="SL"></i> <i data-sn-text="BL"></i> <i data-sn-text="AL"></i> <i data-sn-text="HL"></i> <i data-sn-text="UL"></i> <i data-sn-text="YS"></i></p>
@@ -229,7 +245,7 @@ test('random handlers: the page with memoized helpers agrees with the plain one,
         const { html } = page(rng(seed));
         const stream = mockStream();
         const storage = memoryStorage();
-        const v = await render(html, { helpers: memoized ? MEMOIZED : HELPERS, components: COMPONENTS, requests: requests(), streams: { '/s': stream }, storage, strict: false, ...(early && memoized ? { firstPaint: true } : {}) });
+        const v = await render(html, { helpers: memoized ? MEMOIZED : HELPERS, components: COMPONENTS, requests: requests(), streams: { '/s': stream }, storage, strict: false, events: SENDERS, ...(early && memoized ? { firstPaint: true } : {}) });
         await v.settle();
         const main = v.root.querySelector('main')!;
         const out: string[] = [seen(v, storage)];

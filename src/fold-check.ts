@@ -80,10 +80,10 @@ export class FoldCache {
 const stampOf = (f: string) => { const s = statSync(f); return `${s.mtimeMs}:${s.size}`; };
 
 /** A specifier imported from `from`: an app file (relative, `/` from the root), or a package with production conditions. */
-export function resolveImport(spec: string, from: string, root: string, cache?: FoldCache): string | null {
-  const key = `${spec}\0${dirname(from)}`;
+export function resolveImport(spec: string, from: string, root: string, cache?: FoldCache, conditions: readonly string[] = FOLD_CONDITIONS): string | null {
+  const key = `${spec}\0${dirname(from)}\0${conditions.join()}`;
   if (cache?.resolved.has(key)) return cache.resolved.get(key)!;
-  const out = resolveUncached(aliased(spec, cache?.aliases ?? []), from, root);
+  const out = resolveUncached(aliased(spec, cache?.aliases ?? []), from, root, conditions);
   cache?.resolved.set(key, out);
   return out;
 }
@@ -124,7 +124,7 @@ const fileFor = (b: string) => {
   return null;
 };
 
-function resolveUncached(spec: string, from: string, root: string): string | null {
+function resolveUncached(spec: string, from: string, root: string, conditions: readonly string[] = FOLD_CONDITIONS): string | null {
   const bare = spec.replace(/[?#].*$/, '');
   if (bare.startsWith('.')) return fileFor(resolve(dirname(from), bare));
   if (bare.startsWith(root) || (/^[A-Za-z]:[\\/]/.test(bare))) return fileFor(bare);
@@ -136,7 +136,7 @@ function resolveUncached(spec: string, from: string, root: string): string | nul
   // a package importing itself by its name (Node's self-reference): through its own `exports`, before node_modules
   const self = selfPackage(from);
   if (self && self.json.name === pkg && self.json.exports != null) {
-    const target = exportsTarget(self.json, sub ? '.' + sub : '.');
+    const target = exportsTarget(self.json, sub ? '.' + sub : '.', conditions);
     return target ? fileFor(join(self.dir, target)) : null;
   }
   for (let dir = dirname(from); ; dir = dirname(dir)) {
@@ -144,10 +144,10 @@ function resolveUncached(spec: string, from: string, root: string): string | nul
     if (existsSync(join(base, 'package.json'))) {
       let json: any;
       try { json = JSON.parse(readFileSync(join(base, 'package.json'), 'utf8')); } catch { return null; }
-      const target = exportsTarget(json, sub ? '.' + sub : '.');
+      const target = exportsTarget(json, sub ? '.' + sub : '.', conditions);
       if (target) return fileFor(join(base, target));
       if (sub) return fileFor(join(base, sub));
-      return fileFor(join(base, json.module ?? json.main ?? 'index.js'));
+      return fileFor(join(base, (conditions.includes('browser') && typeof json.browser === 'string' ? json.browser : null) ?? json.module ?? json.main ?? 'index.js'));
     }
     if (dirname(dir) === dir) return null;
   }
@@ -170,7 +170,7 @@ export function isSelfReference(spec: string, from: string): boolean {
 }
 
 /** The file a package's `exports` gives a subpath under production conditions; null without `exports`. */
-function exportsTarget(json: any, subpath: string): string | null {
+function exportsTarget(json: any, subpath: string, conditions: readonly string[] = FOLD_CONDITIONS): string | null {
   let e = json.exports;
   if (e == null) return null;
   if (typeof e === 'string' || Array.isArray(e) || !Object.keys(e).some((k) => k.startsWith('.'))) e = { '.': e };
@@ -184,7 +184,7 @@ function exportsTarget(json: any, subpath: string): string | null {
   const pick = (v: any): string | null => {
     if (typeof v === 'string') return v.replace('*', star);
     if (Array.isArray(v)) { for (const x of v) { const r = pick(x); if (r) return r; } return null; }
-    if (v && typeof v === 'object') for (const [k, x] of Object.entries(v)) if (FOLD_CONDITIONS.includes(k)) { const r = pick(x); if (r) return r; }
+    if (v && typeof v === 'object') for (const [k, x] of Object.entries(v)) if (conditions.includes(k)) { const r = pick(x); if (r) return r; }
     return null;
   };
   return entry === undefined ? null : pick(entry);

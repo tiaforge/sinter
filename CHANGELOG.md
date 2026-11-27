@@ -138,6 +138,13 @@ How to write an entry (from 0.21.0 on; older sections keep their own form):
   `remove()` change it. Likewise a write through an alias the build cannot follow marks every state scope but no
   longer every resource. If a page wrote into a resource's item through such a variable, it now must copy the item
   first (`sel = structuredClone(row)`), as SN205 already asks of a direct write. On an app's mail page the page module is 8% smaller (1.6% gzip).
+- A handler that keeps an event's detail (`compose = $event.detail`, `sel = $event.detail` of a component's `pick`)
+  now aliases what the page's `emit()`s of that event pass, instead of any object of the page, so writes through it
+  mark only that. The build reads every module the page loads, through every import, for the events they make, and
+  follows an event only when every event of its name is made with a literal name and no detail or a primitive one; else it
+  stays untraceable (`sinter({ explainWrites: true })`, `SN548`, says why). The same check now decides what the entry
+  on a DOM event's `$event` above assumed. `compile()` without `eventSenders` and the testing module's
+  `render()` without `events` read no modules: there every `$event` is untraceable ([docs/spec.md](docs/spec.md)).
 
 ## 0.22.1 (2026-11-24)
 

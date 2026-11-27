@@ -32,6 +32,8 @@ import back from '../back.js';
 import refresh from '../refresh.js';
 import versions from '../versions.js';
 import dev, { warningSink, type RuntimeWarning } from '../dev.js';
+import type { EventSenders } from '../event-senders.js';
+export { eventSenders, type EventSenders } from '../event-senders.js';
 export type { RuntimeWarning } from '../dev.js';
 import optimistic from '../optimistic.js';
 import paginate from '../paginate.js';
@@ -227,6 +229,12 @@ export function mockStream(): MockStream {
 // ---- render
 
 export interface RenderOptions {
+  /**
+   * What the events the page's code can make carry (`eventSenders(files, root)` of this module over the test's modules,
+   * or a summary the test states): with it a handler's `$event` is followed, as in a build; without it, as in
+   * `compile()`, no event's is (docs/spec.md, Aliases)
+   */
+  events?: EventSenders;
   requests?: MockRequests;
   streams?: Record<string, MockStream>;
   /** page URL, for `$url` (default `http://localhost/`) */
@@ -599,6 +607,7 @@ function compilePage(html: string, options: RenderOptions, strict: Strict = { on
       contentNs: { m: { entries: messageEntries(options), format: '@tiaforge-ui/sinter/messages/format', formatFn: formatMessage as never, inlineFn: inlineMessage, module: '@tiaforge-ui/sinter/messages' } },
     } : {}),
     file: proj?.file ?? PAGE, root: proj?.root ?? '/test', dev: options.dev ?? true, helpers: manifest,
+    ...(options.events ? { eventSenders: () => options.events! } : {}),
     ...(proj?.lazyModule ? { lazyModule: proj.lazyModule } : {}), actions: actionManifest, moduleSrc: 'about:blank', componentNames: proj?.componentNames ?? Object.keys(options.components ?? {}), ...(proj?.libraries?.length ? { libraries: proj.libraries } : {}),
     // lazy packages: any name, loaded by nothing (a test calls the app's functions, which import what they need)
     lazy: true,
