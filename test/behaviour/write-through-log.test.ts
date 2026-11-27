@@ -7,7 +7,7 @@ test('what write-through applied is logged at debug level on each application, a
   const debug = vi.spyOn(console, 'debug').mockImplementation(() => {});
   const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
   const before = warningSink().list.length;
-  const app = { beforeFlush: [], afterFlush: [], states: [], req: {}, ir: { actions: [] }, env: { href: () => 'http://localhost/' } } as unknown as App;
+  const app = { beforeFlush: [], afterFlush: [], states: [], page: {}, req: {}, ir: { actions: [] }, env: { href: () => 'http://localhost/' } } as unknown as App;
   dev.install(app);
   app.warn(21, 'POST /api/articles/x/favorite', 'articles: merge');
   app.warn(21, 'POST /api/articles/x/favorite', 'articles: merge');
