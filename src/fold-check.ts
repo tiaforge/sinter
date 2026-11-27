@@ -43,7 +43,7 @@ type N = { type: string; start: number; end: number; [k: string]: any };
 /** a reference out of a unit: a function or the top level of this module, or an export of another */
 type Edge = { local: string } | { spec: string; name: string | '*' | '<side>' };
 interface Unit { name: string; edges: Edge[]; bad: { reason: string; at: number } | null }
-interface ModuleInfo {
+export interface ModuleInfo {
   file: string; code: string;
   /** by unit name; `<top>` is the module's top-level code */
   units: Map<string, Unit>;
@@ -486,7 +486,7 @@ function isRead(parent: N | null, key: string): boolean {
 const CODE = /\.(?:[cm]?[jt]sx?|json)$/i;
 const isNotCode = (spec: string, file: string) => /\?/.test(spec) || (/\.\w+$/.test(file) && !CODE.test(file));
 /** a resolved import: its file, with the query of a module that is not JavaScript (`x.css?raw` is not `x.css`) */
-const targetOf = (spec: string, from: string, root: string, cache: FoldCache): string | null => {
+export const targetOf = (spec: string, from: string, root: string, cache: FoldCache): string | null => {
   const t = resolveImport(spec, from, root, cache);
   return t && isNotCode(spec, t) ? t + (/\?[^#]*/.exec(spec)?.[0] ?? '') : t;
 };
@@ -504,7 +504,7 @@ function assetModule(file: string): ModuleInfo {
 }
 
 /** the module of a file, analysed once per content */
-function moduleOf(file: string, cache: FoldCache): ModuleInfo {
+export function moduleOf(file: string, cache: FoldCache): ModuleInfo {
   if (isNotCode(file, file.replace(/\?.*$/, ''))) return assetModule(file);
   const hit = cache.modules.get(file);
   // an in-memory module (a function's own source) has no file

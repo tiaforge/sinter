@@ -31,6 +31,7 @@ export const CODES = {
   SN211: 'url-list-condition',
   SN212: 'url-object-value',
   SN213: 'element-of-anchor',
+  SN214: 'helper-changes-argument',
   SN301: 'unknown-resource',
   SN303: 'unknown-meta-field',
   SN304: 'keyset-jump',

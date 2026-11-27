@@ -42,11 +42,10 @@ describe('a traceable alias', () => {
     await click(r, '#w');
     expect(text(r, 'span')).toBe('30:2,121:2,12:2');
   });
-  test('a helper that changes its argument (docs/spec.md, Method classes) reaches the argument\'s aliases, both ways', async () => {
-    const bump = (o: { n: number }) => { o.n += 100; };
-    const bumpAll = (ys: Array<{ n: number }>) => { for (const y of ys) y.n += 1000; };
+  // (until 2026-11-27 a helper given the alias, `bump(sel)`, changed it; helpers are pure now: the handler changes it in place)
+  test('a change in place through the alias, and through the list, reaches the other, both ways', async () => {
     const r = await render(`<main data-sn-state="{ ys: [{ n: 1 }, { n: 2 }], sel: null }"><ul><template data-sn-for="y in ys"><li data-sn-text="y.n"></li></template></ul>
-      <button id="a" data-sn-on-click="sel = ys[1]"></button><button id="b" data-sn-on-click="bump(sel)"></button><button id="c" data-sn-on-click="bumpAll(ys)"></button><b data-sn-text="sel ? sel.n : '-'"></b></main>`, { helpers: { bump, bumpAll } });
+      <button id="a" data-sn-on-click="sel = ys[1]"></button><button id="b" data-sn-on-click="sel.n += 100"></button><button id="c" data-sn-on-click="ys.forEach((y) => (y.n += 1000))"></button><b data-sn-text="sel ? sel.n : '-'"></b></main>`);
     await click(r, '#a');
     await click(r, '#b');
     expect(text(r, 'li')).toBe('1,102');

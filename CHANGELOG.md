@@ -17,6 +17,14 @@ How to write an entry (from 0.21.0 on; older sections keep their own form):
 
 ### Breaking
 
+- A helper changes none of its arguments, in a handler as in a binding: a helper call in a handler no longer counts as
+  a write of its state arguments. A handler that called a helper to change state in place (`sortInPlace(tasks)`)
+  changes it with the method itself, which the compiler sees (`tasks.sort(cmp)`, `ys[0].n++`), or assigns a helper's
+  result (`tasks = sorted(tasks)`, with `sorted = (xs) => [...xs].sort(cmp)`). The build reports a call that gives
+  page data to a parameter the helper's module writes into (error `SN214`, also in bindings), and a dev build reports a
+  helper that changed an argument when a handler called it (warning 37)
+  ([docs/spec.md](docs/spec.md), Method classes).
+
 - In an app that sets no locale (no `languages()`, `localePrefix` or `configure({ locale })`), the page's literal
   `<html lang>` is now the locale of `date()`, `number()`, `bytes()`, `relative()` and `$locale`, at build time and in
   the browser; before, each visitor's browser locale was used and `$locale` was `undefined`. With `<html lang="en">`

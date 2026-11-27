@@ -271,7 +271,7 @@ export class Workspace {
         // as the build compiles the page (helper modules that reach a lazy package: their helpers outside a let are SN324, as in the build)
         const out = compile(html, {
           ...checkPageOptionsOf(p, component ? join(state.root, `.sinter-use-${component}.html`) : page, state.pageOptions, fallback, !!component),
-          helperValues: state.helpers.module, helperFold: state.helpers.fold, readFile, listFiles: this.lister(state), check: true,
+          helperValues: state.helpers.module, helperFold: state.helpers.fold, helperWrites: state.helpers.writes, readFile, listFiles: this.lister(state), check: true,
         });
         state.includes.set(page, out.files.map((f) => resolve(f)).filter((f) => f !== page));
         if (out.globs?.length) state.globs.set(page, out.globs.map((g) => ({ dir: g.dir.replace(/\/$/, ''), match: new RegExp(g.match) }))); else state.globs.delete(page);

@@ -11,6 +11,7 @@ import type { Diagnostic } from '../compiler/diagnostics.js';
 import { compactIR } from '../ir.js';
 import type { CompileLibrary, CompiledParts, HelperManifest } from '../compiler/compile.js';
 import { functionVerdict, type FoldVerdict } from '../fold-check.js';
+import { functionWrites, writePlace } from '../helper-writes.js';
 import * as earlyExports from '../early.js';
 import { configured, observe, requests } from '../early.js';
 import { install as installMessages } from '../messages.js';
@@ -615,7 +616,7 @@ function compilePage(html: string, options: RenderOptions, strict: Strict = { on
     // lazy packages: any name, loaded by nothing (a test calls the app's functions, which import what they need)
     lazy: true,
     // helper calls over build-time constants run at build time, as in a build: each function's own source decides
-    helperValues: helpers, helperFold: helperVerdicts(helpers),
+    helperValues: helpers, helperFold: helperVerdicts(helpers), helperWrites: helperWritesOf(helpers),
     // helper modules that reach a lazy package: the namespaces in `lazyHelpers`
     ...(options.lazyHelpers ? { lazyModule: (m: string) => (m.startsWith('lazy:') ? ['(lazy)'] : []) } : {}),
     readFile: proj?.readFile ?? ((p) => {
@@ -653,6 +654,20 @@ function helperVerdicts(helpers: Record<string, unknown>): Map<string, FoldVerdi
   for (const [k, v] of Object.entries(helpers)) {
     if (typeof v === 'function') out.set(k, functionVerdict(v, k));
     else if (v && typeof v === 'object') for (const [m, f] of Object.entries(v)) out.set(`${k}$${m}`, functionVerdict(f, `${k}.${m}`));
+  }
+  return out;
+}
+
+/** Where each helper given writes into a parameter (helper-writes.ts, from its own source): SN214 for a call over page data. */
+function helperWritesOf(helpers: Record<string, unknown>): Map<string, Array<{ what: string; place: string } | null>> {
+  const out = new Map<string, Array<{ what: string; place: string } | null>>();
+  const one = (key: string, f: unknown, name: string) => {
+    const ws = functionWrites(f, name);
+    if (ws) out.set(key, ws.map((w) => (w ? { what: w.what, place: writePlace(w, '/') } : null)));
+  };
+  for (const [k, v] of Object.entries(helpers)) {
+    if (typeof v === 'function') one(k, v, k);
+    else if (v && typeof v === 'object') for (const [m, f] of Object.entries(v)) one(`${k}$${m}`, f, `${k}.${m}`);
   }
   return out;
 }

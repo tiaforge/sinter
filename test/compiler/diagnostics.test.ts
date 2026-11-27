@@ -189,6 +189,8 @@ const PRERENDER_ONLY = ['SN536'];
 const SWAP_ONLY = ['SN540'];
 /** The plugin's options, checked by `project()`: SN348 (an option that is removed) in test/apis.test.ts. */
 const OPTIONS_ONLY = ['SN348'];
+/** What the helpers' modules write into their parameters (`helperWrites`, read from their source): SN214 in test/behaviour/pure-helpers.test.ts. */
+const HELPER_WRITES_ONLY = ['SN214'];
 /** Where components' files are, read from the components folder by `project()`: SN349 in test/component-files.test.ts, test/libraries.test.ts and test/vite/components.test.ts. */
 const LOCATION_ONLY = ['SN349'];
 /** With `sinter({ explainWrites: true })` only: SN548 in test/compiler/explain-writes.test.ts. */
@@ -196,7 +198,7 @@ const EXPLAIN_ONLY = ['SN548'];
 
 describe('every diagnostic code has a failing fixture', () => {
   test('all codes covered', () => {
-    expect(new Set([...cases.map((c) => c[0]), ...CHECK_ONLY, ...IMAGES_ONLY, ...STATIC_ONLY, ...LAZY_ONLY, ...APIS_ONLY, ...BUILD_ONLY, ...STYLES_ONLY, ...PRERENDER_ONLY, ...LIBRARY_ONLY, ...SWAP_ONLY, ...OPTIONS_ONLY, ...LOCATION_ONLY, ...EXPLAIN_ONLY])).toEqual(new Set(Object.keys(CODES)));
+    expect(new Set([...cases.map((c) => c[0]), ...CHECK_ONLY, ...IMAGES_ONLY, ...STATIC_ONLY, ...LAZY_ONLY, ...APIS_ONLY, ...BUILD_ONLY, ...STYLES_ONLY, ...PRERENDER_ONLY, ...LIBRARY_ONLY, ...SWAP_ONLY, ...OPTIONS_ONLY, ...LOCATION_ONLY, ...EXPLAIN_ONLY, ...HELPER_WRITES_ONLY])).toEqual(new Set(Object.keys(CODES)));
   });
   for (const [code, html, message, check] of cases) {
     test(code, () => {

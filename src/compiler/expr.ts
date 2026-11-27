@@ -144,6 +144,10 @@ export interface PageInfo {
    * `localeUrl()` from the page's translations (`ownUrls`). A `<html data-sn-for>` template doing so has a program per entry
    */
   readsUrl?: boolean;
+  /** the parameters each helper's module writes into (SN214), by the name compiled code calls; `place` is `file:line:col` */
+  helperWrites?: ReadonlyMap<string, ReadonlyArray<{ what: string; place: string } | null>>;
+  /** a dev build: a helper call in a handler goes through the dev module's check that it changed no argument (`$.$hc`) */
+  dev?: boolean;
   /**
    * `axisUrl(list, key)`: this page's URL at another value of one of its axes (docs/proposals/axes.md §5), by the list's
    * `src` and the value's key; the call's list argument compiles to its `src`
@@ -1460,6 +1464,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
       for (const a of n.arguments.slice(1)) visit(a as Node, locals);
       return;
     }
+    pureCall(callee, n, locals);
     let elementInfo: LocalInfo | null = null;
     if (callee.type === 'MemberExpression') {
       const m = callee as acorn.MemberExpression & Node;
@@ -1534,12 +1539,12 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
           // `relative(v)` reads the clock: it follows `$now`, so "3 minutes ago" moves on
           if (callee.name === 'relative' && n.arguments.length < 2 && mode === 'value') { addDep(['$now']); page.usesNow = true; }
         }
-        else if (mode === 'handler') {
-          for (const a of n.arguments) {
-            const cp = a.type === 'Identifier' || a.type === 'MemberExpression' ? chainPath(a as Node, locals) : null;
-            // it may change anything inside the argument: a change of the object as a whole, which reaches its aliases (docs/spec.md, Aliases)
-            if (cp?.segs && cp.res.kind === 'state') writes.add(mutation(cp.segs.slice(0, 2).join('.')));
-          }
+        // a helper changes none of its arguments, in a handler as in a binding (docs/spec.md, Method classes; changed
+        // 2026-11-27): its call writes nothing. A dev build checks it in handlers: the call goes through `$.$hc`
+        // (dev.ts), which reports a change to an argument, by the argument's text
+        else if (mode === 'handler' && page.dev && n.arguments.length && !edits.some((e) => e.start === callee.start)) {
+          const texts = n.arguments.map((a) => src.slice(a.start, a.end));
+          edits.push({ start: callee.start, end: callee.end, text: `$.$hc(${callee.name}, ${JSON.stringify(callee.name)}, ${JSON.stringify(texts)})` });
         }
       }
     } else {
@@ -1549,6 +1554,49 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
       if (a.type === 'ArrowFunctionExpression') visitFunction(a as acorn.ArrowFunctionExpression & Node, locals, elementInfo);
       else visit(a as Node, locals);
     }
+  }
+
+  /**
+   * A helper changes none of its arguments (docs/spec.md, Method classes): a call that gives page data to a parameter
+   * the helper's module writes into is SN214, in a binding as in a handler (helper-writes.ts finds the writes).
+   */
+  function pureCall(callee: Node, n: acorn.CallExpression & Node, locals: Locals) {
+    if (!page.helperWrites?.size) return;
+    let key: string | null = null, name = '';
+    if (callee.type === 'Identifier') {
+      const nm = (callee as acorn.Identifier).name;
+      if (resolveQuiet(nm, locals)?.kind === 'helper' && !BUILTIN_HELPERS.includes(nm)) { key = nm; name = nm; }
+    } else if (callee.type === 'MemberExpression') {
+      const parts: string[] = [];
+      let cur: Node = callee;
+      while (cur.type === 'MemberExpression' && !(cur as acorn.MemberExpression).computed && (cur as acorn.MemberExpression).property.type === 'Identifier') {
+        parts.unshift(((cur as acorn.MemberExpression).property as acorn.Identifier).name);
+        cur = (cur as acorn.MemberExpression).object as Node;
+      }
+      if (cur.type === 'Identifier' && page.namespaces.has((cur as acorn.Identifier).name) && !locals.has((cur as acorn.Identifier).name) && parts.length) {
+        key = `${(cur as acorn.Identifier).name}$${parts.join('.')}`; name = `${(cur as acorn.Identifier).name}.${parts.join('.')}`;
+      }
+    }
+    const ws = key ? page.helperWrites.get(key) : undefined;
+    if (!ws) return;
+    n.arguments.forEach((a, i) => {
+      const w = ws[i];
+      if (!w || !pageData(a as Node, locals)) return;
+      const arg = src.slice(a.start, a.end);
+      report('SN214', `\`${name}()\` changes its argument \`${arg}\` (${w.what} at ${w.place}), and a helper changes none of its arguments: what the page shows of \`${arg}\` would not follow`, a.start,
+        mode === 'handler'
+          ? `change it in the handler with the method itself, which the compiler sees (\`tasks.sort(cmp)\`, \`ys[0].n++\`), or make \`${name}()\` return a new value and assign it (\`${arg} = ${name}(…)\`)`
+          : `make \`${name}()\` return a new value (a copy: \`[...xs].sort()\`, \`{ ...o, n: 1 }\`) and change nothing it is given`);
+    });
+  }
+  /** page data: state, a resource, a let or prop that does not read `$el`, a row's item, a callback's element of such */
+  function pageData(a: Node, locals: Locals): boolean {
+    if (a.type !== 'Identifier' && a.type !== 'MemberExpression' && a.type !== 'ChainExpression') return false;
+    const cp = chainPath(a, locals);
+    if (!cp) return false;
+    const r = cp.res;
+    return r.kind === 'state' || r.kind === 'resource' || (r.kind === 'loop' && r.entry.kind === 'item') || (r.kind === 'let' && !r.entry.usesEl)
+      || (r.kind === 'local' && !!(r.info.alias || r.info.resource));
   }
 
   function storeCall(name: string, n: acorn.CallExpression & Node, locals: Locals) {

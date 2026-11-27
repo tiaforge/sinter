@@ -75,7 +75,7 @@ async function main(argv: string[]): Promise<number> {
   // the pages' shared definitions, recorded on one page and linked into the next, as the build's are
   const definitions = new Map<string, unknown>();
   for (const file of files) {
-    const out = compile(readFileSync(file, 'utf8'), { definitions, ...checkPageOptionsOf(p, file, pageOptions, { helpers, content: contentOpts, locale }), helperValues: nh.module, helperFold: nh.fold, dev: false, check: true });
+    const out = compile(readFileSync(file, 'utf8'), { definitions, ...checkPageOptionsOf(p, file, pageOptions, { helpers, content: contentOpts, locale }), helperValues: nh.module, helperFold: nh.fold, helperWrites: nh.writes, dev: false, check: true });
     diagnostics.push(...out.diagnostics);
     if (out.check) units.push(out.check);
   }
