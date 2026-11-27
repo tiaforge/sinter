@@ -163,17 +163,15 @@ const entries = {
 // Raised on 2026-11-26 to 57.25 KB (58,624 B): the app's config module resends a GET that the API answered 401 without its token
 // (`publicReads`, examples/realworld/src/sinter.config.js: the official Nitro backend refuses a bad token on public reads, and
 // sinter signs the reader out on any 401): 91 B gzip in every page
-// Raised on 2026-11-26 a step each (minimal to 11.125 KB, with swaps to 13 KB, with a token to 12.125 KB, the article to
-// 57.375 KB) for the component-library requests: an optimistic change's throw reported as the page's error, the resource
-// handle's `src` and `order`, refs set inside a closed dialog, and the runtime telling a second copy of sinter apart
-// (60–100 B gzip in the core; the minimal page had 1 B left)
-// Raised on 2026-11-26 to 57.4375 KB (58,816 B): RealWorld's layout has `<html lang="en">` and its config sets no locale,
+// Raised on 2026-11-26 to 57.375 KB (58,752 B): RealWorld's layout has `<html lang="en">` and its config sets no locale,
 // so its pages that format dates now set that locale (`$lang("en")` in the page module and the early file): 31 B gzip
-// on the article (index and profile +32 B); the core and pages that format nothing are as before
+// on the article (index and profile +32 B). The minimal pages' raises of the same day (for the resource handle's `src`
+// and `order` and a registry of runtime copies) were taken back on 2026-11-27 with those two: the minimal pages are
+// as on 2026-11-25
 const BUDGET = {
   'multilingual de/status': 12.625 * 1024, 'multilingual de/status, html': 0.875 * 1024,
-  minimal: 11.125 * 1024, 'minimal, swaps': 13 * 1024, 'realworld article': 57.4375 * 1024,
-  'minimal, link': 11.125 * 1024, 'minimal, token': 12.125 * 1024, 'minimal, token, early': 1.875 * 1024, 'realworld early, shared': 3.375 * 1024,
+  minimal: 11 * 1024, 'minimal, swaps': 12.875 * 1024, 'realworld article': 57.375 * 1024,
+  'minimal, link': 11.125 * 1024, 'minimal, token': 12 * 1024, 'minimal, token, early': 1.875 * 1024, 'realworld early, shared': 3.375 * 1024,
 };
 let failed = false;
 const gz = (b) => gzipSync(b, { level: 9 }).length;

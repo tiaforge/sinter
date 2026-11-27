@@ -35,7 +35,6 @@ const MESSAGES: Record<number, string> = {
   29: 'event `%` payload is missing key field(s) % for `%`',
   30: "page(%, 'last') needs a known total",
   35: "the build formatted this page's dates and numbers in its `<html lang>` (`%`), but the app's locale is `%`: the build found no `configure({ locale })` in the config or early module or what they import. Put it there (a `locale` key in `src/sinter.config.js`), so the build leaves formatting to the browser",
-  34: 'a second copy of sinter looked for the app this page mounted and found none: a library linked with `file:` or `npm link` brought its own sinter. The sinter Vite plugin dedupes it (`resolve.dedupe`); with another bundler or test setup, dedupe `@tiaforge-ui/sinter` yourself',
   33: '`%` of resource `%`, which has no `key` and holds a list, changes the whole list, not one item (SN542): add `key` with the field that identifies an item',
   31: 'anchor `<!--%-->` has no end comment `<!--/sn-->` after it: one was added. A minifier or CDN that strips HTML comments breaks lists and branches: turn comment stripping off for sinter pages',
   32: 'the early script requested `%`, and a request middleware changed the request (a header, its credentials): the response is not used, and the page sent it again. Add what the middleware adds in `sinter({ apis })` (`headers`, `credentials`, `token`) instead, or answer it from the middleware with `early="off"` on the resource',
