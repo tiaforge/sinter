@@ -2063,6 +2063,8 @@ class Compiler {
   twin = false;
   /** where each function in `fns` was first written: the expression that compiled to it, else the element being compiled */
   readonly fnAt: Array<Site | null> = [];
+  /** the paths each expression changes as a whole (`page.mutated`, by where it was written) */
+  private readonly mutatedAt = new WeakMap<P5Element, Map<string | null, Set<string>>>();
   /** the element or expression being compiled: the site of functions the compiler writes itself */
   private at: Site | null = null;
   /** each compiled expression's site, by its code: a function made from it maps to where it was written */
@@ -5439,7 +5441,7 @@ class Compiler {
       for (const e of r.entries!) {
         const a0 = this.page.aliases?.length ?? 0;
         for (const p of e.pieces ?? []) (this.page.aliases ??= []).push({ t: wild([`$s${sid}`, e.key, ...p.sub]), s: p.src && wild(p.src), ...(!p.src && p.why ? { why: p.why } : {}) });
-        if (this.opts.explainWrites) this.aliasSites(a0, el, 'data-sn-state', attr(el, 'data-sn-state') ?? '', e.offset);
+        this.aliasSites(a0, el, 'data-sn-state', attr(el, 'data-sn-state') ?? '', e.offset);
         if (!e.prim) (this.page.objectFields ??= new Set()).add(`$s${sid}.${e.key}`);
       }
       const site: Site = { el, attr: 'data-sn-state', shift: 0 };
@@ -7239,9 +7241,14 @@ class Compiler {
       const ev = attrName.startsWith('data-sn-on-') ? attrName.slice('data-sn-on-'.length) : TRIGGER_TIME.has(attrName) || attrName === 'data-sn-optimistic' || attrName === 'data-sn-then' || attrName === 'data-sn-catch' ? attr(el, 'data-sn-trigger') ?? 'click' : null;
       if (ev) o = { ...o, detailSource: `@ev:${host.id}:${ev}` };
     }
-    const a0 = this.page.aliases?.length ?? 0;
+    const a0 = this.page.aliases?.length ?? 0, m0 = this.page.mutated;
+    this.page.mutated = new Set();
     const r = analyze(src, scope, this.page, { ...o, report: this.reporter(el, attrName, shift) });
-    if (this.opts.explainWrites || r.emitPieces) this.aliasSites(a0, el, attrName, src, shift);
+    // what this expression changes as a whole (a method, `Object.assign`), for SN205 through state (`resourceWrites`)
+    const mine = this.page.mutated;
+    if (mine.size) { if (!this.mutatedAt.has(el)) this.mutatedAt.set(el, new Map()); this.mutatedAt.get(el)!.set(attrName, mine); }
+    if (m0) { for (const w of mine) m0.add(w); this.page.mutated = m0; }
+    this.aliasSites(a0, el, attrName, src, shift);
     for (const a of r.assigns ?? []) this.addSources(`@${a.path}`, a.src);
     for (const e of r.emits ?? []) this.page.emitted.add(e);
     // what an `emit()` passes is the detail its event's handlers read (`@evn:<event>`), wherever on the page they are
@@ -12717,6 +12724,7 @@ class Compiler {
     // `**`: anything below, at any depth
     const under = (p: string[], x: string[]) => { const k = p.indexOf('**'), q = k < 0 ? p : p.slice(0, k); return q.length <= x.length && q.every((y, i) => seg(y, x[i]!)); };
     const deep = (p: string[]) => { const k = p.indexOf('**'); return k < 0 ? p : p.slice(0, k + 1); };
+    this.resourceWrites(list, seg);
     /** `ws` with what it reaches through aliases; with `causes`, the untraceable aliases that would make it everything (-1: its size), instead */
     const extend = (ws: string[], causes?: Set<number>): string[] => {
       // each path with the alias it came through, which it does not go back through
@@ -12841,14 +12849,66 @@ class Compiler {
     return f.startsWith(this.opts.root) ? f.slice(this.opts.root.length).replace(/^\//, '') : f;
   }
 
-  /** The untraceable aliases an expression made (from `a0` on): their place, kept with them (a linked definition's aliases keep theirs). */
+  /** The untraceable aliases an expression made (from `a0` on), and those of a resource's data: their place, kept with them (a linked definition's aliases keep theirs). */
   private aliasSites(a0: number, el: P5Element, attrName: string, src: string, shift: number) {
     const list = this.page.aliases ?? [];
     if (list.length <= a0) return;
     const o = this.origins.get(el) ?? { file: this.opts.file, src: '', chain: [] };
     const { line, col } = el.sourceCodeLocation ? this.lineCol(o.src, this.valueOffset(el, attrName) + shift) : { line: 1, col: 1 };
     const at: AliasSite = { text: src.replace(/\s+/g, ' ').trim(), file: o.file, line, col };
-    for (let i = a0; i < list.length; i++) if ((!list[i]!.s || /^@(dom|evn):/.test(list[i]!.s![0]!) || list[i]!.t[0]!.startsWith('@evn:')) && !list[i]!.at) list[i]!.at = at;
+    for (let i = a0; i < list.length; i++) if ((!list[i]!.s || /^@(dom|evn):/.test(list[i]!.s![0]!) || list[i]!.s![0] === '$r' || list[i]!.t[0]!.startsWith('@evn:')) && !list[i]!.at) list[i]!.at = at;
+  }
+
+  /**
+   * SN205 through state: a write in place (an assignment below it, a mutating method, a model) into state that may hold
+   * resource data changes the resource's own object, which production does not freeze: what reads the resource keeps
+   * the old value, and the next `merge()` of the item takes the change in. Resource data reaches state through the alias
+   * records (`list`), followed from a resource through state and events' details. A helper's result (a source ending
+   * in `**`) is not followed: the build does not read what it returns, and a draft a helper builds from a resource's
+   * fields would be reported (`newDraft(addressbooks)`); that and an untraceable alias are left to the dev freeze.
+   * Reported once per handler and field, before the write lists are extended.
+   */
+  private resourceWrites(list: NonNullable<PageInfo['aliases']>, seg: (a: string, b: string) => boolean) {
+    type Held = { p: string[]; r: string; by: NonNullable<PageInfo['aliases']>[number] };
+    const cut = (p: string[]) => { const k = p.indexOf('**'); return k < 0 ? p : p.slice(0, k); };
+    const pre = (a: string[], b: string[]) => a.length <= b.length && a.every((x, i) => seg(x, b[i]!));
+    const held: Held[] = [];
+    // a path under one already held adds nothing (and would grow without end through `xs.* <- xs`)
+    const hold = (p: string[], r: string, by: Held['by']) => { if (held.length < 1000 && !held.some((x) => pre(x.p, p))) held.push({ p, r, by }); };
+    const followed = list.filter((a) => a.s && a.s.at(-1) !== '**');
+    for (const a of followed) if (a.s![0] === '$r' && a.s![1]) hold(cut(a.t), a.s![1]!, a);
+    for (let i = 0; i < held.length; i++) {
+      const h = held[i]!;
+      for (const a of followed) {
+        if (a.s![0] === '$r') continue;
+        const s = cut(a.s!), t = cut(a.t);
+        // the source holds the held object inside it, or is inside it
+        if (pre(s, h.p)) hold([...t, ...h.p.slice(s.length)], h.r, a.at ? a : h.by);
+        else if (pre(h.p, s)) hold(t, h.r, a.at ? a : h.by);
+      }
+    }
+    const inState = held.filter((h) => h.p[0]!.startsWith('$s') && h.p.length >= 2);
+    if (!inState.length) return;
+    const told = new Set<string>();
+    const check = (ws: PathRef[] | undefined, f: number | null | undefined) => {
+      const site = f == null ? null : this.fnAt[f];
+      if (!ws?.length || !site) return;
+      const mutated = this.mutatedAt.get(site.el)?.get(site.attr);
+      for (const w of strs(ws)) {
+        const W = w.split('.');
+        const h = inState.find((x) => pre(x.p, W) && (W.length > x.p.length || !!mutated?.has(w)));
+        const k = `${f}\0${h?.p.join('.')}`;
+        if (!h || told.has(k)) continue;
+        told.add(k);
+        const name = h.p.slice(1).join('.').replace(/\{[^}]*\}|~/g, '*'), wrote = W.slice(1).join('.').replace(/\{[^}]*\}|~/g, '*');
+        const from = h.by.at ? ` (from \`${h.by.at.text.length > 60 ? h.by.at.text.slice(0, 57) + '…' : h.by.at.text}\`, ${this.relFile(h.by.at.file)}:${h.by.at.line})` : '';
+        this.report(site.el, site.attr, 'SN205', `\`${wrote}\` is written in place, and \`${name}\` may hold \`${h.r}\`'s data${from}: the write would change the resource's own object, which the page's reads of \`${h.r}\` do not see`, site.shift, `copy it when storing (\`structuredClone(…)\`, or a spread where one level is enough) if the page edits a draft; use \`merge(…)\` or write-through if the server should see the change`);
+      }
+    };
+    for (const n of [...this.roots, ...this.templates.flatMap((t) => t.nodes)]) for (const b of n.b) check(b.w, b.f);
+    for (const a of this.actions) check(a.w, a.then ?? a.catch);
+    for (const r of this.resources) check(r.w, r.then);
+    for (const x of this.syncs) for (const e of x.events) check(e.w, e.then);
   }
 
   /**

@@ -1,7 +1,9 @@
 // @vitest-environment jsdom
 // Resource data is read-only (SN205; dev builds freeze it): a write through state that holds a resource's item, or a
 // value made from one, changes no resource object, so it marks the state, not the resource and what reads it. Store
-// functions change resources, and still reach the state that holds their items.
+// functions change resources, and still reach the state that holds their items. A write in place into state that
+// holds an item the build follows is SN205 (test/compiler/resource-write-through.test.ts); the dev freeze is what is
+// left for one it does not (a helper's result, an untraceable value).
 import { describe, expect, test } from 'vitest';
 import { compileParts } from '../../src/compiler/index.js';
 import { mockRequests, render } from '../../src/testing/index.js';
@@ -36,9 +38,9 @@ describe('a write through state that holds a resource\'s item, or a value made f
     await click(r, '#m');
     expect(text(r, 'li')).toBe('1,20');
   });
-  test('a write into the item itself throws in a dev build (what the rule rests on)', async () => {
+  test('a write into the item through a value the build cannot follow throws in a dev build (what is left to the freeze)', async () => {
     const r = await render(`<sn-resource name="todos" src="/api/todos" key="id"></sn-resource><main data-sn-state="{ sel: null }"><b data-sn-text="sel ? sel.n : '-'"></b>
-      <button id="a" data-sn-on-click="sel = todos[0]"></button><button id="w" data-sn-on-click="sel.n = 9"></button></main>`, { requests: mockRequests({ 'GET /api/todos': [{ id: 1, n: 1 }] } as never), strict: false });
+      <button id="a" data-sn-on-click="sel = todos.reduce((a, t) => a ?? t, null)"></button><button id="w" data-sn-on-click="sel.n = 9"></button></main>`, { requests: mockRequests({ 'GET /api/todos': [{ id: 1, n: 1 }] } as never), strict: false });
     await r.settle();
     await click(r, '#a');
     const errors: unknown[] = [];

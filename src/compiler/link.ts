@@ -159,6 +159,8 @@ export const LINK_FIELDS: Record<string, { kinds: string[]; how: 'table' | 'weak
   listCompiled: { kinds: ['WeakSet'], how: 'weak' },
   markups: { kinds: ['WeakMap'], how: 'weak' },
   measured: { kinds: ['WeakMap'], how: 'weak' },
+  // (what each expression changes as a whole, by where it was written: SN205 through state)
+  mutatedAt: { kinds: ['WeakMap'], how: 'weak' },
   needsMarkup: { kinds: ['boolean'], how: 'fixed' },
   needsToken: { kinds: ['Set'], how: 'table' },
   nextId: { kinds: ['number'], how: 'fixed' },

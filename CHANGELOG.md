@@ -31,6 +31,12 @@ How to write an entry (from 0.21.0 on; older sections keep their own form):
   everyone now sees English formats; to keep the visitor's, add
   `configure({ locale: { get: () => navigator.language, set() {} } })` to `src/sinter.config.js`
   ([docs/expressions.md](docs/expressions.md#built-in-formatters)).
+- A write in place into state that may hold a resource's data is error `SN205`: `sel = row`, then `sel.n = 9`,
+  `sel.tags.push(x)`, `Object.assign(sel, …)` or `data-sn-model="sel.title"`. In a production build it changed the
+  resource's cached object, which the page's lists did not show, and a later `merge()` of the item took the change
+  in; dev builds threw. Copy the row when storing it (`sel = structuredClone(row)`, or `{ ...row }` where one level is
+  enough) to edit a draft, or change the resource with `merge()` or write-through
+  ([docs/diagnostics.md](docs/diagnostics.md#sn205-resource-mutation)).
 
 ### Added
 

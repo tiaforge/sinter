@@ -98,9 +98,9 @@ Error, for example:
 
 > `m.is_read = true` mutates a resource. Use `merge(m, {is_read: true})`
 
-Resource data is read-only in expressions: it mirrors the server, and a direct write (an assignment, a mutating method such as `push()`, or `Object.assign()` on an item) would be lost on the next refresh or event.
+Resource data is read-only in expressions: it mirrors the server, and a direct write (an assignment, a mutating method such as `push()`, or `Object.assign()` on an item) would be lost on the next refresh or event. A write in place into state that holds an item (`sel = row`, then `sel.n = 9` or `data-sn-model="sel.title"`) is one too: it changes the resource's own object, which production builds do not freeze, so the page's reads of the resource keep the old value until the next `merge()` of the item takes the change in.
 
-**Fix:** Use the `merge()` call from the message, or copy the item with `structuredClone(c)` to edit it in state.
+**Fix:** Use the `merge()` call from the message, or copy the item with `structuredClone(c)` (or a spread, `{ ...c }`, where one level is enough) when storing it, to edit it in state.
 
 ## SN206 unknown-namespace-member
 
