@@ -58,7 +58,7 @@ fixture pages, in `fixtures/` ([docs/libraries.md](libraries.md)).
 | Option | Default | Purpose |
 | --- | --- | --- |
 | `typecheck` | on with TypeScript | run `sinter check` at the end of `vite build` and fail the build on type errors; `false` turns it off |
-| `compileHints` | `false` | each page module starts with V8's `//# allFunctionsCalledOnLoad`, so Chromium compiles it as the page loads instead of each function at its first call: worth it where a first render runs much of the code at once (a large parse in the browser); a large page module compiles longer up front. Other browsers ignore the comment |
+| `compileHints` | `false` | each page module starts with V8's `//# allFunctionsCalledOnLoad`, so Chromium compiles it as the page loads instead of each function at its first call: worth it where a first render runs much of the code at once (a large parse in the browser); a large page module compiles longer up front. The file with sinter's core gets it too, as nearly all of it runs at every load. Other browsers ignore the comment |
 | `complexity` | warnings | `SN507`, expressions that outgrew markup ([below](expressions.md#what-belongs-in-markup)): `{ level: 'error' }` fails the build, `false` turns it off |
 | `expansionLimit` | `10000` | the most rows and component instances a page expands at build time; past it the list or tree renders in the browser, with `SN536` ([docs/static-pages.md](static-pages.md#what-is-static)) |
 | `strict` | `false` | warnings fail `sinter check`, `vite build`, pages in the dev server and `render()`; runtime warnings show in the dev server's terminal and overlay. `{ allow: { SN504: 'reason' } }` keeps codes warnings. `SINTER_STRICT=1`/`0` overrides it ([docs/strict.md](strict.md)) |
