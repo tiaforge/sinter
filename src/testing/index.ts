@@ -34,6 +34,8 @@ import versions from '../versions.js';
 import dev, { warningSink, type RuntimeWarning } from '../dev.js';
 import type { EventSenders } from '../event-senders.js';
 export { eventSenders, type EventSenders } from '../event-senders.js';
+export { helperFlows, type Flow } from '../helper-flows.js';
+import type { Flow } from '../helper-flows.js';
 export type { RuntimeWarning } from '../dev.js';
 import optimistic from '../optimistic.js';
 import paginate from '../paginate.js';
@@ -235,6 +237,11 @@ export interface RenderOptions {
    * `compile()`, no event's is (docs/spec.md, Aliases)
    */
   events?: EventSenders;
+  /**
+   * What each helper's result may hold of its arguments (`helperFlows(file, root)` of this module over the test's helpers
+   * module, read from its bodies): with it, as in a build; without it, as in `compile()`, anything below every argument
+   */
+  helperFlows?: (name: string) => Flow;
   requests?: MockRequests;
   streams?: Record<string, MockStream>;
   /** page URL, for `$url` (default `http://localhost/`) */
@@ -611,6 +618,7 @@ function compilePage(html: string, options: RenderOptions, strict: Strict = { on
     } : {}),
     file: proj?.file ?? PAGE, root: proj?.root ?? '/test', dev: options.dev ?? true, helpers: manifest,
     ...(options.events ? { eventSenders: () => options.events! } : {}),
+    ...(options.helperFlows ? { helperFlows: options.helperFlows } : {}),
     ...(proj?.lazyModule ? { lazyModule: proj.lazyModule } : {}), actions: actionManifest, moduleSrc: 'about:blank', componentNames: proj?.componentNames ?? Object.keys(options.components ?? {}), ...(proj?.libraries?.length ? { libraries: proj.libraries } : {}),
     // lazy packages: any name, loaded by nothing (a test calls the app's functions, which import what they need)
     lazy: true,

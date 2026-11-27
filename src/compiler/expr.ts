@@ -177,6 +177,8 @@ export interface PageInfo {
   emitted: Set<string>;
   /** what each helper's result may hold of its arguments, read from its body (src/helper-flows.ts); absent: anything below every argument */
   helperFlows?: (name: string) => Flow;
+  /** the helpers whose result an alias took as anything below their arguments, each with why its body gave no summary (SN548) */
+  unsummarized?: Map<string, { why: string; at?: AliasSite }>;
   /** written paths that change the object at the path (a method, `Object.assign`), not the field holding it */
   mutated?: Set<string>;
   /** state fields (`$s0.x`) that may hold an object: one assigned or initialized with something not surely a primitive, or written below */
@@ -874,6 +876,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
     const helperResult = (args: Node[], name?: string): Piece[] => {
       // its summary, where its body gives one: the pieces of each argument it says, at the paths it says
       const flow = name !== undefined && !args.some((a) => a.type === 'SpreadElement') ? page.helperFlows?.(name) : undefined;
+      if (flow && 'why' in flow && !page.unsummarized?.has(name!)) (page.unsummarized ??= new Map()).set(name!, { why: flow.why });
       if (flow && 'flows' in flow) {
         const of = args.map((a) => (a.type === 'ArrowFunctionExpression' ? opaque('a callback\'s argument', a) : classify(a, locals)));
         return flow.flows.flatMap((f) => {
@@ -1557,7 +1560,8 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
           for (const a of n.arguments) {
             const cp = a.type === 'Identifier' || a.type === 'MemberExpression' ? chainPath(a as Node, locals) : null;
             // it may change anything inside the argument: a change of the object as a whole, which reaches its aliases (docs/spec.md, Aliases)
-            if (cp?.segs && cp.res.kind === 'state') writes.add(mutation(cp.segs.slice(0, 2).join('.')));
+            // and anything inside it, in place: what reads below it, a row of a list in it included, renders again
+            if (cp?.segs && cp.res.kind === 'state') { writes.add(mutation(cp.segs.slice(0, 2).join('.'))); writes.add([...track(cp, cp.segs, a as Node), '**'].join('.')); }
           }
         }
       }

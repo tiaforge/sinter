@@ -57,6 +57,9 @@ How to write an entry (from 0.21.0 on; older sections keep their own form):
 
 ### Fixed
 
+- A handler that calls a helper which changes a list's element in place (`bump(ys[0])`) re-renders that row: the call
+  marked only the list's root, which the rows below it do not read. The dev write check (warning 36) now also reports
+  such a write ([docs/spec.md](docs/spec.md#expressions-and-scope)).
 - `SN530` no longer reports an image whose height is a percentage of a box with a fixed height when an `@supports` rule may change that box's `display` and every display it may take gives the percentage the same basis (such as `inline-grid` or `inline-block`); the image counts as sized, as it did without the `@supports` rule. See [SN530](docs/diagnostics.md#sn530-unsized-late-image).
 - A page with `data-sn-transition` that navigates while a cross-document view transition runs no longer leaves an uncaught `Transition was aborted because of invalid state` in Chromium: the transition's `ready` and `updateCallbackDone` rejections are handled as `finished` already was ([docs/navigation.md](docs/navigation.md#page-transitions)).
 - An app whose `node_modules/@tiaforge-ui/sinter` links to a sinter checkout (`npm link`, `file:`) builds: the plugin took sinter's own files, outside `node_modules` by their real path, for the app's modules and failed on them, with a false report that `clearPersisted()` is renamed. They are now a package wherever they are, to every check and rewrite of the app's modules ([docs/libraries.md](docs/libraries.md#using-one)).
@@ -89,6 +92,11 @@ How to write an entry (from 0.21.0 on; older sections keep their own form):
 
 ### Performance
 
+- A handler that writes through what holds a helper's result marks only what the helper may have returned: the build
+  reads each helper's body for what its result holds of its arguments (its summary), where it took the result to hold
+  anything below every argument. On Caley's calendar, moving to the next week evaluates 542 bindings instead of 1,210.
+  Nothing to do; a helper the build cannot read keeps today's reading, and `explainWrites` (`SN548`) names it with what
+  stopped it ([docs/spec.md](docs/spec.md#expressions-and-scope)).
 - A site whose pages have no `data-sn-for`, `data-sn-if` or `<sn-component use>` loads about 1 kB less JavaScript
   (gzip; 2.4 kB minified): its build now leaves the list and branch code out of the runtime, as it was meant to.
   A page with one resource and one text binding goes from 11.2 kB to 10.2 kB. Nothing to do; sites that use lists

@@ -78,3 +78,17 @@ describe('SN548 names what blocked the proof', () => {
     expect(run(PAGE.replace(/<x-hold[^>]*><\/x-hold>/, ''), files).join('\n')).toContain('`ys.reduce((a, y) => y, null)` is the result of `reduce()`');
   });
 });
+
+test('SN548 names a helper whose body gave no summary, and the construct that stopped it', async () => {
+  const { mkdtempSync, writeFileSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { helperFlows } = await import('../../src/helper-flows.js');
+  const dir = mkdtempSync(join(tmpdir(), 'sn-548-'));
+  writeFileSync(join(dir, 'helpers.mjs'), 'export function bumps(p) {\n  p.n = p.n + 1;\n  return p;\n}\n');
+  const out = compileParts(`<main data-sn-state="{ ys: [{ n: 1 }], box: null }"><b data-sn-text="ys[0].n"></b><button data-sn-on-click="box = bumps(ys[0])"></button><button data-sn-on-click="box.n = 3"></button></main>`,
+    { file: '/p/index.html', root: '/p', dev: false, helpers: { module: '/x', names: ['bumps'], namespaces: {} }, explainWrites: true, helperFlows: helperFlows(join(dir, 'helpers.mjs'), dir), readFile: () => { throw new Error('none'); } });
+  const [m, ...more] = out.diagnostics.filter((d) => d.code === 'SN548').map((d) => d.message);
+  expect(more).toEqual([]);
+  expect(m).toMatch(/^`bumps\(\)`'s result is taken to hold anything below its arguments, so a write through what holds it marks all of that: its body has no summary, a write into an object of a parameter \(.*helpers\.mjs:2:3\)\. It is used in `box = bumps\(ys\[0\]\)`$/);
+});

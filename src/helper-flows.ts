@@ -152,11 +152,14 @@ export function helperFlows(helpersFile: string, root: string): (name: string) =
     const no = (what: string, n: N): never => { throw new Unproven(`${what} (${where(n)})`); };
     if (fn.async || fn.generator) no(fn.async ? 'it is async' : 'it is a generator', fn);
     const scope: Scope = { vars: new Map(), fns: new Map(), up };
+    /** the innermost block's scope: a `for` loop's or a block's declarations are its own */
+    let cur: Scope = scope;
+    const inBlock = (f: () => void) => { const prev = cur; cur = { vars: new Map(), fns: new Map(), up: prev }; try { f(); } finally { cur = prev; } };
     const env = {
-      has: (k: string) => !!lookup(scope, k)?.vars.has(k),
-      get: (k: string) => lookup(scope, k)?.vars.get(k),
-      set: (k: string, v: V) => { const x = lookup(scope, k); (x && x.vars.has(k) ? x : scope).vars.set(k, v); },
-      declare: (k: string, v: V) => { scope.vars.set(k, union(scope.vars.get(k) ?? [], v)); },
+      has: (k: string) => !!lookup(cur, k)?.vars.has(k),
+      get: (k: string) => lookup(cur, k)?.vars.get(k),
+      set: (k: string, v: V) => { const x = lookup(cur, k); (x && x.vars.has(k) ? x : cur).vars.set(k, v); },
+      declare: (k: string, v: V) => { cur.vars.set(k, union(cur.vars.get(k) ?? [], v)); },
     };
     const assign = (name: string, v: V, n: N) => {
       if (!env.has(name)) { if (m.lets.has(name) || m.consts.has(name)) no(`a write to the module's \`${name}\``, n); no(`a write to \`${name}\`, which it does not declare`, n); }
@@ -193,15 +196,15 @@ export function helperFlows(helpersFile: string, root: string): (name: string) =
     const writeInto = (target: V, n: N) => { if (isArgument(target)) no('a write into an object of a parameter', n); };
     const callback = (f: N | undefined, args: V[], n: N): V => {
       // a built-in that makes a primitive of its argument (`.map(Number)`)
-      if (f?.type === 'Identifier' && GLOBAL_PRIM.test(f.name) && !lookup(scope, f.name) && !m.fns.has(f.name) && !m.imports.has(f.name)) return [];
+      if (f?.type === 'Identifier' && GLOBAL_PRIM.test(f.name) && !lookup(cur, f.name) && !m.fns.has(f.name) && !m.imports.has(f.name)) return [];
       // a function of the modules (`.map(messageKey)`): its summary, given the arguments
-      if (f?.type === 'Identifier' && !lookup(scope, f.name)) {
+      if (f?.type === 'Identifier' && !lookup(cur, f.name)) {
         const g = callee(f.name, m);
         if (!g) no(`a callback \`${f.name}\`, which the build cannot read`, f);
         return apply(f.name, g!, args, n);
       }
       if (!f || f.type !== 'ArrowFunctionExpression') no('a callback that is not an arrow function', f ?? n);
-      return analyze(f!, m, args, scope);
+      return analyze(f!, m, args, cur);
     };
     /** a call of a function of the modules: its summary, with these arguments' values */
     const apply = (name: string, g: { fn: N; m: ModuleInfo }, a: V[], n: N): V => {
@@ -214,7 +217,7 @@ export function helperFlows(helpersFile: string, root: string): (name: string) =
       if (n.arguments.some((a: N) => a.type === 'SpreadElement')) no('a call with a spread argument', n);
       const args = () => n.arguments.map((a: N) => (a.type === 'ArrowFunctionExpression' ? [] : value(a)));
       if (c.type === 'Identifier') {
-        const local = lookup(scope, c.name);
+        const local = lookup(cur, c.name);
         if (local?.fns.has(c.name)) return analyze(local.fns.get(c.name)!, m, args(), local);
         if (env.has(c.name)) no(`a call of \`${c.name}\`, a value`, n);
         if (GLOBAL_PRIM.test(c.name) && !m.fns.has(c.name) && !m.imports.has(c.name)) { args(); return []; }
@@ -225,7 +228,7 @@ export function helperFlows(helpersFile: string, root: string): (name: string) =
       if (c.type !== 'MemberExpression') no('a call of a computed value', n);
       const method = !c.computed && c.property.type === 'Identifier' ? c.property.name : null;
       if (!method) no('a call of a method named by a value', n);
-      if (c.object.type === 'Identifier' && m.messages.has(c.object.name) && !lookup(scope, c.object.name)) { args(); return []; }
+      if (c.object.type === 'Identifier' && m.messages.has(c.object.name) && !lookup(cur, c.object.name)) { args(); return []; }
       if (c.object.type === 'Identifier' && !env.has(c.object.name) && !m.consts.has(c.object.name) && !m.fns.has(c.object.name) && !m.imports.has(c.object.name)) {
         const o = c.object.name;
         if (o === 'Math' || o === 'Number' || (o === 'JSON' && (method === 'parse' || method === 'stringify')) || (o === 'Date' && method === 'now') || (o === 'Object' && method === 'keys') || (o === 'Array' && method === 'isArray')) { args(); return []; }
@@ -288,7 +291,7 @@ export function helperFlows(helpersFile: string, root: string): (name: string) =
         case 'SequenceExpression': return e.expressions.map(value).at(-1);
         case 'Identifier': {
           if (env.has(e.name)) return env.get(e.name)!;
-          if (lookup(scope, e.name)?.fns.has(e.name)) no(lookup(scope, e.name)!.fns.get(e.name)!.type === 'Caught' ? `\`${e.name}\`, a caught value` : `the local function \`${e.name}\` used as a value`, e);
+          if (lookup(cur, e.name)?.fns.has(e.name)) no(lookup(cur, e.name)!.fns.get(e.name)!.type === 'Caught' ? `\`${e.name}\`, a caught value` : `the local function \`${e.name}\` used as a value`, e);
           if (/^(undefined|NaN|Infinity)$/.test(e.name)) return [];
           if (e.name === 'arguments' || e.name === 'eval') no(`\`${e.name}\``, e);
           const k = m.consts.get(e.name);
@@ -314,7 +317,9 @@ export function helperFlows(helpersFile: string, root: string): (name: string) =
           const c = e.callee.type === 'Identifier' ? e.callee.name : '';
           const a = e.arguments.map((x: N) => value(x));
           if (/^(Date|URL|URLSearchParams|RegExp|Error|TypeError|RangeError)$/.test(c)) return [];
-          if (/^(Set|Map|WeakSet|WeakMap)$/.test(c) && !env.has(c)) return at(['*'], iterated(a[0] ?? []));
+          // a Set holds the items it is given; a Map, the keys and values of the pairs it is given
+          if (/^(Set|WeakSet)$/.test(c) && !env.has(c)) return at(['*'], iterated(a[0] ?? []));
+          if (/^(Map|WeakMap)$/.test(c) && !env.has(c)) return at(['*'], element(iterated(a[0] ?? [])));
           return no(`\`new ${c || '…'}()\``, e);
         }
         case 'AssignmentExpression': {
@@ -347,11 +352,11 @@ export function helperFlows(helpersFile: string, root: string): (name: string) =
     let result: V = [];
     const stmt = (s: N) => {
       switch (s.type) {
-        case 'BlockStatement': s.body.forEach(stmt); return;
+        case 'BlockStatement': inBlock(() => s.body.forEach(stmt)); return;
         case 'ExpressionStatement': value(s.expression); return;
         case 'VariableDeclaration': for (const d of s.declarations) {
           // a local arrow function: analyzed where it is called, with what it is given
-          if (s.kind === 'const' && d.id.type === 'Identifier' && d.init?.type === 'ArrowFunctionExpression') { scope.fns.set(d.id.name, d.init); continue; }
+          if (s.kind === 'const' && d.id.type === 'Identifier' && d.init?.type === 'ArrowFunctionExpression') { cur.fns.set(d.id.name, d.init); continue; }
           bind(d.id, d.init ? value(d.init) : []);
         } return;
         case 'ReturnStatement': result = union(result, value(s.argument)); return;
@@ -360,18 +365,19 @@ export function helperFlows(helpersFile: string, root: string): (name: string) =
         case 'TryStatement': {
           stmt(s.block);
           // what was thrown may be anything a callee threw: the caught value cannot be read
-          if (s.handler) { if (s.handler.param) scope.fns.set(s.handler.param.name ?? '', { type: 'Caught', start: s.handler.start, end: s.handler.end }); stmt(s.handler.body); }
+          if (s.handler) inBlock(() => { if (s.handler.param) cur.fns.set(s.handler.param.name ?? '', { type: 'Caught', start: s.handler.start, end: s.handler.end }); stmt(s.handler.body); });
           if (s.finalizer) stmt(s.finalizer);
           return;
         }
         case 'ForOfStatement': {
           const it = value(s.right), d = s.left.type === 'VariableDeclaration' ? s.left.declarations[0].id : s.left;
           if (d.type === 'Identifier' && !s.left.declarations && !env.has(d.name)) no('a loop over a name it does not declare', s);
-          bind(d, iterated(it));
-          stmt(s.body);
+          // (a loop over a variable declared outside it assigns that variable)
+          if (!s.left.declarations) { if (d.type !== 'Identifier') no('a loop that destructures into names it does not declare', s); assign(d.name, iterated(it), s); }
+          inBlock(() => { if (s.left.declarations) bind(d, iterated(it)); stmt(s.body); });
           return;
         }
-        case 'ForStatement': if (s.init) (s.init.type === 'VariableDeclaration' ? stmt(s.init) : value(s.init)); value(s.test); value(s.update); stmt(s.body); return;
+        case 'ForStatement': inBlock(() => { if (s.init) (s.init.type === 'VariableDeclaration' ? stmt(s.init) : value(s.init)); value(s.test); value(s.update); stmt(s.body); }); return;
         case 'WhileStatement': case 'DoWhileStatement': value(s.test); stmt(s.body); return;
         case 'BreakStatement': case 'ContinueStatement': case 'EmptyStatement': return;
         case 'TSTypeAliasDeclaration': case 'TSInterfaceDeclaration': return;

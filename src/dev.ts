@@ -154,7 +154,9 @@ export function covers(w: string[], p: string[]): boolean {
     if (s == '*' || s == '#' || s == '~' || (s[0] == '{' && s.endsWith('}')) || s == p[i]) continue;
     return false;
   }
-  return true;
+  // a change below the written path, in place: not through a list's element, which the runtime's reach does not go
+  // into from above (a row renders again when its item is another, not when the list was written as a whole)
+  return !p.slice(w.length).some((x) => /^\d+$/.test(x));
 }
 
 /** Where function `f` was written, when one place in the IR uses it (a resource's or a stream event's `then`). */

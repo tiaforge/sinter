@@ -7242,6 +7242,11 @@ class Compiler {
     const a0 = this.page.aliases?.length ?? 0;
     const r = analyze(src, scope, this.page, { ...o, report: this.reporter(el, attrName, shift) });
     if (this.opts.explainWrites || r.emitPieces) this.aliasSites(a0, el, attrName, src, shift);
+    if (this.opts.explainWrites) for (const [k, u] of this.page.unsummarized ?? []) if (!u.at) {
+      const o = this.origins.get(el) ?? { file: this.opts.file, src: '', chain: [] };
+      const { line, col } = el.sourceCodeLocation ? this.lineCol(o.src, this.valueOffset(el, attrName) + shift) : { line: 1, col: 1 };
+      this.page.unsummarized!.set(k, { ...u, at: { text: src.replace(/\s+/g, ' ').trim(), file: o.file, line, col } });
+    }
     for (const a of r.assigns ?? []) this.addSources(`@${a.path}`, a.src);
     for (const e of r.emits ?? []) this.page.emitted.add(e);
     // what an `emit()` passes is the detail its event's handlers read (`@evn:<event>`), wherever on the page they are
@@ -12727,7 +12732,14 @@ class Compiler {
         // the object the write changes: the one holding the field it assigns, or the one a method changes
         const whole = (mutated.has(w) && end !== '#') || end === '**', O = end === '#' || end === '**' ? W.slice(0, -1) : whole ? W : W.slice(0, -1);
         let via = -1;
-        const add = (p: string[]) => { const k = p.join('.'); if (!out.has(k)) { out.add(k); queue.push([k, via]); } };
+        const add = (p0: string[]) => {
+          // an object that may hold itself (`x` may be `y`, and so may `x.*`) grows a path a `*` at a time: past three
+          // in a row, anything below (more paths marked, never fewer)
+          const r = p0.findIndex((_, i) => i >= 2 && p0[i] === '*' && p0[i - 1] === '*' && p0[i - 2] === '*');
+          const p = r < 0 ? p0 : [...p0.slice(0, r), '**'];
+          const k = p.join('.');
+          if (!out.has(k)) { out.add(k); queue.push([k, via]); }
+        };
         const fromState = W[0] !== '$r', every = fromState ? STATE : ALL;
         const changes = (t: string[], s: string[] | null) => {
           if (fromState && s?.[0] === '$r') return;
@@ -12773,6 +12785,11 @@ class Compiler {
     for (const r of this.resources) { if (blamed) owner = `\`<sn-resource name="${r.name}">\``; fix(r.w); }
     for (const x of this.syncs) for (const e of x.events) { if (blamed) owner = `\`<sn-event name="${e.name}">\``; fix(e.w); }
     if (blamed) this.explainWrites(blamed, list);
+    // (a helper whose body gave no summary: what holds its result is taken to hold anything below its arguments)
+    if (this.opts.explainWrites) for (const [name, u] of this.page.unsummarized ?? []) this.diagnostics.push({ severity: 'warning', code: 'SN548',
+      message: `\`${name}()\`'s result is taken to hold anything below its arguments, so a write through what holds it marks all of that: its body has no summary, ${u.why}${u.at ? `. It is used in \`${u.at.text.length > 80 ? u.at.text.slice(0, 77) + '…' : u.at.text}\`` : ''}`,
+      file: u.at?.file ?? this.opts.file, line: u.at?.line ?? 1, col: u.at?.col ?? 1,
+      hint: 'write the helper with the constructs the build reads (docs/spec.md, Aliases: helpers\' summaries), or leave it as it is where the page is fast enough' });
   }
 
   /**

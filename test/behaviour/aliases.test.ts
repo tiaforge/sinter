@@ -125,7 +125,7 @@ describe('what the compiler adds to a handler\'s writes', () => {
     expect(writes(`<main data-sn-state="{ ys: [{ n: 1 }], sel: null, k: 0 }"><b data-sn-text="ys[0].n + (sel ? sel.n : 0) + k"></b>
       <button data-sn-on-click="sel = ys[0]"></button><button data-sn-on-click="sel.n = 5"></button><button data-sn-on-click="ys[0].n = 6"></button>
       <button data-sn-on-click="k = rows(k, 3).length"></button></main>`)).toEqual([
-      ['$s0.sel'], ['$s0.sel.n', '$s0.ys.0.n'], ['$s0.sel.n', '$s0.ys.0.n'], ['$s0.k'],
+      ['$s0.sel'], ['$s0.sel.n', '$s0.ys.0.n'], ['$s0.sel.n', '$s0.ys.0.n'], ['$s0.k', '$s0.k.**'],
     ]);
   });
   test('a helper\'s result is anything under its arguments: under the list, not everything', () => {
