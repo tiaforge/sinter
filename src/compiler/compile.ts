@@ -2,6 +2,7 @@
 // rewritten page plus its IR and function table.
 import type { SourceMap } from './sourcemap.js';
 import type { EventSenders } from '../event-senders.js';
+import type { Flow } from '../helper-flows.js';
 import { freshState } from '../script-values.js';
 import { parseModule } from './index.js';
 import { lineCol } from '../line-col.js';
@@ -308,6 +309,12 @@ export interface CompileOptions {
    * may an event's detail (`compile()` and `render()` read no modules; the Vite plugin and `sinter check` pass it).
    */
   eventSenders?: (entries: string[], inline: Array<{ name: string; text: string }>) => EventSenders;
+  /**
+   * What each helper's result may hold of its arguments, read from its body (src/helper-flows.ts). Without it, or for a
+   * helper without a summary, anything below every argument (`compile()` reads no modules; the Vite plugin, `sinter check`
+   * and the editor pass it).
+   */
+  helperFlows?: (name: string) => Flow;
   /** internal, set by `compileParts` for its second pass: the trees the first found over the limit (`SN536` again, there) */
   overLimit?: Map<string, number>;
   /**
@@ -2531,7 +2538,7 @@ class Compiler {
     this.page = {
       resources: new Map(), helpers: new Set(opts.helpers.names), namespaces: ns,
       actions: new Set([...(opts.actions?.names ?? []), ...Object.keys(opts.actions?.namespaces ?? {})]),
-      usedHelpers: new Set(), usedNs: new Map(), usesNow: false, pathParams: new Set(), dialogs: new Set(), popovers: new Set(), fed: new Set(), ids: new Map(), emitted: new Set(),
+      usedHelpers: new Set(), usedNs: new Map(), usesNow: false, pathParams: new Set(), dialogs: new Set(), popovers: new Set(), fed: new Set(), ids: new Map(), emitted: new Set(), ...(opts.helperFlows ? { helperFlows: opts.helperFlows } : {}),
       ...(opts.apis?.list.some((a) => a.token) ? { tokens: true } : {}),
     };
     const l = opts.locale;

@@ -4,6 +4,7 @@
 import type * as acorn from 'acorn';
 import { parseExpression, parseProgram } from './parse.js';
 import { type Code, didYouMean, suggest } from './diagnostics.js';
+import type { Flow } from '../helper-flows.js';
 
 type Node = acorn.AnyNode & { start: number; end: number };
 
@@ -174,6 +175,8 @@ export interface PageInfo {
   aliases?: Array<{ t: string[]; s: string[] | null; why?: string; at?: AliasSite }>;
   /** the events the page's `emit()`s send, by name (`*`: one named by a value) */
   emitted: Set<string>;
+  /** what each helper's result may hold of its arguments, read from its body (src/helper-flows.ts); absent: anything below every argument */
+  helperFlows?: (name: string) => Flow;
   /** written paths that change the object at the path (a method, `Object.assign`), not the field holding it */
   mutated?: Set<string>;
   /** state fields (`$s0.x`) that may hold an object: one assigned or initialized with something not surely a primitive, or written below */
@@ -868,7 +871,22 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
     const opaque = (what: string, n: Node = e): Piece[] => [{ sub: [], src: null, why: `\`${src.slice(n.start, n.end).replace(/\s+/g, ' ').slice(0, 60)}\` is ${what}` }];
     const union = (...xs: Node[]) => xs.flatMap((x) => classify(x, locals));
     // a helper's result holds fresh values, or objects found in its arguments, at any depth (docs/spec.md, Aliases)
-    const helperResult = (args: Node[]): Piece[] => args.flatMap((a) => (a.type === 'SpreadElement' ? contentsOf(classify(a.argument as Node, locals)) : a.type === 'ArrowFunctionExpression' ? returned(a, opaque('a callback\'s argument', a)) : classify(a, locals))
+    const helperResult = (args: Node[], name?: string): Piece[] => {
+      // its summary, where its body gives one: the pieces of each argument it says, at the paths it says
+      const flow = name !== undefined && !args.some((a) => a.type === 'SpreadElement') ? page.helperFlows?.(name) : undefined;
+      if (flow && 'flows' in flow) {
+        const of = args.map((a) => (a.type === 'ArrowFunctionExpression' ? opaque('a callback\'s argument', a) : classify(a, locals)));
+        return flow.flows.flatMap((f) => {
+          const arg = of[+f.src[0]!] ?? [];
+          const path = f.src.slice(1);
+          const k = path.indexOf('**');
+          const v = k < 0 ? memberPieces(arg, path) : memberPieces(arg, path.slice(0, k)).map((p) => ({ sub: ['**'], src: p.src && [...p.src, '**'], ...(p.why ? { why: p.why } : {}) }));
+          return v.map((p) => ({ ...p, sub: [...f.sub, ...p.sub] }));
+        });
+      }
+      return helperResultAny(args);
+    };
+    const helperResultAny = (args: Node[]): Piece[] => args.flatMap((a) => (a.type === 'SpreadElement' ? contentsOf(classify(a.argument as Node, locals)) : a.type === 'ArrowFunctionExpression' ? returned(a, opaque('a callback\'s argument', a)) : classify(a, locals))
       .map((p) => ({ sub: ['**'], src: p.src && [...p.src, '**'], ...(p.why ? { why: p.why } : {}) })));
     /** what a callback returns, its first parameter standing for an element of `recv`, the second for its index */
     const returned = (fn: Node | undefined, recv: Piece[]): Piece[] => {
@@ -937,7 +955,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
         const args = e.arguments as Node[];
         if (callee.type === 'Identifier' && !locals.has(callee.name)) {
           if (FRESH_CALLS.has(callee.name) || BUILTIN_HELPERS.includes(callee.name) || STORE_FNS.includes(callee.name)) return [];
-          return resolveQuiet(callee.name, locals)?.kind === 'helper' ? helperResult(args) : opaque(`the result of \`${callee.name}()\``);
+          return resolveQuiet(callee.name, locals)?.kind === 'helper' ? helperResult(args, callee.name) : opaque(`the result of \`${callee.name}()\``);
         }
         if (callee.type === 'MemberExpression') {
           const m = callee as acorn.MemberExpression & Node;
@@ -1534,7 +1552,8 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
           // `relative(v)` reads the clock: it follows `$now`, so "3 minutes ago" moves on
           if (callee.name === 'relative' && n.arguments.length < 2 && mode === 'value') { addDep(['$now']); page.usesNow = true; }
         }
-        else if (mode === 'handler') {
+        // a helper with a summary changes none of its arguments (its body writes into none: src/helper-flows.ts)
+        else if (mode === 'handler' && !(page.helperFlows && 'flows' in page.helperFlows(callee.name))) {
           for (const a of n.arguments) {
             const cp = a.type === 'Identifier' || a.type === 'MemberExpression' ? chainPath(a as Node, locals) : null;
             // it may change anything inside the argument: a change of the object as a whole, which reaches its aliases (docs/spec.md, Aliases)

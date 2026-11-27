@@ -10,6 +10,7 @@ import type { OpenApiSpec } from './compiler/openapi.js';
 import { defaultApiRenamed, resolveApis, type ApiOptions, type ApisDef } from './compiler/apis.js';
 import { COMPLEXITY_LIMITS, type ComplexityOptions } from './compiler/complexity.js';
 import { eventSenders } from './event-senders.js';
+import { helperFlows } from './helper-flows.js';
 import { writeComponentTypes } from './components-build.js';
 import { componentHtml, findComponents } from './component-files.js';
 import { inlineScripts } from './compiler/components.js';
@@ -343,6 +344,9 @@ export function compileOptionsOf(p: Project, file?: string) {
     componentNames: p.componentNames, libraries: p.libraries, lazy: p.lazy,
     // what the events of a page's modules carry (src/event-senders.ts): the app's, its components' and its own scripts
     eventSenders: (entries: string[], inline: Array<{ name: string; text: string }>) => eventSenders([...p.modules, ...entries], p.root, inline),
+    // what each helper's result may hold of its arguments, from its body (src/helper-flows.ts): read again for each
+    // compile (the modules' parses are kept while their files are the same), so a change to any of them is seen
+    ...(p.helpersFile ? { helperFlows: helperFlows(p.helpersFile, p.root) } : {}),
     ...(p.lazy.length ? { lazyModule: lazyReachOf(p).reach } : {}),
     ...(file !== undefined && p.isStatic(file) ? { static: true, prerender: true } : {}),
     ...(file !== undefined && p.swap ? { swap: true } : {}),
