@@ -13454,12 +13454,13 @@ class Compiler {
      * is a primitive (a string, a finite number, a boolean, null) that nothing stored can replace: its state is not
      * persisted, no persisted model writes it, and its initializer is that literal, or a value the build computed and
      * embedded (`$.$d(id)`), as the browser reads it back from its JSON. A primitive is no one else's to change through
-     * a copy. NONE for anything else: an object or a list, a field computed in the browser, one that reads another.
+     * a copy. NONE for anything else: an object or a list, a field computed in the browser, one that reads another, a
+     * field its literal names more than once (`{ open: false, open: true }`, quoted or not: JavaScript keeps the last).
      */
     const startValue = (d: string): unknown => {
       const m = /^\$s(\d+)\.([^.]+)$/.exec(d);
-      const st = m ? this.stateInits.find((x) => x.sid === Number(m[1])) : undefined, x = st?.fields.find((y) => y.key === m![2]);
-      if (!st || !x || st.persist || stored.includes(d)) return NONE;
+      const st = m ? this.stateInits.find((x) => x.sid === Number(m[1])) : undefined, xs = st?.fields.filter((y) => y.key === m![2]) ?? [], x = xs[0]!;
+      if (!st || xs.length !== 1 || st.persist || stored.includes(d)) return NONE;
       const emb = /^\(\$\) => \(\$\.\$d\((\d+)\)\)$/.exec(x.code);
       let v: unknown = NONE;
       if (emb) { try { v = JSON.parse(this.foldScripts.get(Number(emb[1]))!); } catch { return NONE; } } else {

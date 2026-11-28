@@ -234,6 +234,48 @@ describe('one guard each: the page is closed at the start in every case, and onl
   });
 });
 
+// The review's case (round 2 of the branch): a state literal may name a field twice, and JavaScript keeps the last
+// entry. The rule does not pick one: a field that is not exactly one plain entry of its literal is not known.
+describe('a field its state literal names more than once is not known to start as written', () => {
+  test('`{ open: false, keep: false, open: true }`: the branch is in the first paint and the takeover writes nothing', async () => {
+    const html = doc(`<body data-sn-state="{ open: false, keep: false, open: true }">
+      <input type="checkbox" data-sn-model="keep" data-sn-persist="keep">
+      <button id="t" data-sn-on-click="open = !open">t</button><template data-sn-if="open"><nav id="menu">menu</nav></template>
+    </body>`);
+    const plain = await render(html);
+    await plain.settle();
+    expect(has('menu'), 'open for the page module').toBe(true);
+    expect(earlyIfs(html)).toBe(1);
+    await firstPaint(html);
+    expect(has('menu'), 'the branch is in the first paint').toBe(true);
+    expect((await takeover(html)).wrote, 'the takeover writes nothing').toEqual([]);
+  });
+
+  test('twice, the last false as well; quoted and unquoted', () => {
+    const page = (state: string, cond: string) => doc(`<body data-sn-state="${state}"><input type="checkbox" data-sn-model="on" data-sn-persist="on"><button data-sn-on-click="open = !open">t</button><template data-sn-if="${cond}"><p id="x">x</p></template></body>`);
+    // the reference: one entry, quoted or not, left out
+    expect(earlyIfs(page('{ open: false, on: false }', 'open'))).toBe(0);
+    expect(earlyIfs(page("{ 'open': false, on: false }", 'open'))).toBe(0);
+    expect(earlyIfs(page('{ open: true, on: false, open: false }', 'open'))).toBe(1);
+    expect(earlyIfs(page('{ open: false, on: false, open: false }', 'open'))).toBe(1);
+    expect(earlyIfs(page("{ 'open': true, on: false, open: false }", 'open'))).toBe(1);
+    expect(earlyIfs(page('{ open: true, on: false, &quot;open&quot;: false }', 'open'))).toBe(1);
+  });
+
+  // (`__proto__: v` sets the prototype, or nothing, and `__proto__` reads it: the build evaluates the condition over an
+  // object it writes the same way, so it agrees with the browser. A spread or a computed key is a compile error.)
+  test('`__proto__` in the state literal: the first paint is what the page module renders', async () => {
+    for (const [state, cond] of [['{ on: false, __proto__: null }', '__proto__'], ['{ on: false, __proto__: null }', '!__proto__'], ['{ on: false, __proto__: false }', '__proto__'], ['{ on: false, __proto__: false }', '!__proto__']] as const) {
+      const html = doc(`<body data-sn-state="${state}"><input type="checkbox" data-sn-model="on" data-sn-persist="on"><template data-sn-if="${cond}"><p id="x">x</p></template></body>`);
+      const plain = await render(html);
+      await plain.settle();
+      const open = has('x');
+      await firstPaint(html);
+      expect(has('x'), `${state} ${cond}`).toBe(open);
+    }
+  });
+});
+
 // The cases below are the review's (round 1 of the branch): each passes on main, and failed while the rule followed a
 // condition into what its fields hold. A copy of an object is the object: a persisted model that writes through the
 // copy writes what the condition reads.

@@ -138,3 +138,17 @@ test('one guard each, for a `when`: a member below a field, a persisted model be
   expect(earlyRes(page('{ sel: null, prefs: { dense: false } }', 'sel', '<input type="checkbox" data-sn-model="prefs.dense" data-sn-persist="dense">'))).toEqual(both);
   expect(earlyRes(page('{ sel: null, n: 1 - 1 }', 'n > 0', '<button data-sn-on-click="n = 2">n</button>'))).toEqual(both);
 });
+
+// The review's case (round 2 of the branch): a state literal that names the field twice starts with the last entry,
+// true here. The rule does not pick one: the request stays early and leaves from the head script.
+test('a `when` over a field its state literal names twice: requested early, once, and taken by the page module', async () => {
+  const html = `<!doctype html><html><head></head><body data-sn-state="{ on: false, id: 7, on: true }">
+    <sn-resource name="d" src="/api/d?id={id}&u={$url.u}" when="on"></sn-resource><p id="d" data-sn-text="d?.at"></p></body></html>`;
+  expect(earlyRes(html)).toEqual(['/api/d?id=']);
+  const p = await load(html);
+  expect(p.text()).toBe('/api/d?id=7');
+  expect(p.early, 'the request leaves from the head script').toEqual(['/api/d?id=7']);
+  expect(p.calls(), 'the page module sends none of its own').toEqual([]);
+  // (named once: left out)
+  expect(earlyRes(html.replace('{ on: false, id: 7, on: true }', '{ on: false, id: 7 }'))).toEqual([]);
+});
