@@ -317,3 +317,22 @@ describe('a plugin that removes the head scripts\' comment fails the build, and 
     await expect(built).rejects.toThrow(/index\.html: the comment `<!--sn-head-…-->` that marks where the head scripts go is gone from the page's head .*Keep that comment.*it never reaches the output/s);
   }, 120000);
 });
+
+// The review's case (round 3, on main too): embedded data in the head that holds the text `</head>`. What is added at
+// the end of the head (by sinter, the Speculation Rules and the embedded-data placeholders; by Vite, the page module's
+// tag and its stylesheets) is put before the first `</head>` in the page's text, which was inside the data. The
+// compiler writes the data's `<` as `<`, which JSON reads back the same: no text inside it looks like a tag.
+test('embedded data in the head that holds the text `</head>`: the data is as written, the first paint has it', async () => {
+  const post = { title: 'The head', body: 'Close it with </head> before the <body>.' };
+  const { out, html } = await page('close-head', POST('').replace(postJson(TRICKY), JSON.stringify(post)));
+  const p = places(html);
+  expect(JSON.parse(p.data![1]!)).toEqual(post);
+  expect(p.data![1]).not.toContain('<');
+  // the page module's tag and the Speculation Rules are in the head, after the data
+  expect(p.module).toBeGreaterThan(p.data!.index);
+  expect(p.module).toBeLessThan(p.end);
+  expect(html.indexOf('<script type="speculationrules"')).toBeLessThan(p.end);
+  const painted = await firstPaint(out, html, {});
+  expect(painted.errors).toEqual([]);
+  expect(painted.document.querySelector('#body')?.textContent).toBe(post.body);
+}, 120000);

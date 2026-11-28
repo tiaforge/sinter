@@ -92,6 +92,12 @@ How to write an entry (from 0.21.0 on; older sections keep their own form):
 
 ### Fixed
 
+- Embedded data in the head (`<script type="application/json" data-sn-resource>`) whose JSON holds the text
+  `</head>` is no longer cut there: the compiler took the first `</head>` of the page's text for the end of the head,
+  and wrote the page module's tag (and the Speculation Rules, the stylesheets Vite adds) into the data. The end of the
+  head is now the first `</head>` that is not inside an element whose content is text (a script, a title, a style) or
+  a comment, and embedded data is written with its `<` as `<` (the same JSON), so no text inside it looks like a
+  tag to Vite's or a server's search of the page.
 - A helper that returns `undefined` at build time for a state field the browser still reads no longer fails the
   compile (`Cannot read properties of undefined (reading 'replace')`, while writing the value as embedded data): JSON
   has no `undefined`, so the field is not embedded and the browser computes it, as any value the build cannot embed.

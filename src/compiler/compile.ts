@@ -6737,6 +6737,9 @@ class Compiler {
           const id = this.nextId++;
           this.embedded.set(name, id);
           setAttr(el, 'data-sn', String(id));
+          // its `<` as `<`, which JSON reads back the same (it stands only inside strings there): no text inside
+          // the data looks like a tag, `</head>` or `<script` (a text search of the page, Vite's or a server's, would take it for one)
+          for (const c of el.childNodes) if (c.nodeName === '#text') (c as { value: string }).value = (c as { value: string }).value.replace(/</g, '\\u003c');
         }
       }
       stripSn(el);
