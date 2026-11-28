@@ -250,7 +250,7 @@ export interface App {
      * selection bindings (select.ts): given the renderer's internals, the check for a list whose rows
      * no other change reaches. `free`: the index may be used (no row was reconciled this round, none
      * waits in a closed dialog). 0: no selection's outer side changed; 1: the rows concerned were
-     * rendered; 2: every row renders
+     * rendered; 3: every row renders, the index not used (not 2: `walk` reads that as a change written through a row index)
      */
     select?: (inner: Inner) => (rb: BoundBinding, free: boolean) => number;
     /** nested items (nested.ts): changes an item under a resource's rows, through `fields`; the list `upsert(c.replies, x)` gives */
@@ -1097,9 +1097,9 @@ export function mount(root: Document | Element, o: MountOptions): App {
       }
       // only a selection's outer side changed: the rows it concerns, through the index; rows that were
       // just reconciled (some re-rendered, the index stale) or wait in a closed dialog render as usual
-      // (`whole`: the index could not be used, so every row renders: no path below names the rows by their index)
-      let whole = false;
-      if (!r && sel) { if ((r = sel(rb, rb.rr != round && !deferred.size)) == 1) continue; whole = r == 2; }
+      // (the index's 3: it could not be used, so every row renders: not 2, which below is a change written through a
+      // row index, and no path names the rows by their index here)
+      if (!r && sel && (r = sel(rb, rb.rr != round && !deferred.size)) == 1) continue;
       rb.sx = undefined;
       // only marked elements changed and the list did not move: visit their rows directly. The first time since the
       // rows rendered, a scan finds them (an index over every row would cost more than it saves once); after that, the
@@ -1120,7 +1120,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
       }
       // changes written through a row index (`rows[i].v = …`) reach the rows at those indexes only, when
       // no row waits for a re-evaluation (the list was not reconciled since the last full walk)
-      if (t && r == 2 && !whole && !force && !rb.pf && rb.rr != round) {
+      if (t && r == 2 && !force && !rb.pf && rb.rr != round) {
         const at = rowsOf(t!);
         if (at) {
           for (const i of at) { const x = rb.rows[i]; if (x && x.r != round) walkRow(x, t!, 0); }
@@ -1173,14 +1173,12 @@ export function mount(root: Document | Element, o: MountOptions): App {
   /**
    * In a closed dialog, or one the current event closes: a binding there waits until it opens. A `<dialog popover>`
    * that `showPopover()` (or its `popovertarget` button) opened has no `open` attribute and is open: `:popover-open`
-   * says so, asked only of a dialog with `popover` (a browser without the pseudo-class throws: closed, as before).
+   * says so (a browser without the pseudo-class throws on the selector: closed by its attribute alone, as before).
    */
   function waits(el: Element | null): boolean {
-    for (let d = el; d && (d = d.closest('dialog:not([open])')); d = d.parentElement) {
-      if (!d.hasAttribute('popover')) return true;
-      try { if (!d.matches(':popover-open')) return true; } catch { return true; }
-    }
-    if (el) for (const d of closing) if (d.contains(el)) return true;
+    if (!el) return false;
+    try { if (el.closest('dialog:not([open],:popover-open)')) return true; } catch { if (el.closest('dialog:not([open])')) return true; }
+    for (const d of closing) if (d.contains(el)) return true;
     return false;
   }
 

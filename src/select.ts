@@ -52,7 +52,7 @@ const feature: Feature = {
       return (rb: any, free) => {
         const ss = sels(rb.t);
         if (!ss.some((b) => hit(b.s!.d, rb.s))) return 0;
-        if (!free) return 2;
+        if (!free) return 3;
         for (const b of ss) select(rb, b);
         return 1;
       };
