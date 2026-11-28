@@ -107,3 +107,34 @@ test('a page whose only early work was such a request keeps an early file, with 
   await p.go('pick');
   expect(p.calls()).toEqual(['/api/d?id=9']);
 });
+
+// The review's case (round 1 of the branch): the `when` reads a member of an object, and a persisted model writes it
+// through a child state's copy of that object. With a stored value the early script's `when` is true, and the request
+// leaves from the head script. A `when` that reads below a field is not read by the rule.
+const COPY = `<!doctype html><html><head></head><body data-sn-state="{ sel: { id: 0 } }">
+  <div data-sn-state="{ s: sel }"><input type="number" data-sn-model="s.id" data-sn-persist="picked"></div>
+  <sn-resource name="d" src="/api/d?id={sel.id}" when="sel.id"></sn-resource>
+  <p id="d" data-sn-text="d?.at"></p>
+</body></html>`;
+
+test('a selection persisted through a child state\'s copy of the object: nothing stored, no request; stored, its detail is requested from the head script', async () => {
+  expect(earlyRes(COPY)).toEqual(['/api/d?id=']);
+  const none = await load(COPY);
+  expect(none.early).toEqual([]);
+  expect(none.calls()).toEqual([]);
+  const storage = memoryStorage();
+  storage.setItem('sn:picked', '7');
+  const p = await load(COPY, { storage });
+  expect(p.text()).toBe('/api/d?id=7');
+  expect(p.early, 'the request leaves from the head script').toEqual(['/api/d?id=7']);
+  expect(p.calls(), 'the page module sends none of its own').toEqual([]);
+});
+
+test('one guard each, for a `when`: a member below a field, a persisted model below a field elsewhere on the page, an initializer that is no literal', () => {
+  const both = ['/api/list?u=', '/api/d?id='];
+  // the reference: left out
+  expect(earlyRes(page('{ sel: null, n: 0 }', 'n > 0', '<button data-sn-on-click="n = 2">n</button>'))).toEqual(['/api/list?u=']);
+  expect(earlyRes(page('{ sel: { id: 0 } }', 'sel.id'))).toEqual(both);
+  expect(earlyRes(page('{ sel: null, prefs: { dense: false } }', 'sel', '<input type="checkbox" data-sn-model="prefs.dense" data-sn-persist="dense">'))).toEqual(both);
+  expect(earlyRes(page('{ sel: null, n: 1 - 1 }', 'n > 0', '<button data-sn-on-click="n = 2">n</button>'))).toEqual(both);
+});

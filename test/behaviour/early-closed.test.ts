@@ -1,19 +1,23 @@
-// A `data-sn-if` that the state's initial values close is not in the early file (docs/first-paint.md, "What an early
-// file leaves out"): the early script would evaluate it false and render nothing. The first paint is the same with
-// and without it, the page module takes over without writing, and the branch opens when its state changes. Whatever
-// the early script may see differently from the build (a stored value, the URL, a value the build cannot compute)
-// keeps the binding early, and its branch in the first paint.
-import { afterEach, expect, test } from 'vitest';
+// A `data-sn-if` whose condition is false when the page starts is not in the early file (docs/first-paint.md, "What an
+// early file leaves out"): the early script would render nothing for it, and the page module mounts with it closed.
+// The rule is small on purpose: the condition reads whole state fields, literals and operators; each field starts with
+// a primitive written as a literal (or computed by the build and embedded) that nothing stored can replace. The first
+// paint is the same with and without the binding, the page module takes over without writing, and the branch opens
+// when its state changes. Anything else keeps the binding early, and its branch in the first paint. The tests under
+// "one guard each" fail when exactly that guard is taken out of the rule.
+import { afterEach, describe, expect, test } from 'vitest';
 import { firstPaint, mockRequests, render } from '../../src/testing/index.js';
 import { compileParts } from '../../src/compiler/compile.js';
 import type { CompileOptions } from '../../src/compiler/index.js';
+import type { FoldVerdict } from '../../src/fold-check.js';
 
 afterEach(() => { localStorage.clear(); sessionStorage.clear(); });
 
 const doc = (body: string, head = '') => `<!doctype html><html><head>${head}</head>${body}</html>`;
-/** the early file's `if` bindings of a page, by the id of the element in each branch */
-function earlyIfs(html: string, components: Record<string, string> = {}): number {
-  const opts: CompileOptions = { file: '/app/index.html', root: '/app', dev: false, readFile: (f) => components[f.replace(/^.*\/([\w-]+)\.html$/, '$1')] ?? '', moduleSrc: '/page.js', helpers: { module: '/h.js', names: [], namespaces: {} }, prerender: true, early: { module: null } };
+const yes: FoldVerdict = { fold: true };
+/** the early file's `if` bindings of a page (`helpers`: functions the build may call, their values folded; one given as `undefined` is the browser's alone) */
+function earlyIfs(html: string, components: Record<string, string> = {}, helpers: Record<string, unknown> = {}): number {
+  const opts: CompileOptions = { file: '/app/index.html', root: '/app', dev: false, readFile: (f) => components[f.replace(/^.*\/([\w-]+)\.html$/, '$1')] ?? '', moduleSrc: '/page.js', helpers: { module: '/h.js', names: Object.keys(helpers), namespaces: {} }, helperValues: Object.fromEntries(Object.entries(helpers).filter(([, v]) => v !== undefined)), helperFold: new Map(Object.keys(helpers).filter((k) => helpers[k] !== undefined).map((k) => [k, yes])), prerender: true, early: { module: null } };
   const ir = compileParts(html, opts).early?.ir;
   if (!ir) return 0;
   return [...ir.roots, ...ir.templates.flatMap((t) => t?.nodes ?? [])].flatMap((n) => n.b).filter((b) => b.k === 'if').length;
@@ -83,15 +87,22 @@ test('a branch the initial state opens stays early, and is taken over', async ()
   expect(document.getElementById('menu')).toBe(early);
 });
 
-test('an else, and an else-if chain: kept, the else is in the first paint and taken over', async () => {
+test('an else: kept, the else is in the first paint and taken over; an else-if chain: each branch an if of its own, the open one painted', async () => {
   const html = doc(`<body data-sn-state="{ open: false, a: false, b: false, on: false }">
     <input type="checkbox" data-sn-model="on" data-sn-persist="on">
     <button id="t" data-sn-on-click="open = true; a = true; b = true">o</button>
     <template data-sn-if="open"><p id="yes">y</p></template><template data-sn-else><p id="no">n</p></template>
     <template data-sn-if="a"><p id="ca">a</p></template><template data-sn-else data-sn-if="b"><p id="cb">b</p></template><template data-sn-else><p id="cc">c</p></template>
   </body>`);
+  // the if with an else, and the chain's open branch (`!(a || b)`); its two closed ones are left out
+  expect(earlyIfs(html)).toBe(2);
   await firstPaint(html);
   expect([has('yes'), has('no'), has('ca'), has('cb'), has('cc')]).toEqual([false, true, false, false, true]);
+  // a chain whose middle branch is open at the start: that one is painted
+  const mid = html.replace('b: false', 'b: true');
+  await firstPaint(mid);
+  expect([has('ca'), has('cb'), has('cc')]).toEqual([false, true, false]);
+  expect((await takeover(mid)).wrote).toEqual([]);
   let no: Element | null = null, cc: Element | null = null;
   const r = await render(html, { firstPaint: { afterEarly: () => { no = document.getElementById('no'); cc = document.getElementById('cc'); } } });
   await r.settle();
@@ -130,42 +141,199 @@ test('a persisted state: kept, and the stored field opens the branch in the firs
   expect(has('menu')).toBe(true);
 });
 
-test('a field that reads another state\'s field: left out when that one is the build\'s value in the browser too, kept behind a persisted one', async () => {
+test('a field that reads another state\'s field is not known to start as written: kept, and a stored value reaches it in the first paint', async () => {
   const html = (persist: string) => doc(`<body data-sn-state="{ pinned: false, on: false }">
     <input type="checkbox" data-sn-model="on" data-sn-persist="on">
     <input id="p" type="checkbox" data-sn-model="pinned"${persist}>
     <div data-sn-state="{ shown: pinned }"><button data-sn-on-click="shown = !shown">t</button><template data-sn-if="shown"><nav id="menu">menu</nav></template></div>
   </body>`);
-  expect(earlyIfs(html(''))).toBe(0);
+  expect(earlyIfs(html(''))).toBe(1);
   expect(earlyIfs(html(' data-sn-persist="pinned"'))).toBe(1);
   // the stored value reaches the inner state as the early script makes it, and the page module agrees
   localStorage.setItem('sn:pinned', 'true');
   const stored = await takeover(html(' data-sn-persist="pinned"'), { storage: localStorage });
+  expect(stored.painted).toContain('id="menu"');
   expect(stored.wrote).toEqual([]);
-  // a field over another field of its own state is no build-time value: kept
-  expect(earlyIfs(doc('<body data-sn-state="{ a: false, b: a, on: false }"><input type="checkbox" data-sn-model="on" data-sn-persist="on"><button data-sn-on-click="b = !b">t</button><template data-sn-if="b"><p>x</p></template></body>'))).toBe(1);
 });
 
-test('what the build cannot evaluate keeps the binding: the URL, the clock, a helper, a method that answers for a locale', async () => {
-  const one = (state: string, cond: string, names: string[] = []) => {
-    const html = doc(`<body data-sn-state="${state}"><input type="checkbox" data-sn-model="on" data-sn-persist="on"><button data-sn-on-click="open = !open">t</button><template data-sn-if="${cond}"><p id="x">x</p></template></body>`);
-    const opts: CompileOptions = { file: '/app/index.html', root: '/app', dev: false, readFile: () => '', moduleSrc: '/page.js', helpers: { module: '/h.js', names, namespaces: {} }, prerender: true, early: { module: null } };
-    const ir = compileParts(html, opts).early?.ir;
-    return ir ? ir.roots.flatMap((n) => n.b).filter((b) => b.k === 'if').length : 0;
-  };
-  // the reference: closed, and left out
-  expect(one('{ open: false, on: false }', 'open')).toBe(0);
-  expect(one("{ open: false, sel: { busy: false, keys: [] }, on: false }", 'open || (!sel.busy && sel.keys.length > 0)')).toBe(0);
-  // a condition with a call of any kind is not read: kept
-  expect(one("{ open: false, sel: { busy: false, keys: [] }, on: false }", "open || sel.keys.includes('a')")).toBe(1);
-  expect(one('{ open: false, on: false }', 'open && $url.menu')).toBe(1);
-  expect(one('{ open: false, on: false }', '$url.menu')).toBe(1);
-  expect(one('{ open: !!$url.menu, on: false }', 'open')).toBe(1);
-  expect(one('{ open: Math.random() > 2, on: false }', 'open')).toBe(1);
-  expect(one('{ open: closed(), on: false }', 'open', ['closed'])).toBe(1);
-  expect(one('{ open: false, on: false }', 'closed(open)', ['closed'])).toBe(1);
-  expect(one("{ open: false, name: 'i', on: false }", "open && name.toLocaleUpperCase() === 'I'")).toBe(1);
-  expect(one("{ open: false, name: 'i'.toLocaleUpperCase(), on: false }", "open && name === 'X'")).toBe(1);
+/** the names of a state literal's own fields */
+const fieldsOf = (state: string) => { const out: string[] = []; let depth = 0; for (const m of state.matchAll(/[{}[\]]|(?<![\w$'.])([A-Za-z_]\w*)\s*:/g)) { if (m[1]) { if (depth === 1) out.push(m[1]); } else depth += '{['.includes(m[0]) ? 1 : -1; } return out; };
+/**
+ * a page with one branch over `cond`, its state `state`; a handler writes every field (none is a constant of the build),
+ * and a persisted model of another field (`on`) keeps the page an early file
+ */
+const one = (state: string, cond: string, more = '') => doc(`<body data-sn-state="${state}"><input type="checkbox" data-sn-model="on" data-sn-persist="on"><button id="t" data-sn-on-click="${fieldsOf(state).filter((k) => k !== 'on').map((k) => `${k} = ${k === 'open' ? '!open' : k}`).join('; ')}">t</button>${more}<template data-sn-if="${cond}"><p id="x">x</p></template></body>`);
+
+test('the values a field may start with: a string, a number, a negative number, a boolean, null, as literals', () => {
+  expect(earlyIfs(one('{ open: false, on: false }', 'open'))).toBe(0);
+  expect(earlyIfs(one("{ open: false, view: 'grid', on: false }", "view !== 'grid'"))).toBe(0);
+  expect(earlyIfs(one('{ open: false, n: 3, on: false }', 'n > 5 || open'))).toBe(0);
+  expect(earlyIfs(one('{ open: false, n: -1, on: false }', 'n >= 0'))).toBe(0);
+  expect(earlyIfs(one('{ open: false, sel: null, on: false }', 'sel !== null'))).toBe(0);
+  expect(earlyIfs(one("{ open: false, q: '', on: false }", '`${q}` || (open ? 1 : 0)'))).toBe(0);
+  // open at the start: kept
+  expect(earlyIfs(one("{ open: false, view: 'grid', on: false }", "view === 'grid'"))).toBe(1);
+  expect(earlyIfs(one('{ open: false, sel: null, on: false }', 'sel === null'))).toBe(1);
+});
+
+describe('one guard each: the page is closed at the start in every case, and only the guard keeps the binding', () => {
+  test('a member of what a field holds is not read (a string\'s length, an object\'s field)', () => {
+    expect(earlyIfs(one("{ open: false, name: '', on: false }", 'name.length'))).toBe(1);
+    expect(earlyIfs(one('{ open: false, sel: { busy: false }, on: false }', 'open || sel.busy'))).toBe(1);
+  });
+
+  test('a call of any kind is not read: a global, a helper, a method that answers for a locale', () => {
+    expect(earlyIfs(one('{ open: false, on: false }', "open || Number('1') > 2"))).toBe(1);
+    expect(earlyIfs(one('{ open: false, on: false }', 'closed(open)'), {}, { closed: () => false })).toBe(1);
+    expect(earlyIfs(one("{ open: false, name: 'i', on: false }", "open && name.toLocaleUpperCase() === 'I'"))).toBe(1);
+  });
+
+  test('anything but a state\'s field is not read: the URL', () => {
+    expect(earlyIfs(one('{ open: false, on: false }', 'open && $url.menu'))).toBe(1);
+    expect(earlyIfs(one('{ open: false, on: false }', '$url.menu'))).toBe(1);
+  });
+
+  test('an initializer that is not a literal: operators, another field, the URL, a call', () => {
+    expect(earlyIfs(one('{ open: false, n: 1 + 1, on: false }', 'n > 5'))).toBe(1);
+    expect(earlyIfs(one('{ open: !true, on: false }', 'open'))).toBe(1);
+    expect(earlyIfs(doc('<body data-sn-state="{ a: false, b: a, on: false }"><input type="checkbox" data-sn-model="on" data-sn-persist="on"><button data-sn-on-click="b = !b">t</button><template data-sn-if="b"><p>x</p></template></body>'))).toBe(1);
+    expect(earlyIfs(one('{ open: !!$url.menu, on: false }', 'open'))).toBe(1);
+    expect(earlyIfs(one('{ open: Math.random() > 2, on: false }', 'open'))).toBe(1);
+    expect(earlyIfs(one('{ open: closed(), on: false }', 'open'), {}, { closed: undefined })).toBe(1);
+    expect(earlyIfs(one("{ open: false, name: 'i'.toLocaleUpperCase(), on: false }", "open && name === 'X'"))).toBe(1);
+  });
+
+  test('a field that holds a list or an object, read whole', () => {
+    expect(earlyIfs(one('{ open: false, list: [], on: false }', '!list'))).toBe(1);
+    expect(earlyIfs(one('{ open: false, sel: {}, on: false }', "sel == ''"))).toBe(1);
+  });
+
+  test('a value the build computed that is no primitive once read back from its JSON (an object)', () => {
+    const made = one("{ open: false, conf: make('a'), on: false }", '!conf', '<b data-sn-text="on ? conf.k : \'\'"></b><button data-sn-on-click="conf = null">x</button>');
+    expect(earlyIfs(made, {}, { make: (k: string) => ({ k }) })).toBe(1);
+    // (a primitive one is read: closed, and left out)
+    const flag = one("{ open: false, big: over('a'), on: false }", 'big', '<b data-sn-text="on ? big : \'\'"></b><button data-sn-on-click="big = true">x</button>');
+    expect(earlyIfs(flag, {}, { over: (k: string) => k.length > 3 })).toBe(0);
+  });
+
+  test('a persisted model of the field itself', () => {
+    expect(earlyIfs(one('{ open: false, on: false }', 'on'))).toBe(1);
+  });
+
+  test('a persisted state\'s field', () => {
+    expect(earlyIfs(doc('<body><div data-sn-state="{ open: false }" data-sn-persist="ui"><button data-sn-on-click="open = !open">t</button><template data-sn-if="open"><p>x</p></template></div></body>'))).toBe(1);
+  });
+
+  test('a persisted model that writes below a field, anywhere on the page: nothing on the page is taken to start as written', () => {
+    expect(earlyIfs(one('{ open: false, prefs: { dense: false }, on: false }', 'open', '<input type="checkbox" data-sn-model="prefs.dense" data-sn-persist="dense">'))).toBe(1);
+    expect(earlyIfs(one('{ open: false, list: [{ done: false }], on: false }', 'open', '<template data-sn-for="x in list"><input type="checkbox" data-sn-model="x.done" data-sn-persist="done"></template>'))).toBe(1);
+  });
+
+  test('a condition that throws over the values is not known to be false', () => {
+    expect(earlyIfs(one('{ open: false, on: false }', "'a' in open"))).toBe(1);
+  });
+});
+
+// The cases below are the review's (round 1 of the branch): each passes on main, and failed while the rule followed a
+// condition into what its fields hold. A copy of an object is the object: a persisted model that writes through the
+// copy writes what the condition reads.
+describe('what a stored value reaches through a copy of an object opens the branch in the first paint', () => {
+  async function opensInFirstPaint(html: string, key: string, stored: string, id: string, options: Parameters<typeof render>[1] = {}) {
+    // nothing stored: closed
+    await firstPaint(html, { ...options, storage: localStorage });
+    expect(has(id)).toBe(false);
+    // the stored value: the early script applies it (`pm`), and the object the condition reads is the one it wrote
+    localStorage.setItem(key, stored);
+    await firstPaint(html, { ...options, storage: localStorage });
+    expect(has(id), 'the branch is in the first paint').toBe(true);
+    const t = await takeover(html, { ...options, storage: localStorage });
+    expect(t.painted).toContain(`id="${id}"`);
+    expect(t.wrote, 'the takeover writes nothing').toEqual([]);
+    expect(has(id)).toBe(true);
+  }
+
+  test('a child state copies an object, a persisted model writes into the copy', async () => {
+    await opensInFirstPaint(doc(`<body data-sn-state="{ prefs: { open: false } }">
+      <div data-sn-state="{ mine: prefs }"><input type="checkbox" data-sn-model="mine.open" data-sn-persist="k"></div>
+      <template data-sn-if="prefs.open"><nav id="menu">menu</nav></template>
+    </body>`), 'sn:k', 'true', 'menu');
+  });
+
+  test('the branch before the model in the document, and two copies deep', async () => {
+    await opensInFirstPaint(doc(`<body data-sn-state="{ prefs: { open: false } }">
+      <template data-sn-if="prefs.open"><nav id="menu">menu</nav></template>
+      <div data-sn-state="{ a: prefs }"><div data-sn-state="{ b: a }"><input type="checkbox" data-sn-model="b.open" data-sn-persist="k"></div></div>
+    </body>`), 'sn:k', 'true', 'menu');
+  });
+
+  test('a component keeps the object it is given in its own state, and persists a field of it', async () => {
+    const components = { 'c-tog': '<template data-sn-props="{ value: object }"><label data-sn-state="{ mine: value }"><input type="checkbox" data-sn-model="mine.open" data-sn-persist="k">x</label></template>' };
+    await opensInFirstPaint(doc(`<body data-sn-state="{ prefs: { open: false } }">
+      <c-tog data-sn-with="{ value: prefs }"></c-tog>
+      <template data-sn-if="prefs.open"><nav id="menu">menu</nav></template>
+    </body>`), 'sn:k', 'true', 'menu', { components });
+  });
+
+  test('an element of a state list, copied and persisted', async () => {
+    await opensInFirstPaint(doc(`<body data-sn-state="{ list: [{ on: false }] }">
+      <div data-sn-state="{ first: list[0] }"><input type="checkbox" data-sn-model="first.on" data-sn-persist="k"></div>
+      <template data-sn-if="list[0].on"><nav id="menu">menu</nav></template>
+    </body>`), 'sn:k', 'true', 'menu');
+  });
+
+  test('a form that edits a copy of the page\'s filter, its text persisted: the "clear" button over the filter', async () => {
+    await opensInFirstPaint(doc(`<body data-sn-state="{ filter: { q: '' } }">
+      <form data-sn-state="{ f: filter }"><input data-sn-model="f.q" data-sn-persist="q"></form>
+      <template data-sn-if="filter.q"><button id="clear">clear</button></template>
+    </body>`), 'sn:q', '"abc"', 'clear');
+  });
+});
+
+// The build evaluates a helper's own result; the browser (early script and page module alike) reads it back from JSON,
+// where `Infinity` and `NaN` are `null`. The rule reads the value as the browser does.
+describe('a value the build computed counts as what its JSON gives back', () => {
+  async function paintedFromEmbedded(html: string, helpers: Record<string, unknown>, id: string) {
+    // what the page module renders from the same page without the early script: the branch is open
+    const plain = await render(html, { helpers });
+    await plain.settle();
+    expect(has(id), 'open for the page module').toBe(true);
+    await firstPaint(html, { helpers });
+    expect(has(id), 'the branch is in the first paint').toBe(true);
+    const t = await takeover(html, { helpers });
+    expect(t.wrote, 'the takeover writes nothing').toEqual([]);
+  }
+
+  test('Infinity (an unlimited plan): `!limit` is false over the number, true over the embedded null', async () => {
+    const cap = (plan: string) => (plan === 'free' ? Infinity : 10);
+    await paintedFromEmbedded(doc(`<body data-sn-state="{ limit: cap('free'), keep: false }">
+      <input type="checkbox" data-sn-model="keep" data-sn-persist="keep"><button data-sn-on-click="limit = 5">buy</button>
+      <template data-sn-if="!limit"><p id="none">no limit</p></template><b data-sn-text="keep ? limit : ''"></b>
+    </body>`), { cap }, 'none');
+  });
+
+  test('NaN (the mean of no values): `mean == null` over the embedded value', async () => {
+    const avg = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length;
+    await paintedFromEmbedded(doc(`<body data-sn-state="{ mean: avg([]), keep: false }">
+      <input type="checkbox" data-sn-model="keep" data-sn-persist="keep"><button data-sn-on-click="mean = 5">add</button>
+      <template data-sn-if="mean == null"><p id="none">no data</p></template><b data-sn-text="keep ? mean : ''"></b>
+    </body>`), { avg }, 'none');
+  });
+});
+
+test('a sibling field that throws in the head script (it reads the body): the branch the page module mounts closed is not painted', async () => {
+  // `wide()` throws before the body is parsed, and the head script then knows no field of the state: over `undefined`
+  // it would paint the list (so on main), and the page module would take it out
+  const helpers = { wide: () => document.body.childElementCount > 100 };
+  const html = doc(`<body data-sn-state="{ view: 'grid', wide: wide() }">
+    <button id="t" data-sn-on-click="view = 'list'">list</button>
+    <template data-sn-if="view !== 'grid'"><nav id="list">list</nav></template>
+    <p id="w" data-sn-class="{ wide: wide }">x</p>
+  </body>`);
+  const plain = await render(html, { helpers });
+  await plain.settle();
+  expect(has('list')).toBe(false);
+  await firstPaint(html, { helpers });
+  expect(has('list'), 'the first paint has no list').toBe(false);
 });
 
 test('the URL opens a branch over state it initializes, in the first paint', async () => {

@@ -122,14 +122,18 @@ How to write an entry (from 0.21.0 on; older sections keep their own form):
   RealWorld's head script 3,140 → 2,958 B gzip, the dashboard example's 2,074 → 1,833 B, Caley's 3,781 → 3,670 B.
   Nothing to do.
 
-- Early files are smaller where a page has closed menus, toolbars and error messages: a `data-sn-if` without a
-  `data-sn-else` that reads only state fields and is false over their initial values is no longer in the early file
-  (it would render nothing), and its markup moves from the `<head>` to the end of the `<body>`; a model that is not
-  persisted no longer brings its setter; and a resource whose `when` is such a condition (`when="detail"` with
-  `detail: null`) no longer brings its early request, which was never sent. A field with `data-sn-persist`, or one
-  that reads the URL, the clock or a helper, keeps its branch and its request early, so a stored value or the URL
-  still opens it before the first paint. Caley's mail page: early file 3,972 → 3,181 B gzip, `<head>` 3,591 → 3,339 B
-  gzip; its calendar's early file 2,063 → 1,897 B, its message view's 837 → 622 B. On an API with a
+- Early files are smaller where a page has closed menus and error messages: a `data-sn-if` without a
+  `data-sn-else` whose condition is false when the page starts is no longer in the early file (it would render
+  nothing), and its markup moves from the `<head>` to the end of the `<body>`; a model that is not persisted no
+  longer brings its setter; and a resource whose `when` is such a condition (`when="detail"` with `detail: null`) no
+  longer brings its early request, which was never sent. The rule is narrow: the condition reads state fields
+  themselves (`open`, `view !== 'grid'`), each written in `data-sn-state` as a string, a number, a boolean or
+  `null`. A condition that reads inside an object or a list (`sel.busy`, `items.length`), a field with
+  `data-sn-persist`, one that reads the URL, the clock, another field or a helper, and any branch of a page where a
+  persisted model writes inside an object, keep their branch and their request early, so a stored value or the URL
+  still opens them before the first paint. To let a branch leave the early file, give what it reads a field of its
+  own. Caley's mail page: early file 3,972 → 3,749 B gzip, `<head>` 3,591 → 3,330 B gzip; its calendar's early file
+  2,063 → 1,892 B, its message view's 837 → 741 B. On an API with a
   token, a branch over data that needs the token (`data-sn-if="user"`) is left out the same way, as it is closed
   signed out and while the user loads: RealWorld's pages 77 to 137 B gzip each, early file and `<head>` together. A state value a helper computed at build time that only the page script reads is
   written at the end of the `<body>`, not in the `<head>` (Caley's mail `<head>` 3,340 → 3,135 B gzip). Nothing to do; the first paint and the requests are the same

@@ -112,21 +112,26 @@ An early file holds what can show in the first frame, and nothing the page scrip
 - a branch the resources' status closes at mount ([loading branches](#loading-branches)), also on an API with a
   token: `data-sn-if="user"` is closed signed out and while the user loads, so only the signed-out branch
   (`$meta.user.loadedAt && !user`) is early;
-- a branch the state's initial values close: a `data-sn-if` without a `data-sn-else` (and not in an else-if chain)
-  whose condition is made of state fields, literals and operators alone (`open`, `!sel.busy && sel.keys.length > 0`),
-  and is false over the values `data-sn-state` gives those fields. A closed menu, a selection toolbar or a form's error
-  message is rendered by the page script when a handler opens it; the early script would only find it closed. Its
-  markup is at the end of the `<body>`, not in the `<head>`;
+- a branch that is closed when the page starts: a `data-sn-if` without a `data-sn-else` whose condition is made of
+  state fields, literals and operators alone (`open`, `view !== 'grid'`, `step > 1 && !done`) and is false over the
+  values `data-sn-state` writes for those fields. A closed menu or a form's error message is rendered by the page
+  script when a handler opens it; the early script would only find it closed. Its markup is at the end of the
+  `<body>`, not in the `<head>`;
 - the setter of a `data-sn-model` that is not persisted (the early script only shows such a model's value);
 - an [early request](#requests-start-early) whose `when` is such a condition and false over the initial values
   (`when="detail"` with `detail: null`: a dialog's data): the early script would not send it. The page script
   requests it when the state lets it, as before.
 
-The build leaves a branch or a request out only where the early script would compute the very values it did. A field with
-`data-sn-persist` (on the state or on a model of the field), a field whose initializer reads the URL, the clock or
-calls anything (unless the build ran the helper and wrote its result into the page: the value is then the build's), and a condition that calls a
-helper or a method keep the branch (or the request) in the early file, where the visitor's stored value or URL may open it before the
-first paint.
+The rule is narrow on purpose. Each field the condition reads must be written in `data-sn-state` as a plain value: a
+string, a number, `true`, `false` or `null` (or a helper's result the build computed and wrote into the page, when it
+is one of those). The condition reads the field itself, not something inside it: `sel.busy` and `items.length` keep
+their branch early, because an object or a list can be reached from elsewhere (a child state that copies it, a
+component that keeps it) and changed there by a stored value before the first paint. Also kept early, where the
+visitor's stored value or URL may open it before the first paint: a field with `data-sn-persist` (on the state or on a
+model of the field), a field whose initializer reads another field, the URL or the clock or calls anything the build
+did not run, a condition that calls a helper or a method, and every branch of a page on which a persisted model
+writes inside an object (`data-sn-model="prefs.dense" data-sn-persist`). To let a branch leave the early file, keep
+what it reads in a field of its own: `selecting: false` rather than `sel: { selecting: false }`.
 
 A page whose early file is left with nothing this way keeps it, empty (about 120 bytes), so that what depends on a page
 having one does not change: its [web fonts still load after the window's `load`](#fonts-after-the-load).
