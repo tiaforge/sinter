@@ -13054,7 +13054,26 @@ class Compiler {
       reqFields.set(st.sid, f);
     }
     const fns: string[] = [], index = new Map<string, number>();
-    const fn = (code: string) => { let i = index.get(code); if (i === undefined) index.set(code, (i = fns.push(code) - 1)); return i; };
+    /**
+     * `$build` as the browser has it, written into a function of the early file: undefined (the page module's scope
+     * answers so for a name it does not know; the early script's throws for one, and the binding would wait for the page
+     * module: an `if` over `!$build && open` painted neither branch)
+     */
+    const noBuild = (code: string): string => {
+      if (!code.includes('$.$build')) return code;
+      let ast: any;
+      try { ast = parseExpression(code); } catch { return code; }
+      const at: Array<[number, number]> = [];
+      const visit = (n: any) => {
+        if (!n || typeof n.type !== 'string') return;
+        if (n.type === 'MemberExpression' && !n.computed && n.object.type === 'Identifier' && n.object.name === '$' && n.property.name === '$build') { at.push([n.start, n.end]); return; }
+        for (const k of Object.keys(n)) { const v = n[k]; if (Array.isArray(v)) v.forEach(visit); else if (v && typeof v === 'object') visit(v); }
+      };
+      visit(ast);
+      for (const [a, b] of at.reverse()) code = code.slice(0, a) + '(void 0)' + code.slice(b);
+      return code;
+    };
+    const fn = (code: string) => { code = noBuild(code); let i = index.get(code); if (i === undefined) index.set(code, (i = fns.push(code) - 1)); return i; };
     /**
      * A binding over the resources the early file knows, with their state at mount written in: `[]` (null for one object)
      * for the data, `{ loading, error: null, loadedAt: null }` for the status, loading when the `when` holds. A resource
@@ -13285,6 +13304,7 @@ class Compiler {
      * else, an evaluation that throws included, is not known to be false.
      */
     const startsFalse = (code: string): boolean => {
+      code = noBuild(code);
       const reads = followed ? fieldsOnly(code) : null;
       if (!reads) return false;
       const $: Record<string, Record<string, unknown>> = {};
