@@ -122,3 +122,24 @@ test('selection over a resource, an outer loop variable as the outer side, and b
   expect([...root.querySelectorAll('b')].map((e) => e.textContent)).toEqual(['z', 'b', 'c']);
   expect(on('b')).toEqual([]);
 });
+
+test('a selection follows its outer side while something waits in a closed dialog (the index is not used then: every row renders)', async () => {
+  // Caley's month picker: `selected: pg.month_number === i + 1` on the options kept November after the month changed,
+  // on a page whose closed dialogs have bindings. The rows were then reached only through `rowsOf()`, which lists
+  // the rows that changes written through a row index name: none here, so no row was rendered
+  const { root, flush } = await render(`
+    <div data-sn-state="{ sel: 1, n: 0, xs: [1, 2, 3] }">
+      <ul><template data-sn-for="x in xs" data-sn-key="x"><li data-sn-class="{ on: x === sel }" data-sn-text="x"></li></template></ul>
+      <select><template data-sn-for="(x, i) in xs" data-sn-key="i"><option data-sn-attr="{ value: String(x), selected: sel === i + 1 }" data-sn-text="x"></option></template></select>
+      <dialog><b data-sn-text="n"></b></dialog>
+      <button id="a" data-sn-on-click="sel = 2">2</button><button id="b" data-sn-on-click="sel = 3">3</button>
+    </div>`);
+  const on = () => [...root.querySelectorAll('li.on')].map((x) => x.textContent);
+  expect([on(), root.querySelector('select')!.value]).toEqual([['1'], '1']);
+  root.querySelector<HTMLElement>('#a')!.click();
+  await flush();
+  expect([on(), root.querySelector('select')!.value]).toEqual([['2'], '2']);
+  root.querySelector<HTMLElement>('#b')!.click();
+  await flush();
+  expect([on(), root.querySelector('select')!.value]).toEqual([['3'], '3']);
+});

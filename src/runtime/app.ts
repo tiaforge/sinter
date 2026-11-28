@@ -1096,7 +1096,9 @@ export function mount(root: Document | Element, o: MountOptions): App {
       }
       // only a selection's outer side changed: the rows it concerns, through the index; rows that were
       // just reconciled (some re-rendered, the index stale) or wait in a closed dialog render as usual
-      if (!r && sel && (r = sel(rb, rb.rr != round && !deferred.size)) == 1) continue;
+      // (`whole`: the index could not be used, so every row renders: no path below names the rows by their index)
+      let whole = false;
+      if (!r && sel) { if ((r = sel(rb, rb.rr != round && !deferred.size)) == 1) continue; whole = r == 2; }
       rb.sx = undefined;
       // only marked elements changed and the list did not move: visit their rows directly. The first time since the
       // rows rendered, a scan finds them (an index over every row would cost more than it saves once); after that, the
@@ -1117,7 +1119,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
       }
       // changes written through a row index (`rows[i].v = …`) reach the rows at those indexes only, when
       // no row waits for a re-evaluation (the list was not reconciled since the last full walk)
-      if (t && r == 2 && !force && !rb.pf && rb.rr != round) {
+      if (t && r == 2 && !whole && !force && !rb.pf && rb.rr != round) {
         const at = rowsOf(t!);
         if (at) {
           for (const i of at) { const x = rb.rows[i]; if (x && x.r != round) walkRow(x, t!, 0); }
