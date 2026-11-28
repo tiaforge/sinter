@@ -1667,7 +1667,7 @@ function secondPass(html: string, opts: CompileOptions, kept: KeptExpansion | un
 }
 
 /** an entry's evaluation, which a copy of the kept walk for the route from the walk starts with empty (`fromWalk` clears it) */
-const FW_FRESH = new Set(['decided', 'undecided', 'unrolls', 'foldReads', 'overLimit', 'constants', 'constantSites', 'rowPaint', 'foldWhy', 'painted', 'tplPainted', 'paintValue', 'textFolded', 'rendered', 'unrendered', 'foldedFields']);
+const FW_FRESH = new Set(['decided', 'undecided', 'unrolls', 'foldReads', 'overLimit', 'constants', 'constantSites', 'rowPaint', 'foldWhy', 'painted', 'initiallyClosed', 'tplPainted', 'paintValue', 'textFolded', 'rendered', 'unrendered', 'foldedFields']);
 
 /**
  * B1: an entry of a kept template whose evaluation decided only page-level branches and rendered rows: its page from
@@ -2468,6 +2468,12 @@ class Compiler {
   urlArrays(): string[] { return [...new Set(this.urlBinds.filter((b) => b.array).map((b) => b.name))].sort(); }
   /** bindings `prerender()` wrote into the HTML as constants: the early chunk leaves them out */
   readonly painted = new Set<Binding>();
+  /**
+   * `data-sn-if`s over state fields alone, as `prerender()` evaluated each over the state's initial values: true when
+   * every evaluation of it was false (its branch is closed in the first frame), false when one was true or could not be
+   * evaluated. The early file leaves out those that are true (`earlyParts`, which checks the rest of the rule).
+   */
+  readonly initiallyClosed = new Map<Binding, boolean>();
   /** what `prerender()` wrote for each binding it wrote into the HTML or a template's markup */
   private readonly paintValue = new Map<Binding, ConstantWrite>();
   /** what each binding in the rows of an unrolled loop writes, by the row's instance path (null: not a constant), for the second pass */
@@ -2886,7 +2892,7 @@ class Compiler {
   /** after `decideOnly`: evaluated again, writing (`settle`), when its own output or its constants are needed after all */
   settleAgain() {
     this.diagnostics.length = this.walked;
-    for (const m of [this.decided, this.undecided, this.unrolls, this.foldReads, this.overLimit, this.constants, this.constantSites, this.rowPaint, this.foldWhy, this.painted, this.tplPainted, this.paintValue, this.textFolded, this.rendered, this.unrendered]) m.clear();
+    for (const m of [this.decided, this.undecided, this.unrolls, this.foldReads, this.overLimit, this.constants, this.constantSites, this.rowPaint, this.foldWhy, this.painted, this.initiallyClosed, this.tplPainted, this.paintValue, this.textFolded, this.rendered, this.unrendered]) m.clear();
     this.foldedFields.length = 0;
     this.needsMarkup = false;
     this.settle();
@@ -3233,7 +3239,7 @@ class Compiler {
     (this as { opts: CompileOptions }).opts = { ...this.opts, page: options.page, foldLog: options.foldLog };
     this.fileData.get(this.pagesDecl!.name)!.value = options.page!.value;
     this.diagnostics.length = this.walked;
-    for (const m of [this.decided, this.undecided, this.unrolls, this.foldReads, this.overLimit, this.constants, this.constantSites, this.rowPaint, this.foldWhy, this.painted, this.tplPainted, this.paintValue, this.textFolded, this.rendered]) m.clear();
+    for (const m of [this.decided, this.undecided, this.unrolls, this.foldReads, this.overLimit, this.constants, this.constantSites, this.rowPaint, this.foldWhy, this.painted, this.initiallyClosed, this.tplPainted, this.paintValue, this.textFolded, this.rendered]) m.clear();
     this.foldedFields.length = 0;
     this.prerender(true);
     // the constants the layout and the images read: those of rows come from the evaluation (`rowPaint`); one written into
@@ -9249,16 +9255,26 @@ class Compiler {
       if (!this.templates[b.x!]) return;
       cands.push({ el, b, f: b.f, for: true });
     };
+    // an if over state that something writes is not decided, but its value over the state's initial values is what the
+    // early script computes for the first frame, when it is made of state fields, literals and operators alone
+    // (`stateOnly`; a persisted field is not known here, `known` below). Not a branch of an else-if chain. Evaluated for
+    // the early file alone (`initiallyClosed`)
+    const closing = (el: P5Element, b: Binding) => {
+      if (b.k !== 'if' || b.f === undefined || this.chainEls.has(el) || !stateOnly(this.fns[b.f]!)?.length) return;
+      cands.push({ el, b, f: b.f, early: true });
+    };
     // in a kept element nothing is decided or unrolled at build time: its nodes are numbered alike on every page that
     // keeps it, whatever each page passes it, and the next page's code takes them over (swaps, §3)
     if (!reuse) {
-      for (const { el, node } of this.paints) for (const b of node.b) { value(el, b, false); if (!this.inKept(el)) { decide(el, b); unroll(el, b); } }
+      for (const { el, node } of this.paints) for (const b of node.b) { value(el, b, false); closing(el, b); if (!this.inKept(el)) { decide(el, b); unroll(el, b); } }
       // a unit's elements come first (placed before the page's walk): its part of the candidates, read once for the build
       // (`unitCands`), each asked here only what depends on the page
       const mine = this.placedUnit ? unitCands(this.placedUnit, this.tplEls, this.fns) : null;
       if (mine) for (const x of mine.list) { if (x.k === 0) { if (fixed(x.b.d)) cands.push({ el: x.el, b: x.b, f: x.b.f!, tpl: true }); } else decide(x.el, x.b); }
       let skip = mine?.size ?? 0;
-      for (const [node, el] of this.tplEls) { if (skip) { skip--; continue; } for (const b of node.b) { value(el, b, true); decide(el, b); } }
+      // (`closing` for a unit's templates too: it is no part of the unit's candidates, and a page that links the unit
+      // leaves out what a page that compiles it in place does)
+      for (const [node, el] of this.tplEls) { const own = !skip; if (skip) skip--; for (const b of node.b) { if (own) { value(el, b, true); decide(el, b); } closing(el, b); } }
     }
     const choosing = reuse ? kept!.choosing : this.collecting() && [...this.pointOf.values()].some((p) => p.pick);
     if (!cands.length && !choosing && !this.textRoots.length) return;
@@ -9424,6 +9440,7 @@ class Compiler {
       // it, `$build` undefined and anything not a build-time constant unreadable; one that comes out without reading such
       // data is what every visitor gets, so it is decided and the page ships that branch alone (docs/static-pages.md)
       if (c.if && v === FAIL && this.fns[c.f]!.includes('$.$build')) { asBrowser = true; try { v = run(this.fns[c.f]!); } finally { asBrowser = false; } }
+      if (c.early) { this.initiallyClosed.set(c.b, v !== FAIL && !v && this.initiallyClosed.get(c.b) !== false); continue; }
       if (c.for) {
         work.unroll(this.instKey(c.el)!, c.b, v, scope, c.el);
         continue;
@@ -12316,7 +12333,7 @@ class Compiler {
     (this as { opts: CompileOptions }).opts = next;
     this.keepsAttrs = false;
     this.dry = null;
-    for (const m of [this.decided, this.undecided, this.unrolls, this.foldReads, this.overLimit, this.constants, this.constantSites, this.rowPaint, this.foldWhy, this.painted, this.tplPainted, this.paintValue, this.textFolded, this.rendered, this.unrendered]) m.clear();
+    for (const m of [this.decided, this.undecided, this.unrolls, this.foldReads, this.overLimit, this.constants, this.constantSites, this.rowPaint, this.foldWhy, this.painted, this.initiallyClosed, this.tplPainted, this.paintValue, this.textFolded, this.rendered, this.unrendered]) m.clear();
     this.foldedFields.length = 0;
     this.attrSources.length = 0;
     this.diagnostics.length = this.walked;
@@ -13223,9 +13240,31 @@ class Compiler {
       const code = this.fns[b.f!]!;
       return shows(code, names, { loading: true }, [], data) === false && shows(code, names, { loading: false }, [], data) === false;
     };
+    /**
+     * Whether the early script computes, for these state fields (`$s<n>.<field>`), the values the build evaluated: each
+     * is of a state that is not persisted, is no persisted model's, and its initializer is a value the build computed and
+     * embedded (`$d`, which the early script reads) or is made of literals, operators and such fields alone (`stateOnly`).
+     */
+    const sameEarly = (fields: string[], seen = new Set<string>()): boolean => fields.every((d) => {
+      const m = /^\$s(\d+)\.([^.]+)$/.exec(d);
+      if (!m) return false;
+      if (seen.has(d)) return true;
+      seen.add(d);
+      const st = this.stateInits.find((x) => x.sid === Number(m[1])), x = st?.fields.find((y) => y.key === m[2]);
+      if (!st || !x || st.persist || this.persisted.has(d)) return false;
+      if (/^\(\$\) => \(\$\.\$d\(\d+\)\)$/.test(x.code)) return true;
+      const reads = stateOnly(x.code);
+      return !!reads && sameEarly(reads, seen);
+    });
+    /**
+     * A `data-sn-if` (without a `data-sn-else`) that the state's initial values close (`initiallyClosed`), where the early
+     * script computes those very values (`sameEarly`): it would evaluate the condition false and render nothing, so the
+     * binding is left out, with the templates, functions and state fields only it needs. Anything else is kept.
+     */
+    const closedByState = (b: Binding) => b.k === 'if' && b.z === undefined && this.initiallyClosed.get(b) === true && sameEarly(stateOnly(this.fns[b.f!]!) ?? ['']);
     const list = (defs: NodeDef[]): NodeDef[] => {
       // a dialog's bindings wait until it opens (as in the runtime): nothing of a closed dialog is painted
-      const bs = defs.map((nd) => (nd.dl || this.lateNodes.has(nd) ? [] : nd.b.filter(eligible).filter((b) => !closedAtMount(b))));
+      const bs = defs.map((nd) => (nd.dl || this.lateNodes.has(nd) ? [] : nd.b.filter((b) => !closedByState(b)).filter(eligible).filter((b) => !closedAtMount(b))));
       for (const nd of defs) if (!nd.dl && !this.lateNodes.has(nd)) for (const b of nd.b) unrendered(b);
       const keep = new Map<number, number>();
       defs.forEach((nd, i) => { if (nd.state !== undefined || bs[i]!.length) keep.set(i, keep.size); });
@@ -13244,7 +13283,8 @@ class Compiler {
           reads.push(...strs(b.d), ...strs(b.w));
           const nb: Binding = { k: b.k, f: fn(status(this.fns[b.f!]!)) };
           if (b.n !== undefined) nb.n = b.n;
-          if (b.k === 'model') { nb.a = fn(this.fns[b.a!]!); if (b.p !== undefined) nb.p = b.p; }
+          // (the setter is for a persisted model's stored value alone: `pm`)
+          if (b.k === 'model' && b.p !== undefined) { nb.a = fn(this.fns[b.a!]!); nb.p = b.p; }
           if (b.k === 'if') { nb.x = tpl(b.x!); if (b.z !== undefined) nb.z = tpl(b.z); }
           if (b.k === 'for') nb.x = tpl(b.x!);
           if (b.k === 'ch') nb.c = b.c!.map(tpl);
@@ -15111,7 +15151,47 @@ function unitCands(u: BuildUnit, tplEls: Map<NodeDef, P5Element>, fns: string[])
 }
 
 /** a binding `prerender` evaluates: `tpl`, in a template's content, written there only when it can never change; `if`, a condition decided for a second pass; `for`, a loop unrolled in it */
-type EvalCand = { el: P5Element; b: Binding; f: number; tpl?: true; if?: true; for?: true };
+/**
+ * The state fields (`$s<n>.<field>`) a compiled expression (`($) => (…)`) reads, when it is made of nothing else: reads
+ * of states' fields and of what they hold (`$k` for a computed key), literals and operators. Null for anything else: a
+ * call, a function, a global, the URL, the clock, a resource, an item, `$el`, `$build`. An allow-list: what such code
+ * evaluates to over given field values is the same at build time and in the browser, whatever the machine.
+ */
+export function stateOnly(code: string): string[] | null {
+  let ast: any;
+  try { ast = parseExpression(code); } catch { return null; }
+  if (ast?.type !== 'ArrowFunctionExpression' || ast.params.length !== 1 || ast.params[0].type !== 'Identifier' || ast.params[0].name !== '$' || ast.body.type === 'BlockStatement') return null;
+  const fields = new Set<string>();
+  const ok = (n: any): boolean => {
+    switch (n?.type) {
+      case 'Literal': return !n.regex;
+      case 'TemplateLiteral': return n.expressions.every(ok);
+      case 'Identifier': return n.name === 'undefined' || n.name === 'NaN' || n.name === 'Infinity';
+      case 'UnaryExpression': return n.operator !== 'delete' && ok(n.argument);
+      case 'BinaryExpression': case 'LogicalExpression': return ok(n.left) && ok(n.right);
+      case 'ConditionalExpression': return ok(n.test) && ok(n.consequent) && ok(n.alternate);
+      case 'ChainExpression': return ok(n.expression);
+      case 'SequenceExpression': return n.expressions.every(ok);
+      case 'ArrayExpression': return n.elements.every((e: any) => e && ok(e));
+      case 'ObjectExpression': return n.properties.every((p: any) => p.type === 'Property' && p.kind === 'init' && !p.method && (p.computed ? ok(p.key) : true) && ok(p.value));
+      // a computed key's guard (runtime/keys.ts): the key, or a throw
+      case 'CallExpression': return !n.optional && n.callee.type === 'Identifier' && n.callee.name === '$k' && n.arguments.length === 1 && ok(n.arguments[0]);
+      case 'MemberExpression': {
+        const o = n.object;
+        // `$.$s<n>.<field>`: the scope is read for a state's field, and for nothing else
+        if (o.type === 'MemberExpression' && o.object.type === 'Identifier' && o.object.name === '$') {
+          if (o.computed || n.computed || o.property.type !== 'Identifier' || n.property.type !== 'Identifier' || !/^\$s\d+$/.test(o.property.name)) return false;
+          fields.add(`${o.property.name}.${n.property.name}`);
+          return true;
+        }
+        return ok(o) && (n.computed ? ok(n.property) : n.property.type === 'Identifier');
+      }
+    }
+    return false;
+  };
+  return ok(ast.body) ? [...fields] : null;
+}
+type EvalCand = { el: P5Element; b: Binding; f: number; tpl?: true; if?: true; for?: true; early?: true };
 
 /** what the worklist reads of the program, by node, binding and case (`worklist`): asked once per evaluation, or per kept template */
 type WalkMemo = { handlers: Map<Binding, boolean>; paintEls?: Map<NodeDef, P5Element>; caseKeys: Map<NodeDef, Map<string, string> | null>; els: Map<NodeDef, P5Element | undefined>; plans: Map<NodeDef, BindPlan[]>; layouts: Map<NodeDef[], RowLayout> };

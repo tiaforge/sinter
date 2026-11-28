@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 // Random nested components (plain, if/else, component-tag, slot and choice roots, with fills and slot content; one
 // without props, declared by its bare `<template>`; lists with an empty state: in a root, a fill, slot content, rows),
-// loops, branches and texts, over one list: after a state change the page must equal a fresh render of the new
+// loops, branches and texts, over one list, and branches over a flag of the page's state (`g`: a branch its initial value
+// closes is not in the early file, docs/first-paint.md): after a state change the page must equal a fresh render of the new
 // state, the build over constants, the early script's first paint taken over by the page module, and the first
 // paint over the list as embedded data (which the early script renders), before and after the takeover.
 import { expect, test } from 'vitest';
@@ -53,8 +54,8 @@ function markup(r: () => number, v: string, depth: number): string {
   let out = '';
   for (let i = 0; i < n; i++) {
     const kinds = depth > 0
-      ? ['text', 'el-text', 'el', 'plain', 'chain', 'tag', 'choice', 'out', 'list', 'href', 'link', 'slot', 'slot-tag', 'wrap', 'if', 'for', 'use', 'wrap-for-fill', 'wrap-if-fill', 'bare', 'bare-empty', 'forelse', 'wrap-forelse', 'empty']
-      : ['text', 'el-text', 'el', 'plain', 'chain', 'tag', 'choice', 'out', 'list', 'href', 'link', 'bare-empty', 'empty'];
+      ? ['text', 'el-text', 'el', 'plain', 'chain', 'tag', 'choice', 'out', 'list', 'href', 'link', 'slot', 'slot-tag', 'wrap', 'if', 'for', 'use', 'wrap-for-fill', 'wrap-if-fill', 'bare', 'bare-empty', 'forelse', 'wrap-forelse', 'empty', 'gate', 'gate-not', 'gate-else', 'gate-item']
+      : ['text', 'el-text', 'el', 'plain', 'chain', 'tag', 'choice', 'out', 'list', 'href', 'link', 'bare-empty', 'empty', 'gate-leaf'];
     switch (pick(kinds)) {
       case 'text': out += `<template data-sn-text="${v}.t"></template>`; break;
       case 'el-text': out += `<span><template data-sn-text="${v}.t"></template></span>`; break;
@@ -82,6 +83,13 @@ function markup(r: () => number, v: string, depth: number): string {
       // a list with its empty state: in the rows of the outer list, and as slot content
       case 'forelse': { const w = v + 'y'; out += `<template data-sn-for="${w} in ${v}.c">${markup(r, w, depth - 1)}</template><template data-sn-else>${markup(r, v, depth - 1)}</template>`; break; }
       case 'wrap-forelse': { const w = v + 'y'; out += `<c-wrap><template data-sn-for="${w} in ${v}.c"><c-chain data-sn-with="{ x: ${w} }"></c-chain></template><template data-sn-else><c-plain data-sn-with="{ x: ${v} }"></c-plain></template></c-wrap>`; break; }
+      // branches over the page's flag alone (closed or open by its initial value, which a handler changes), with an else,
+      // and over the flag and the item (never left out: the item is data)
+      case 'gate': out += `<template data-sn-if="g">${markup(r, v, depth - 1)}</template>`; break;
+      case 'gate-not': out += `<template data-sn-if="!g">${markup(r, v, depth - 1)}</template>`; break;
+      case 'gate-else': out += `<template data-sn-if="g">${markup(r, v, depth - 1)}</template><template data-sn-else><em data-sn-text="${v}.t"></em></template>`; break;
+      case 'gate-item': out += `<template data-sn-if="g && ${v}.on">${markup(r, v, depth - 1)}</template>`; break;
+      case 'gate-leaf': out += `<template data-sn-if="g"><i data-sn-text="${v}.t"></i></template>`; break;
       case 'use': out += `<sn-component use="${CHOICE}[${v}.k]" data-sn-with="{ x: ${v} }"></sn-component>`; break;
     }
   }
@@ -119,12 +127,14 @@ test('random nested components: a state change renders what a fresh render, the 
     const body = markup(r, 'x', DEPTH);
     const tpl = `<template data-sn-for="x in d">${body}</template>`;
     const a = data(r, 2), b = data(r, 2);
-    const page = (init: unknown, writes: boolean) => `<div data-sn-state="{ d: ${lit(init)} }">${writes ? `<button id="w" data-sn-on-click="d = ${lit(b)}">w</button>` : ''}<main>${tpl}</main></div>`;
+    // the flag before and after the change; a branch over it at the page's top level too
+    const ga = r() < 0.5, gb = r() < 0.5, top = '<template data-sn-if="g"><h6>G</h6></template>';
+    const page = (init: unknown, writes: boolean, g = gb) => `<div data-sn-state="{ d: ${lit(init)}, g: ${g} }">${writes ? `<button id="w" data-sn-on-click="d = ${lit(b)}; g = ${gb}">w</button>` : ''}<main>${top}${tpl}</main></div>`;
     const embedded = (init: unknown) => `<!doctype html><html><head><script type="application/json" data-sn-resource="d">${JSON.stringify(init)}</script></head><body>`
-      + `<sn-resource name="d" src="/api/d"></sn-resource><main>${tpl}</main></body></html>`;
+      + `<div data-sn-state="{ g: ${gb} }"><button data-sn-on-click="g = !g">g</button><sn-resource name="d" src="/api/d"></sn-resource><main>${top}${tpl}</main></div></body></html>`;
     const seen = (root: Element) => shape(root.querySelector('main')!);
     try {
-      const updated = await render(page(a, true), { components: COMPONENTS });
+      const updated = await render(page(a, true, ga), { components: COMPONENTS });
       (updated.root.querySelector('#w') as HTMLButtonElement).click();
       await updated.settle();
       const fresh = seen((await render(page(b, true), { components: COMPONENTS })).root);
@@ -141,7 +151,7 @@ test('random nested components: a state change renders what a fresh render, the 
       // (an empty state whose list the compiler follows to the resource, `c-empty`'s through its prop or a fill's over `$slot`,
       // is in it too: the early file knows an embedded resource's status at mount, docs/spec.md "Resource status early")
       // as a build compiles it (shared templates kept once, the tables compacted), early and after a change
-      const build = await render(page(a, true), { components: COMPONENTS, dev: false, firstPaint: true });
+      const build = await render(page(a, true, ga), { components: COMPONENTS, dev: false, firstPaint: true });
       (build.root.querySelector('#w') as HTMLButtonElement).click();
       await build.settle();
       const inBuild = seen(build.root);

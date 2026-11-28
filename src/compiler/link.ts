@@ -181,6 +181,7 @@ export const LINK_FIELDS: Record<string, { kinds: string[]; how: 'table' | 'weak
   axesOut: { kinds: ['Array'], how: 'fixed' },
   pagesOut: { kinds: ['empty', 'object'], how: 'fixed' },
   painted: { kinds: ['Set'], how: 'table' },
+  initiallyClosed: { kinds: ['Map'], how: 'table' },
   paintRules: { kinds: ['Array'], how: 'table' },
   paints: { kinds: ['Array'], how: 'table' },
   paintValue: { kinds: ['Map'], how: 'table' },

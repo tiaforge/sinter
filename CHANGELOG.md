@@ -104,6 +104,14 @@ How to write an entry (from 0.21.0 on; older sections keep their own form):
 
 ### Performance
 
+- Early files are smaller where a page has closed menus, toolbars and error messages: a `data-sn-if` without a
+  `data-sn-else` that reads only state fields and is false over their initial values is no longer in the early file
+  (it would render nothing), and its markup moves from the `<head>` to the end of the `<body>`; a model that is not
+  persisted no longer brings its setter. A field with `data-sn-persist`, or one that reads the URL, the clock or a
+  helper, keeps its branch early, so a stored value or the URL still opens it in the first paint. Caley's mail page:
+  early file 3,992 → 3,443 B gzip, `<head>` 3,591 → 3,337 B gzip. Nothing to do; the first paint is the same
+  ([docs/first-paint.md](docs/first-paint.md#what-an-early-file-leaves-out)).
+
 - The early script no longer carries bindings that could never paint: one that reads, on every path, the data or
   status of a resource that is neither embedded in the page nor predictable (or a field of a predictable object
   resource, null before data) is left to the page script, with the templates, state fields and helpers only it needs.

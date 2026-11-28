@@ -101,6 +101,26 @@ CLS went from 0.384 in about half the runs to 0.001 in every run.
 What waits for the page script: `$url`, `$now`, `$meta` (but a resource's status before its data, [below](#loading-branches)), `$el`, loop variables, store functions and
 `relative()`.
 
+### What an early file leaves out
+
+An early file holds what can show in the first frame, and nothing the page script alone can show:
+
+- a binding the build wrote into the HTML ([build-time constants](#build-time-constants));
+- a binding that reads, whatever the state, data that is not in the page ([embedded data](#embedded-data));
+- a branch the resources' status closes at mount ([loading branches](#loading-branches));
+- a branch the state's initial values close: a `data-sn-if` without a `data-sn-else` (and not in an else-if chain)
+  whose condition is made of state fields, literals and operators alone (`open`, `!sel.busy && sel.keys.length > 0`),
+  and is false over the values `data-sn-state` gives those fields. A closed menu, a selection toolbar or a form's error
+  message is rendered by the page script when a handler opens it; the early script would only find it closed. Its
+  markup is at the end of the `<body>`, not in the `<head>`;
+- the setter of a `data-sn-model` that is not persisted (the early script only shows such a model's value).
+
+The build leaves a branch out only where the early script would compute the very values it did. A field with
+`data-sn-persist` (on the state or on a model of the field), a field whose initializer reads the URL, the clock or
+calls anything (unless the build ran the helper and wrote its result into the page), and a condition that calls a
+helper or a method keep the branch in the early file, where the visitor's stored value or URL may open it before the
+first paint.
+
 ### Your own early code
 
 `src/sinter.early.ts` is optional app code that runs before anything is rendered, for example to
