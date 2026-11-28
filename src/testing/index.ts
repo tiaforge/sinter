@@ -326,6 +326,8 @@ export interface RenderOptions {
    * the build's own passes over the IR (templates several shared definitions write alike kept once). Default `true`.
    */
   dev?: boolean;
+  /** @internal `false`: the page compiles without the let cache (src/lets.ts), each let its expression at every read */
+  letCache?: boolean;
   /**
    * @internal `sinter render`: the page is a file of a project, compiled with the project's files, components,
    * layouts and APIs (as `sinter check` reads them) instead of `files`, `components`, `layouts` and `apis`
@@ -604,6 +606,7 @@ function compilePage(html: string, options: RenderOptions, strict: Strict = { on
   // the messages: compiled in the page's one language, as a build compiles them
   const lang = options.messages ? messagesLang(options) : null;
   const parts = compileParts(html, {
+    ...(options.letCache === false ? { letCache: false } : {}),
     // the test sets the locale (`locale`, or its own `configure({ locale })`): the page's `<html lang>` is not it
     ...(!lang && (options.locale !== undefined || testLocale()) ? { appLocale: true } : {}),
     ...(lang ? {

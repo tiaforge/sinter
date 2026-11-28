@@ -38,6 +38,16 @@ export type Sources = string[];
 
 export interface StateEntry { sid: number; names: Set<string> }
 
+/**
+ * The marks around a cached let's code where a value expression reads it. They are comments: every pass over the
+ * compiled code, the build's own evaluation and the early file see the let inlined, as before. The page module's
+ * functions get the call that caches (`cachedLets`, at the end of the compile); a mark that a pass lost or split
+ * leaves the let inlined.
+ */
+export const LET_OPEN = '(/*L{*/', LET_CLOSE = '/*}L*/)';
+/** compiled code with its cached lets inlined, as written */
+export const plainLets = (code: string): string => (code.includes('/*L{*/') ? code.split('/*L{*/').join('').split('/*}L*/').join('') : code);
+
 /** A `data-sn-let` name: a value expression inlined wherever the name is read. */
 export interface LetEntry {
   name: string;
@@ -60,6 +70,8 @@ export interface LetEntry {
   from?: LetEntry[];
   /** a component's prop: the caller's expression */
   prop?: true;
+  /** a `data-sn-let` entry the runtime computes once until state may have changed (`cachedLets`): a value's read of it is marked */
+  cache?: true;
   /** a `data-sn-let` entry's value as written (a list's empty state follows a choice in it: `emptyCondition`) */
   text?: string;
   /** the item it is (see `Sources`), or the list */
@@ -480,6 +492,8 @@ export const wild = (segs: string[]): string[] => segs.map((x) => (x[0] === '{' 
 const LIST_KEEP = new Set(['filter', 'slice', 'toSorted', 'toReversed']);
 /** list methods that return one of its items */
 const ITEM_OF = new Set(['find', 'findLast', 'at']);
+/** globals whose own functions change none of their arguments (`Math.max`, `JSON.stringify`; not `Object`, for `Object.assign`) */
+const STATIC_PURE = new Set(['Math', 'JSON', 'Number', 'String', 'Date']);
 export const MUTATORS = new Set(['push', 'pop', 'splice', 'sort', 'reverse', 'shift', 'unshift', 'fill', 'copyWithin', 'add', 'delete', 'clear', 'set']);
 /** `Object.<static>(target, …)` calls that change their first argument */
 const OBJECT_MUTATORS = new Set(['assign', 'defineProperty', 'defineProperties', 'setPrototypeOf']);
@@ -543,6 +557,11 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
   const deps = new Set<string>();
   const writes = new Set<string>();
   let usesEl = false;
+  /**
+   * the expression calls a method that is not known to be read-only (a mutator, an unknown method): it may change
+   * what a let gave it in place (`hits.reverse()`), so it reads its lets as written, each read its own result
+   */
+  let mayChange = false;
   let usesIndex = false;
   let ok = true;
   const runs: NonNullable<ExprResult['runs']> = [];
@@ -775,7 +794,12 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
       case 'loop': return `$.${res.entry.rt ?? name}`;
       // a plain path needs no parentheses: the same expression is then the same function, wherever a prop inlines it
       // (`pasted` adds them where the text after it would join it: a number before a `.`)
-      case 'let': return /^[\w$]+(\.[\w$]+)*$/.test(res.entry.code) ? res.entry.code : `(${res.entry.code})`;
+      case 'let': {
+        // a handler (a setter, an optimistic change) reads a let as written: between two of its writes nothing is marked
+        const code = mode === 'value' ? res.entry.code : plainLets(res.entry.code);
+        if (res.entry.cache && mode === 'value') return LET_OPEN + code + LET_CLOSE;
+        return /^[\w$]+(\.[\w$]+)*$/.test(code) ? code : `(${code})`;
+      }
       case 'state': return `$.$s${sid}.${name}`;
       case 'resource': return `$.$r.${name}`;
       case 'magic': return `$.${name}`;
@@ -1470,6 +1494,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
       const m = callee as acorn.MemberExpression & Node;
       const method = !m.computed && m.property.type === 'Identifier' ? m.property.name : null;
       const isNs = m.object.type === 'Identifier' && page.namespaces.has(m.object.name) && !locals.has(m.object.name);
+      if (!isNs && !(method && READ_ONLY.has(method)) && !(m.object.type === 'Identifier' && STATIC_PURE.has(m.object.name) && !locals.has(m.object.name))) mayChange = true;
       if (!isNs) {
         const recv = chainPath(m.object as Node, locals);
         if (method && recv) {
@@ -2081,6 +2106,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
   }
 
   // ---- codegen
+  if (mayChange) for (const e of edits) e.text = plainLets(e.text);
   const out = applyEdits(src, edits);
   let code: string;
   if (mode === 'value' || opts.object) code = `($) => (${out})`;

@@ -1,5 +1,6 @@
-// Lets over helpers (docs/spec.md, Derived names): a `data-sn-let` entry, or a prop, is its expression,
-// inlined at every read, a helper call included (an expensive helper is the app's to memoize, `memo()`).
+// Lets over helpers (docs/spec.md, Derived names): a `data-sn-let` entry, or a prop, is its expression. A let
+// that calls something is computed once until state may have changed (the let cache, src/lets.ts); a prop, and
+// a let in a handler, are inlined at every read (an expensive helper is the app's to memoize, `memo()`).
 // What a binding, a handler and a listener read is what the expression gives then: after the handler's own
 // writes, store functions, emit(), nested events, in the middle of a flush, after the takeover of an early
 // render; a let may wait for a helper module that reaches a lazy package.
@@ -239,15 +240,138 @@ describe('a let over a helper: its expression, at every read', () => {
     expect(r.root.querySelector('p')!.textContent).toBe('3');
   });
 
-  test('a let over a helper compiles inlined, as any let: no cache, no feature module', () => {
+  test('`letCache: false`: a let over a helper compiles inlined, as any let: no cache, no feature module', () => {
     const helpers = { module: '/src/sinter.helpers.ts', names: ['fmt'], namespaces: { crunch: { module: '/src/crunch.ts', members: ['parse'] } } };
     const out = compile(`<main data-sn-state="{ s: 'x' }" data-sn-let="{ a: crunch.parse(s), b: s.length, c: [s].map((v) => fmt(v)) }"><i data-sn-text="a"></i><i data-sn-text="b"></i><i data-sn-text="c"></i></main>`,
-      { file: '/p/index.html', root: '/p', dev: false, helpers, readFile: () => { throw new Error('none'); } });
+      { file: '/p/index.html', root: '/p', dev: false, helpers, letCache: false, readFile: () => { throw new Error('none'); } });
     expect(out.module).toContain('crunch$parse($.$s0.s)');
     expect(out.module).toContain('($) => ($.$s0.s.length)');
     expect(out.module).toContain('($) => (([$.$s0.s].map((v) => fmt(v))))');
-    expect(out.module).not.toContain('$.$c(');
-    expect(out.module).not.toContain('sinter/lets');
+    expect(out.module).not.toContain('$.$l(');
+    expect(out.module).not.toContain('sinter/runtime/lets');
+  });
+});
+
+describe('the let cache: a let that calls something is computed once until state may have changed', () => {
+  const out = (html: string, o: object = {}) => compile(html, { file: '/p/index.html', root: '/p', dev: false, helpers: { module: '/src/sinter.helpers.ts', names: ['fmt', 'parse'], namespaces: {} }, readFile: () => { throw new Error('none'); }, ...o });
+
+  test('what compiles to the cache: a let that calls; not one that only reads, reads `$el`, or a prop', () => {
+    const m = out(`<main data-sn-state="{ s: 'x' }" data-sn-let="{ a: fmt(s), b: s.length, c: fmt($el.id), d: fmt(a) + b }"><i data-sn-text="a"></i><i data-sn-text="b"></i><i id="q" data-sn-text="c"></i><i data-sn-text="d"></i>
+      <button data-sn-on-click="s = a + d"></button></main>`).module;
+    expect(m).toContain('($) => ($.$l($, 0, ($) => (fmt($.$s0.s))))');
+    expect(m).toContain('($) => ($.$s0.s.length)');
+    expect(m).toContain('($) => ((fmt($.$el.id)))');
+    // a let over a let: the inner one is read through the cache too; the names each reads off its scope
+    expect(m).toContain('($) => ($.$l($, 1, ($) => (fmt($.$l($, 0, ($) => (fmt($.$s0.s)))) + $.$s0.s.length)))');
+    expect(m).toContain('"lc":[["$s0"],["$s0"]]');
+    // a handler reads lets as written
+    expect(m).toContain('$.$s0.s = (fmt($.$s0.s)) + (fmt((fmt($.$s0.s))) + $.$s0.s.length)');
+    expect(m).toContain('sinter/runtime/lets');
+  });
+
+  test('an expression that may change what a let gives (a mutator, an unknown method) reads it as written', async () => {
+    const m = out(`<main data-sn-state="{ xs: [3, 1, 2] }" data-sn-let="{ h: xs.filter((x) => x > 1) }"><i data-sn-text="h.reverse()[0]"></i><b data-sn-text="h.length + Math.max(0, h[0])"></b><u data-sn-text="Object.assign(h, { 0: 9 })[0]"></u></main>`).module;
+    expect(m).toContain('($) => (($.$s0.xs.filter((x) => x > 1)).reverse()[0])');
+    expect(m).toContain('($) => (Object.assign(($.$s0.xs.filter((x) => x > 1)), { 0: 9 })[0])');
+    expect(m).toContain('($) => ($.$l($, 0, ($) => ($.$s0.xs.filter((x) => x > 1))).length + Math.max(0, $.$l($, 0, ($) => ($.$s0.xs.filter((x) => x > 1)))[0]))');
+    const pick = (xs: number[]) => xs.filter((x) => x > 1);
+    const r = await render(`<main data-sn-state="{ xs: [3, 1, 2] }" data-sn-let="{ h: pick(xs) }"><i data-sn-text="h.reverse()[0]"></i><b data-sn-text="h[0]"></b><u data-sn-text="h.reverse()[0]"></u></main>`, { helpers: { pick } });
+    expect(r.root.querySelector('main')!.textContent).toBe('232');
+  });
+
+  test('the early file reads a cached let inlined', () => {
+    const r = out(`<!doctype html><html><head><script type="application/json" data-sn-resource="post">{"body":"a"}</script></head><body><sn-resource name="post" src="/api/post"></sn-resource>
+      <main data-sn-let="{ a: fmt(post ? post.body : '') }"><i data-sn-text="a"></i><b data-sn-text="a + a"></b></main></body></html>`, { early: true });
+    expect(r.module).toContain('$.$l($, 0, ');
+    expect(JSON.stringify(r.early ?? '')).not.toContain('$l(');
+    expect(JSON.stringify(r.early ?? '')).not.toContain('/*L');
+  });
+
+  test('several bindings read one let: one call a change, and only when something reads it', async () => {
+    for (const letCache of [true, false]) {
+      const { calls, parse } = counting();
+      const r = await render(`<main data-sn-state="{ src: 'a b', n: 0 }" data-sn-let="{ doc: parse(src) }">
+        <p data-sn-text="doc.words.length"></p><i data-sn-text="doc.words[0].w"></i><b data-sn-text="doc.words.length + n"></b>
+        <button id="n" data-sn-on-click="n++"></button><button id="s" data-sn-on-click="src = src + ' c'"></button></main>`, { helpers: { parse }, letCache });
+      expect(calls.length).toBe(letCache ? 1 : 3);
+      r.root.querySelector<HTMLElement>('#n')!.click();
+      await r.flush();
+      expect(calls.length).toBe(letCache ? 2 : 4);
+      r.root.querySelector<HTMLElement>('#s')!.click();
+      await r.flush();
+      expect(calls.length).toBe(letCache ? 3 : 7);
+      expect(r.root.querySelector('p')!.textContent + r.root.querySelector('i')!.textContent + r.root.querySelector('b')!.textContent).toBe('3a4');
+    }
+  });
+
+  test('a let around a list, read in every row: one call for all the rows; a row\'s own let: one a row', async () => {
+    const calls: string[] = [];
+    const total = (xs: number[]) => { calls.push('total'); return xs.reduce((a, b) => a + b, 0); };
+    const share = (x: number, t: number) => { calls.push('share' + x); return Math.round(100 * x / t); };
+    const r = await render(`<main data-sn-state="{ xs: [1, 3, 4], k: 0 }" data-sn-let="{ T: total(xs) }">
+      <template data-sn-for="x in xs"><p data-sn-let="{ S: share(x, T) }"><i data-sn-text="S"></i><b data-sn-text="S + '%' + k"></b><u data-sn-attr="{ title: T + '/' + S }"></u></p></template>
+      <button id="k" data-sn-on-click="k++"></button><button id="x" data-sn-on-click="xs = [1, 3, 4, 2]"></button></main>`, { helpers: { total, share } });
+    expect(calls.filter((c) => c == 'total').length).toBe(1);
+    expect(calls.filter((c) => c != 'total').sort()).toEqual(['share1', 'share3', 'share4']);
+    calls.length = 0;
+    r.root.querySelector<HTMLElement>('#k')!.click();
+    await r.flush();
+    // each row's <b> reads S again: once a row; T once
+    expect(calls.sort()).toEqual(['share1', 'share3', 'share4', 'total']);
+    calls.length = 0;
+    r.root.querySelector<HTMLElement>('#x')!.click();
+    await r.flush();
+    expect([...r.root.querySelectorAll('i')].map((x) => x.textContent)).toEqual(['10', '30', '40', '20']);
+    expect(calls.filter((c) => c == 'total').length).toBe(1);
+  });
+
+  test('a kept row that takes another item (rows keyed by index): its let is the new item\'s', async () => {
+    const tag = (s: string) => '<' + s + '>';
+    const r = await render(`<main data-sn-state="{ xs: ['a', 'b', 'c'] }">
+      <template data-sn-for="(x, i) in xs" data-sn-key="i"><p data-sn-let="{ L: tag(x) }"><i data-sn-text="L"></i><b data-sn-text="L + i"></b></p></template>
+      <button data-sn-on-click="xs = ['c', 'a']"></button></main>`, { helpers: { tag } });
+    r.root.querySelector('button')!.click();
+    await r.flush();
+    expect([...r.root.querySelectorAll('p')].map((x) => x.textContent)).toEqual(['<c><c>0', '<a><a>1']);
+  });
+
+  test('a handler reads the let between its own writes, and what `run()` sends after a write, as written', async () => {
+    const { parse } = counting();
+    const requests = mockRequests({ 'POST /api/send': { ok: true } });
+    const r = await render(`<main data-sn-state="{ src: 'a b', a: 0, b: 0 }" data-sn-let="{ doc: parse(src) }"><p data-sn-text="doc.words.length"></p>
+      <span hidden id="send" data-sn-post="/api/send" data-sn-body="{ n: doc.words.length }"></span>
+      <button data-sn-on-click="run('send'); a = doc.words.length; src = 'x y z'; b = doc.words.length; run('send')"></button></main>`, { helpers: { parse }, requests });
+    r.root.querySelector('button')!.click();
+    await r.settle();
+    const st = r.state(r.root.querySelector('main')!).get();
+    expect([st.a, st.b]).toEqual([2, 3]);
+    expect(requests.calls.map((c) => c.body)).toEqual([{ n: 2 }, { n: 3 }]);
+    expect(r.root.querySelector('p')!.textContent).toBe('3');
+  });
+
+  test('a let that throws keeps nothing: each reader warns, and the next change computes it again', async () => {
+    let n = 0;
+    const risky = (s: string) => { n++; if (s == 'bad') throw new Error('no'); return s.toUpperCase(); };
+    const r = await render(`<main data-sn-state="{ s: 'bad' }" data-sn-let="{ L: risky(s) }"><i data-sn-text="L"></i><b data-sn-text="L + '!'"></b>
+      <button data-sn-on-click="s = 'ok'"></button></main>`, { helpers: { risky }, strict: false });
+    expect(n).toBe(2);
+    expect(r.warnings().filter((w) => w.code == 6).length).toBe(2);
+    r.root.querySelector('button')!.click();
+    await r.flush();
+    expect(n).toBe(3);
+    expect(r.root.querySelector('i')!.textContent + r.root.querySelector('b')!.textContent).toBe('OKOK!');
+  });
+
+  test('a let in a branch that is shown again, and in a dialog that opens later, is current', async () => {
+    const up = (s: string) => s.toUpperCase();
+    const r = await render(`<main data-sn-state="{ s: 'a', on: true }" data-sn-let="{ U: up(s) }"><template data-sn-if="on"><i data-sn-text="U"></i></template>
+      <button id="t" data-sn-on-click="on = !on"></button><button id="s" data-sn-on-click="s = s + 'b'"></button><b data-sn-text="U"></b></main>`, { helpers: { up } });
+    const click = async (id: string) => { r.root.querySelector<HTMLElement>(id)!.click(); await r.flush(); };
+    await click('#t');
+    await click('#s');
+    await click('#t');
+    expect(r.root.querySelector('i')!.textContent).toBe('AB');
+    expect(r.root.querySelector('b')!.textContent).toBe('AB');
   });
 });
 

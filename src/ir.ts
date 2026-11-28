@@ -402,6 +402,11 @@ export interface IR {
    * loads each one (its arrival is the path `$lz.<index>`); absent for none
    */
   lm?: number[];
+  /**
+   * cached lets (src/lets.ts): for each, the names it reads off its scope, which say where its value is kept;
+   * absent for none
+   */
+  lc?: string[][];
   /** the property names of grouped style bindings (`Binding.g`), each distinct list once */
   sg?: string[][];
   /**

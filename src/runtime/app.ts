@@ -308,6 +308,14 @@ export interface App {
    * in a text field, so a resource URL it changes waits for a pause
    */
   mark(path: number | string, scope?: any, typing?: boolean): void;
+  /**
+   * The let cache's clock (src/lets.ts): `ep` goes up whenever state may have changed (every `mark`, the end of every
+   * handler, setter and recorded change, a row's scope taking another item or index), so a let's value computed at an
+   * `ep` holds while `ep` stays. `hd`: handlers, setters or recorded changes running; while one runs, a write of its body
+   * is not marked yet, so nothing reads or fills the cache.
+   */
+  ep: number;
+  hd: number;
   flush(): void;
   /**
    * Runs `fn`, a server event's changes: what it marks is rendered before the next frame is painted
@@ -830,7 +838,10 @@ export function mount(root: Document | Element, o: MountOptions): App {
     scopeOf: (i) => (i < 0 ? app.page : rootScopes[i] ?? app.page),
     rbs: rootRbs,
     url: (d, s) => fns[d.u!]!(s),
+    ep: 1,
+    hd: 0,
     mark(path, s, typing) {
+      app.ep++;
       const w = typeof path == 'number' ? path : ps.x[path] ?? -1;
       // the written path's `{name}` segments, as the writer's scope has them
       const d: Dirty = { w, v: w < 0 ? [] : slots(w).map((n) => (s ? '' + s[n] : '{' + n + '}')) };
@@ -876,7 +887,8 @@ export function mount(root: Document | Element, o: MountOptions): App {
       const rs = [...resources.values()];
       for (const r of rs) r.recording = [];
       let recs;
-      try { change(); } finally { recs = rs.map((r) => [r, r.recording!] as const); for (const r of rs) r.recording = null; }
+      app.hd++;
+      try { change(); } finally { app.hd--; app.ep++; recs = rs.map((r) => [r, r.recording!] as const); for (const r of rs) r.recording = null; }
       const ids = recs.filter(([, ops]) => ops.length).map(([r, ops]) => [r, r.addLayer(ops)] as const);
       let done = false;
       return (ok) => { if (!done) { done = true; for (const [r, id] of ids) ok ? r.commitLayer(id) : r.dropLayer(id); } };
@@ -926,7 +938,9 @@ export function mount(root: Document | Element, o: MountOptions): App {
       for (const fn of listeners.get(name) ?? []) try { fn(payload); } catch (e) { console.error(e); }
     },
     exec(f, s, writes, o) {
-      try { fns[f]!(s); } catch (err) { warn(24, o, f, err) ?? console.error(err); }
+      // (the let cache's clock: the handler's writes are marked after it, and it may throw between two of them)
+      app.hd++;
+      try { fns[f]!(s); } catch (err) { warn(24, o, f, err) ?? console.error(err); } finally { app.hd--; app.ep++; }
       for (const w of writes ?? []) app.mark(w, s);
     },
     // after destroy(), nothing waits for the next one: run it now
@@ -1258,7 +1272,8 @@ export function mount(root: Document | Element, o: MountOptions): App {
   /** `typing`: a keystroke in a text field (`input` on an `<input>`/`<textarea>`), not a paste-like whole change */
   function setModel(rb: RB, v: unknown, typing?: boolean) {
     if (v === undefined) return;
-    try { fns[rb.b.a!]!(rb.s, v); } catch (e) { return warn(9, rb.b, rb.el, e); }
+    app.hd++;
+    try { fns[rb.b.a!]!(rb.s, v); } catch (e) { return warn(9, rb.b, rb.el, e); } finally { app.hd--; app.ep++; }
     for (const w of rb.b.w ?? []) app.mark(w, rb.s, typing);
   }
 
@@ -1342,8 +1357,9 @@ export function mount(root: Document | Element, o: MountOptions): App {
     const deep = () => (dp ??= inside(rb));
     const reuse = (x: Inst, i: number) => {
       const item = items[i];
-      if (x.item !== item && !(props && sameProps(x.item, item) && !deep())) { setRow(x.s, t, (x.item = item), (x.i = i)); x.f = deep() ? 2 : 3; }
-      else if (x.i != i) { setRow(x.s, t, item, (x.i = i)); if (moved) x.f ||= 1; }
+      // (a kept row's scope takes another item or index: the let cache's clock moves, `App.ep`)
+      if (x.item !== item && !(props && sameProps(x.item, item) && !deep())) { setRow(x.s, t, (x.item = item), (x.i = i)); app.ep++; x.f = deep() ? 2 : 3; }
+      else if (x.i != i) { setRow(x.s, t, item, (x.i = i)); app.ep++; if (moved) x.f ||= 1; }
       // a computed list's row (`dv`): its item may have changed in place, which only the list depends on: the row renders
       // forced, to the bottom when the change is inside a value the list reads (`deep`), else to the components whose
       // props changed. Not a component's own row (a definition's list of its props): its item is the props, which
@@ -1463,7 +1479,7 @@ export function mount(root: Document | Element, o: MountOptions): App {
       // dependency changes (a tree of 2,000 elements: every binding of every element).
       if (ch && x && x.item !== item) {
         const deep = inside(rb);
-        if (!sameProps(x.item, item) || deep) { setRow(x.s, rb.t!, (x.item = item), 0); walkRow(x, rb.t!, deep ? 2 : 3); }
+        if (!sameProps(x.item, item) || deep) { setRow(x.s, rb.t!, (x.item = item), 0); app.ep++; walkRow(x, rb.t!, deep ? 2 : 3); }
       }
       return;
     }

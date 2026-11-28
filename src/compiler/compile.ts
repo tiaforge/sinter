@@ -22,7 +22,7 @@ import * as parse5 from 'parse5';
 import { freeRefs, parseExpression, parseProgram } from './parse.js';
 import type { DefaultTreeAdapterMap } from 'parse5';
 import { type Code, type Diagnostic, didYouMean, distance, severityOf, suggest } from './diagnostics.js';
-import { type AliasSite, analyze, applyEdits, elementPieces, foldsInto, nsLocal, refNames, STORE_FNS, throughField, wild, type SlotScope, type ComponentScope, type ExprOptions, type ExprResult, type LetEntry, type LoopEntry, type PageInfo, type Read, type ResourceInfo, type Scope } from './expr.js';
+import { type AliasSite, analyze, applyEdits, LET_CLOSE, LET_OPEN, plainLets, elementPieces, foldsInto, nsLocal, refNames, STORE_FNS, throughField, wild, type SlotScope, type ComponentScope, type ExprOptions, type ExprResult, type LetEntry, type LoopEntry, type PageInfo, type Read, type ResourceInfo, type Scope } from './expr.js';
 import { callerAttribute, COMPONENT_NAME, componentPaths, DOM_EVENTS, inlineScriptLang, inlineScriptPath, inlineScripts, type InlineScript, isArrayType, LIBRARY_LAYER, rootCss, scopeCss, SLOT_TYPE, typeMembers, withoutSlots, type Member } from './components.js';
 import type { Node } from 'acorn';
 import type * as acorn from 'acorn';
@@ -68,6 +68,8 @@ export interface HelperManifest {
 export interface CompileOptions {
   file: string;
   root: string;
+  /** `false`: no let is cached, each is its expression at every read (src/lets.ts); the tests compare the two */
+  letCache?: boolean;
   readFile: (path: string) => string;
   /**
    * The files below a folder, at any depth, as absolute `/`-separated paths, for a `file:` glob. The project's skips
@@ -3047,6 +3049,12 @@ class Compiler {
     this.fileJson(early);
     // builds: the last pass over the tables, after every pass that leaves a template or a function unused
     if (!this.opts.dev) this.compactTables(ir, early);
+    // cached lets: the page module's functions call the cache; the early file's read them inlined (it renders once)
+    const marked = this.fns.slice(), lc = cachedLets(this.fns);
+    if (lc.length) { ir.lc = lc; this.features.add('lets'); }
+    // (a function is found by its code, `sourcesOf`: by the code it has now)
+    marked.forEach((code, i) => { if (code !== this.fns[i] && this.fnIndex.get(code) === i) { this.fnIndex.delete(code); this.fnIndex.set(this.fns[i]!, i); } });
+    if (early) early.fns = early.fns.map(plainLets);
     return {
       ...(this.jsonOut.size ? { json: this.jsonOut } : {}),
       ...(this.lateDiags.length ? { lateDiagnostics: this.lateDiags } : {}),
@@ -7423,7 +7431,8 @@ class Compiler {
 
   /**
    * `data-sn-let="{ s: suggestions(q), n: s.length }"`: each name is a value expression, inlined
-   * where it is read; later names may use earlier ones.
+   * where it is read; later names may use earlier ones. One that calls something is read through the let
+   * cache where a value reads it (`LetEntry.cache`, `cachedLets`).
    */
   lets(el: P5Element, scope: Scope): Scope {
     const src = attr(el, 'data-sn-let') ?? '';
@@ -7468,6 +7477,13 @@ class Compiler {
       if (this.checking) {
         this.frameOf.set(entry, this.checkFrames.length);
         this.checkFrames.push({ kind: 'let', name, init: r.ok ? this.lastExpr : null, loc: this.locOf(el, 'data-sn-let', p.key.start), ...(waiting?.waits ? { waits: true as const } : {}) });
+      }
+      // computed once until state may have changed (src/lets.ts), where the build can say what it reads: a let that
+      // calls something (a comparison or a member costs less than the cache), reads no `$el` and waits for no module,
+      // and whose every read off the scope is a name a scope has as its own
+      if (r.ok && !waiting && !r.usesEl && this.opts.letCache !== false) {
+        const roots = letRoots(plainLets(entry.code)), loops = new Set(scope.loops.map((l) => l.rt ?? l.name));
+        if (roots?.every((n) => LET_PAGE.has(n) || LET_SCOPE.test(n) || loops.has(n))) entry.cache = true;
       }
       scope = { ...scope, lets: [...(scope.lets ?? []), entry] };
     }
@@ -14545,6 +14561,75 @@ const WRITER: Record<string, string> = { text: 't', attr: 'a', class: 'c', style
 /** A value function's expression, as `makeCode` inlines it (`($) => (x)` → `x`). */
 function bodyOf(code: string): string {
   return code.startsWith('($) => (') && code.endsWith(')') ? code.slice('($) => ('.length, -1) : code;
+}
+
+/** the page's own names a cached let may read (`$r`, `$url`, …): the page's scope has them */
+const LET_PAGE = new Set(['$r', '$meta', '$url', '$now', '$locale']);
+/** a scope's own names besides loop variables: state (`$s3`), a row's index (`$i3`), a component's props (`$p3`, `$pp`), a slot's values (`$sl3`) */
+const LET_SCOPE = /^\$(?:(?:s|i|p|sl)\d+|pp)$/;
+
+/**
+ * The names a let's code reads off its scope, each `$.<name>`: where its value is kept (src/lets.ts). Null for a
+ * let that is not cached: it calls nothing, or uses `$` in another way (passed on, a parameter of that name), so
+ * that what it reads cannot be listed.
+ */
+export function letRoots(code: string): string[] | null {
+  let ast: acorn.Node;
+  try { ast = parseExpression(code); } catch { return null; }
+  const names = new Set<string>();
+  let calls = false, other = false;
+  const visit = (n: any, parent: any) => {
+    if (n.type === 'CallExpression' || n.type === 'NewExpression' || n.type === 'TaggedTemplateExpression') calls = true;
+    if (n.type === 'Identifier' && n.name === '$') {
+      if (parent?.type === 'MemberExpression' && parent.object === n && !parent.computed && parent.property.type === 'Identifier') names.add(parent.property.name);
+      else other = true;
+    }
+    for (const k in n) {
+      const v = n[k];
+      if (Array.isArray(v)) { for (const c of v) if (c && typeof c.type === 'string') visit(c, n); }
+      else if (v && typeof v.type === 'string') visit(v, n);
+    }
+  };
+  visit(ast, null);
+  return calls && !other ? [...names].sort() : null;
+}
+
+/**
+ * The last step for the page module's functions: each marked read of a cached let (`LET_OPEN` … `LET_CLOSE`)
+ * becomes `$.$l($, n, ($) => (…))`, and the result lists, for each `n`, the names the let reads (`IR.lc`). A let
+ * is one `n` wherever its code is the same. A function whose marks do not pair, and a let whose final code cannot
+ * be listed, stay inlined.
+ */
+export function cachedLets(fns: string[]): string[][] {
+  const lc: string[][] = [], ids = new Map<string, number>();
+  const rewrite = (code: string): string => {
+    let out = '', i = 0;
+    for (;;) {
+      const a = code.indexOf(LET_OPEN, i);
+      if (a < 0) return out + code.slice(i);
+      let depth = 1, j = a + LET_OPEN.length;
+      while (depth) {
+        const o = code.indexOf(LET_OPEN, j), c = code.indexOf(LET_CLOSE, j);
+        if (c < 0) throw new Error('unpaired');
+        if (o >= 0 && o < c) { depth++; j = o + LET_OPEN.length; } else { depth--; j = c + LET_CLOSE.length; }
+      }
+      const inner = code.slice(a + LET_OPEN.length, j - LET_CLOSE.length), raw = plainLets(inner), roots = letRoots(raw);
+      out += code.slice(i, a);
+      if (roots) {
+        let n = ids.get(raw);
+        if (n === undefined) { ids.set(raw, (n = lc.length)); lc.push(roots); }
+        out += `$.$l($, ${n}, ($) => (${rewrite(inner)}))`;
+      } else out += `(${rewrite(inner)})`;
+      i = j;
+    }
+  };
+  fns.forEach((code, k) => {
+    if (!code.includes('/*L{*/') && !code.includes('/*}L*/')) return;
+    try { fns[k] = rewrite(code); } catch { fns[k] = plainLets(code); }
+    // (a close without its open)
+    if (fns[k]!.includes('/*}L*/')) fns[k] = plainLets(code);
+  });
+  return lc;
 }
 
 export function makeCode(nodes: NodeDef[], fns: string[]): string | null {

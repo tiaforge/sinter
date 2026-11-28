@@ -1,6 +1,6 @@
-// memo() (docs/configuration.md, Memoized helpers): an app's expensive pure function, kept by its arguments. Lets and
-// props are their expression, evaluated at every read; a parse a page reads in many places is the app's to
-// memoize, `export const parse = memo(parseDocument)` in the helpers module. It runs in the browser (the page
+// memo() (docs/configuration.md, Memoized helpers): an app's expensive pure function, kept by its arguments. A prop
+// is its expression, evaluated at every read, and a let is computed again after every change (src/lets.ts); a
+// parse a page reads in many places is the app's to memoize, `export const parse = memo(parseDocument)` in the helpers module. It runs in the browser (the page
 // module, the early file) and in Node (helper calls folded at build time), and passes the build's fold check:
 // its state is in the closure of each memoized function, none at the module's top level.
 //

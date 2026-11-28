@@ -104,6 +104,12 @@ How to write an entry (from 0.21.0 on; older sections keep their own form):
 
 ### Performance
 
+- A `data-sn-let` that calls a helper or a method is computed once until state changes, however many bindings and rows
+  read it; before, every read called it again (in Caley's month view one helper ran 3,650 times for two clicks, now
+  29: script time 390 → 210 ms at 4x CPU). Nothing to change in an app: a let still gives what its expression gives,
+  and a handler still reads it as written. Readers between two changes now share one result object, and a helper that
+  reads a clock is sampled once between two changes ([docs/spec.md](docs/spec.md#derived-names), the let cache).
+
 - The early script no longer carries bindings that could never paint: one that reads, on every path, the data or
   status of a resource that is neither embedded in the page nor predictable (or a field of a predictable object
   resource, null before data) is left to the page script, with the templates, state fields and helpers only it needs.

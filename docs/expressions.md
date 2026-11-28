@@ -37,7 +37,7 @@ export * as fmt from './format.js';
 
 - Exported names become functions. Type-only exports are skipped.
 - `export * as ns from './module.js'` makes a namespace. The compiler reads its members, so `fmt.pirce(...)` is `SN206` with a suggestion. Members must be named literally: `fmt[key]` is refused. Only the members a page uses reach its bundle: the page module and the early file import each helper from the module that declares it, not through the helpers module.
-- A `data-sn-let` (or a prop) is its expression, evaluated at every read, a helper call included ([spec.md](spec.md#derived-names)): a parse that three bindings read runs three times. Keep an expensive helper's results with `memo()` (below).
+- A `data-sn-let` is its expression. One that calls a helper is computed once until state changes, however many bindings and rows read it ([spec.md](spec.md#derived-names)); a prop is evaluated at every read, a helper call included. Keep an expensive helper's results across changes, or in a prop, with `memo()` (below).
 - A helper module that reaches a package of `lazy` loads only when a let first needs it ([lazy.md](lazy.md#helpers-that-wait)).
 - The helpers module also runs in Node: the build, the dev server, `sinter check` and the language server
   load it before compiling, through Vite with your config (aliases and plugins apply), and a call over
