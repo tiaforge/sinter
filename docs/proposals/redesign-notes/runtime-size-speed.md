@@ -130,10 +130,11 @@ structural checks after data arrived, 79 evaluated to the same value. So the flo
      the same over 30 steps (new, edit, cancel, reopen, a suggestion, save; new, a recipient, reply), with no
      warning 36 or 37. `explainWrites` names these places (SN548, the form for a helper's result).
 2. A computed list (`contacts.filter(…)`) forces all its rows on every re-evaluation, because its rows have no path
-   to watch: typing in Caley's contacts filter evaluates 583 bindings for 0 writes. Needs the compiler to mark which
-   inputs can change the elements and which only select among them. Not prototyped.
+   to watch: typing in Caley's contacts filter evaluates 589 bindings for 0 writes. Measured 2026-11-28 (§7): 0–4 ms
+   at 4x CPU per interaction, and no run-time rule is sound without a compiler fact. Not built.
 3. Same-value evaluations: a per-row test such as `iso === focusDate` runs for every row; a resource that returns
-   equal data re-runs its readers.
+   equal data re-runs its readers. Measured 2026-11-28 (§7): the selection index already covers the exact form, and
+   a server that sends `ETag` leaves 8–10 evaluations. Not built.
 
 None of this is visible in time on Caley's reference interactions (evaluations are cheap; rows, DOM work and app
 helpers are not); typing in a draft's field is the one place it is (1, about 7 ms a keystroke at 4x CPU in the event
@@ -149,10 +150,10 @@ First paint with data:
   data as the loader does, and rows would be visible before their handlers exist. The cheap route to the same frame
   is the server embedding the first page, which needs that resource's URL to come from the page URL alone.
 
-Early-script bytes still there: the head carries the page's whole runtime message dictionary (mail: 90 keys,
-1.3 KB gzip) where the early file reads 8; closed popovers and unreferenced model setters (under 0.3 KB gzip a
-page). Reusing the early file's expressions in the page module would save about 1 KB gzip but breaks on swaps,
-which run no head script.
+Early-script bytes still there (2026-11-27; what became of them is in §7): the head carries the page's whole runtime
+message dictionary (mail: 90 keys, 1.3 KB gzip) where the early file reads 8; closed popovers and unreferenced model
+setters (under 0.3 KB gzip a page: too low for mail, see §7). Reusing the early file's expressions in the page
+module would save about 1 KB gzip but breaks on swaps, which run no head script.
 
 Runtime bytes: flags for the remaining unreachable code (call/POST/embedded resources, wrapper and text-run
 templates, choice, action retry and confirm): about 0.6 KB gzip on RealWorld (estimate). The floor for RealWorld's
@@ -192,3 +193,84 @@ largest paint that one run suggested and nothing confirmed.
   helpers) before building the analysis. Check real code first: Caley, its components and the examples.
 - For a soundness-critical change, an independent reviewer whose only job is to break it, with an oracle that runs
   the code, before it merges.
+
+## 7. The follow-up day (2026-11-28): "no wasted work" and the early bytes, each as a quick go/no-go
+
+Asked: what of §4 can be done safely, where a page renders what nothing needed, and the early-script bytes. Four
+evaluations ran side by side (40 minutes each, no benchmark over two minutes), then only the "go" items were built,
+each read by a reviewer whose job was to break it. Pull requests #147 and the one after it; Caley's side in
+tiavision/caley#11 and #12. Numbers are Caley at 4x CPU on a shared machine unless said otherwise.
+
+Where render time went that nothing needed (a census with counters in the runtime, ranked by milliseconds):
+
+- **A `data-sn-let` is its expression at every read.** Caley's month view called `monthCells` 3,932 times for 2
+  distinct arguments in two "next" clicks: half of the interaction's script time. `memo()` on that helper, in the app:
+  script 408 → 238 ms (medians of 4 interleaved rounds). Dev warning 38 now names a helper called again and again with
+  the same arguments while the page renders (20 repeats, 5 ms, 5 µs a call, over renders less than 250 ms apart:
+  thresholds from this one app).
+- **A let cache in the framework was built again and parked.** Invalidated by any write (an epoch, bumped in `mark()`
+  and around handlers), it gave 388 → 207 ms with no app change and the same DOM on 15 page states, for +0.5 KB gzip
+  on a page with a cached let, a handler bypass, an allow-list and a rule for in-place mutators. It reverses the
+  decision of 2026-11-16 (component-libraries.md, step 10), whose open question (a let's result changed in place
+  through state) is on its own "still open" list. Not reviewed, not merged; `memo()` gets the same milliseconds.
+- **A closed popover renders its content.** Caley's month picker was 210 of the 231 rows built at calendar load.
+  "A closed popover waits as a closed dialog does" breaks on a popover that CSS shows while closed (Caley's own
+  navigation rail); proving from the stylesheets that it is hidden is the open-ended kind of analysis. Three forms
+  were measured (the analysis, an opt-in attribute, an `if` in the app on a flag `beforetoggle` sets): rows at load
+  231 → 21 in all three, the times not separable. Taken: the app's `if`, no framework change.
+- Under 3 ms or not a saving: recreating keyed rows on "next", same-value DOM writes (the writers' comparisons stop
+  them), skeleton rows, a forced layout that only moves, work at mount that the early script did.
+
+Evaluations (§4):
+
+- The primitive-type guard removes 0 of 544 (item 1). What remains is writes inside drafts a helper built;
+  `explainWrites` now names those calls, and four `structuredClone()` in Caley took event-form typing from 2,420
+  evaluations to 35.
+- Computed lists (item 2): the careful run-time rule ("a kept row with the identical item is not forced") fails for
+  a helper that hands back its earlier objects, and the contacts case (inner rows reading a new outer group) needs a
+  compiler fact besides. It becomes worth it at address books of hundreds (about 0.09 ms a kept row at 4x: an
+  estimate). The plan, if ever: fuzz shapes first (done), a rule "a helper does not change an object it returned
+  earlier" with a dev check, then about 12 runtime lines and a template flag.
+- The reactivity fuzz did not protect the forcing of kept rows at all (a runtime that never forces passed it). It
+  now has computed lists and an oracle that computes the rows from the state; that found a checkbox group changing
+  its array in place.
+
+Early bytes (page early file + HTML head, gzip, against main 8ce8fb8): mail 7,567 → 7,090, mail-view 2,869 → 2,774,
+calendar 4,110 → 3,942, search 4,093 → 3,877, contacts 3,755 → 3,667, login 1,877 → 1,801; RealWorld's pages 152–197 B
+less each; shared head scripts: Caley 3,781 → 3,670, RealWorld 3,140 → 2,958, dashboard 2,074 → 1,833.
+
+- Shipped: a branch or an early request that starts false over whole state fields that start as primitives is left
+  out of the early file; a model's setter only when it is persisted; a branch that is a false constant once resource
+  state is written in; `$k`, the embedded-data reader and config reads in the shared head script only where a site
+  uses them; build-computed values only the page module reads at the end of the body.
+- The first form of "starts false" trusted the build's evaluation of any state-only expression and saved mail
+  1,260 B. Review found two independent holes in it (a persisted model writing through a copy of the object the
+  condition reads; a build-computed value JSON does not keep), so the rule was made smaller rather than patched:
+  a primitive cannot be shared. Mail keeps 477 B; it loses `sel.selecting` and two `when`s that read below a field.
+- Not built: code shared between the early file and the page module (nothing before first paint, a request on
+  every swap).
+- The message dictionary: texts go into the early files themselves (they are built once per language), and the page
+  bundle's dictionary into a cached file; rewriting the shared chunks per language was measured (−1.4 to −1.9 KB gzip
+  on a first visit) and not taken: 18 more files and 145 KB per language, 55.6 KB again on a language switch, and a
+  rename pass over finished chunks. In progress when this was written.
+
+Bugs found on main on the way, all fixed: a selection binding went stale beside a closed dialog with bindings
+waiting; a checkbox group's aliases; a `<dialog popover>` never rendered; a build's early script could not read
+build-computed state values (their elements came after the head scripts); an `if` over `$build` and written state
+was decided at build; a build-time helper returning `undefined` crashed the compile; embedded data holding the text
+`</head>` was cut there.
+
+What went wrong, so it does not happen again:
+
+1. Two guards over the same pages hide each other: nine weakenings of the first "starts false" rule passed every
+   test, because the build evaluator refused the same pages. For each guard of a rule, one test that fails when
+   exactly that guard is removed.
+2. A rule that fails review in two independent ways gets smaller, not more conditions. The smaller rule lost bytes
+   and then held (its one later failure was a lookup on a repeated key).
+3. The whole suite, and the size budgets, before a pull request: a global stubbed without a clock and an article
+   page 5 B under its budget on main were both found by CI, not here.
+4. A text search of built HTML for where to write something finds text inside data. Take positions from the parsed
+   tree; a random comment the compiler places is a position another step can find.
+5. Test helpers that tell a `FormData` by `instanceof` pass on one Node version and fail on another (the request mock
+   hands over Node's, the page has jsdom's).
+
