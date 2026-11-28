@@ -159,10 +159,7 @@ const textFn = (text: string): string => {
  * early script needs neither the entry nor the module. Exact by construction, for every shape:
  * - `m.key()`, and a call whose arguments do not reach a placeholder of the text (it has none, or there are no
  *   arguments): the text, after the arguments are evaluated (`(a, b, "text")`);
- * - `m.key({ n: x })`, an object literal of plain properties with at most one value that is not a primitive literal,
- *   used by one placeholder once, and no name the literal lacks that an object has from its prototype
- *   (`toString`): the text with `String(x)` in that placeholder's place and the literal's primitives in theirs;
- * - any other call (`m.key(params)`, a spread, a second argument), a tagged template, `new`: the same call of a
+ * - any other call (`m.key({ n: x })`, `m.key(params)`, a spread): the same call of a
  *   function that does what the messages module's `t` does (`textFn`);
  * - `m.key` not called (`label: m.key`): that function, through `ref` (`ref(f)` is `f`, marked pure): the caller
  *   checks whether a reference is left in the bundle, where the function is not the messages module's proxy (reading a
@@ -170,7 +167,10 @@ const textFn = (text: string): string => {
  * Left as written (the module then still reads the dictionary): an entry that is not a plain text (a plural, a formatted
  * placeholder) or that the page lacks, `m.key` written to or read a property of (`m.key[x]`), and every use in a
  * module where `m` may not be the import (`keysOnly` says no: another binding of the name, `export { m }`) or where
- * `String` may not be the global one. Null when nothing is replaced. `left`: the ids of the uses left as written.
+ * `String` may not be the global one (the function calls it). Every replacement is put in its place by one function
+ * (`emit`), which writes a `;` before it where it starts an expression statement in a list of statements, nested
+ * inside another replacement's arguments or not. Null when nothing is replaced. `left`: the ids of the uses left as
+ * written.
  */
 export function inlineTexts(code: string, id: string, textOf: (key: string) => unknown, o: { from?: string; exported?: string; ref?: string | null; before?: (key: string) => string | null } = {}): { code: string; left: string[]; done: string[]; refs: number; before: number; install: boolean } | null {
   const from = o.from ?? MESSAGES_MODULE, exported = o.exported ?? 'm';
@@ -233,12 +233,13 @@ export function inlineTexts(code: string, id: string, textOf: (key: string) => u
   const sites: Site[] = [], left = new Set<string>(), done = new Set<string>();
   let refs = 0, before = 0, install = false;
   // the source of a range, the sites inside it replaced
-  const render = (s: number, e: number, self?: Site, top = false): string => {
+  /** a replacement as written in its place: the one way any of them reaches the output */
+  const emit = (x: Site) => (statementStarts.has(x.start) ? ';' : '') + x.out();
+  const render = (s: number, e: number, self?: Site): string => {
     let out = '', at = s;
-    for (const x of sites) if (x !== self && x.start >= at && x.end <= e) { out += code.slice(at, x.start) + (top && statementStarts.has(x.start) ? ';' : '') + x.out(); at = x.end; }
+    for (const x of sites) if (x !== self && x.start >= at && x.end <= e) { out += code.slice(at, x.start) + emit(x); at = x.end; }
     return out + code.slice(at, e);
   };
-  const protoName = (k: string) => k in Object.prototype || k === '__proto__';
   for (const u of uses) {
     const text = textOf(u.key), p = u.parent, target = (u as any).target;
     if (typeof text !== 'string' || written(target, p) || (p?.type === 'MemberExpression' && p.object === target)) {
@@ -260,32 +261,7 @@ export function inlineTexts(code: string, id: string, textOf: (key: string) => u
       // each argument in parentheses of its own (a sequence stays one argument)
       const arg = (a: any) => (a.type === 'SpreadElement' ? `...(${render(a.argument.start, a.argument.end)})` : `(${render(a.start, a.end)})`);
       const argText = () => args.map(arg).join(',');
-      let out: (() => string) | null = null;
-      if (!spread && (!args.length || !holes.length)) out = () => (args.length ? `(${argText()},${lit(text)})` : `(${lit(text)})`);
-      else if (args.length === 1 && args[0].type === 'ObjectExpression') {
-        // the object literal: plain properties, each name once
-        const props: any[] = args[0].properties;
-        const by = new Map<string, any>();
-        let ok = props.every((q) => q.type === 'Property' && q.kind === 'init' && !q.method && !q.computed && (q.key.type === 'Identifier' || (q.key.type === 'Literal' && (typeof q.key.value === 'string' || typeof q.key.value === 'number'))));
-        if (ok) for (const q of props) { const k = q.key.type === 'Identifier' ? q.key.name : String(q.key.value); if (by.has(k) || k === '__proto__') ok = false; by.set(k, q.value); }
-        const prim = (v: any) => (v.type === 'Literal' && !v.regex) || (v.type === 'TemplateLiteral' && v.expressions.length === 0 && typeof v.quasis[0]?.value.cooked === 'string');
-        const primValue = (v: any) => (v.type === 'Literal' ? String(v.value) : String(v.quasis[0].value.cooked));
-        const others = [...by].filter(([, v]) => !prim(v));
-        if (ok && holes.some((h) => !by.has(h) && protoName(h))) ok = false;
-        if (ok && others.length > 1) ok = false;
-        if (ok && others.length === 1 && holes.filter((h) => h === others[0]![0]).length !== 1) ok = false;
-        if (ok) out = () => {
-          const parts = text.split(PLACEHOLDER).map((x, i) => {
-            if (!(i % 2)) return { s: x };
-            const v = by.get(x);
-            return v === undefined ? { s: `{${x}}` } : prim(v) ? { s: primValue(v) } : { e: `String(${render(v.start, v.end)})` };
-          });
-          const merged: Array<{ s?: string; e?: string }> = [];
-          for (const x of parts) { const last = merged[merged.length - 1]; if (x.s !== undefined && last?.s !== undefined) last.s += x.s; else merged.push({ ...x }); }
-          return `(${merged.filter((x) => x.e !== undefined || x.s).map((x) => (x.e ?? lit(x.s!))).join('+') || '""'})`;
-        };
-      }
-      out ??= () => `(${fn}(${argText()}))`;
+      const out = !spread && (!args.length || !holes.length) ? () => (args.length ? `(${argText()},${lit(text)})` : `(${lit(text)})`) : () => `(${fn}(${argText()}))`;
       sites.push({ start: p.start, end: p.end, out });
       continue;
     }
@@ -299,7 +275,7 @@ export function inlineTexts(code: string, id: string, textOf: (key: string) => u
   for (const k of left) done.delete(k);
   if (!sites.length) return null;
   sites.sort((a, b) => a.start - b.start);
-  return { code: render(0, code.length, undefined, true), left: [...left].sort(), done: [...done].sort(), refs, before, install };
+  return { code: render(0, code.length), left: [...left].sort(), done: [...done].sort(), refs, before, install };
 }
 
 /**

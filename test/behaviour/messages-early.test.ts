@@ -73,15 +73,15 @@ test('every shape: the rewritten module gives what the messages module gives, wi
   expect(JSON.stringify(run(x.code, false), (_, v) => (typeof v === 'bigint' ? String(v) : v))).toBe(JSON.stringify(run(code, true), (_, v) => (typeof v === 'bigint' ? String(v) : v)));
 });
 
-test('the smallest form where it is exact: the text itself, a concatenation, a function only where it must', () => {
+test('two forms: the text after the arguments where they reach no placeholder, else a function that does what `t` does', () => {
   const one = (c: string) => inlineTexts(`import { m } from '@tiaforge-ui/sinter/messages';\nexport const v = ${c};\n`, 'a.ts', (k) => DICT[k])!.code.split('\n')[1];
   expect(one('m.plain()')).toBe('export const v = ("Plain text");');
   expect(one("m.plain(log('a'))")).toBe('export const v = ((log(\'a\')),"Plain text");');
-  expect(one('m.hello({ name: who })')).toBe('export const v = ("Hello "+String(who)+"!");');
-  expect(one("m.two({ a: 1, b: 'x' })")).toBe('export const v = ("1 and x");');
+  expect(one('m.hello()')).toBe('export const v = ("Hello {name}!");');
+  // an object literal is an argument like any other (no splicing of its values into the text)
+  expect(one('m.hello({ name: who })')).toBe('export const v = ((p=>p?"Hello "+("name" in p?String(p["name"]):"{name}")+"!":"Hello {name}!")(({ name: who })));');
+  expect(one("m.two({ a: 1, b: 'x' })")).toMatch(/^export const v = \(\(p=>p\?/);
   expect(one('m.weird()')).toContain('\\u003c/script> \\u003c!-- \\u2028 \\u2029');
-  // two values that are not literals: a function, so each is evaluated before either is turned into a text
-  expect(one('m.two({ a, b })')).toMatch(/^export const v = \(\(p=>p\?/);
   expect(one('m.hello(params)')).toBe('export const v = ((p=>p?"Hello "+("name" in p?String(p["name"]):"{name}")+"!":"Hello {name}!")((params)));');
 });
 
@@ -100,6 +100,50 @@ test('left as written: another binding of the name, `String` of the module\'s ow
   expect(t('export const a = m.gone();')).toBeNull();
   // `ref: null` (the second build): a reference is left
   expect(inlineTexts("import { m } from '@tiaforge-ui/sinter/messages';\nexport const a = [m.plain, m.plain()];\n", 'a.ts', (k) => DICT[k], { ref: null })!.code).toContain('[m.plain, ("Plain text")]');
+});
+
+/** cases run as written over the messages module and as rewritten without it: equal results and side effects */
+const equal = (cases: string[]) => {
+  const s = state();
+  s.locale = s.base = 'de'; s.locales = ['de']; s.dicts = { de: { ...DICT } };
+  s.format = (e, p) => `formatted ${JSON.stringify(e)} ${JSON.stringify(p)}`;
+  const code = source(cases);
+  const x = inlineTexts(code, 'probe.ts', (k) => DICT[k])!;
+  expect(x).not.toBeNull();
+  expect(JSON.stringify(run(x.code, false), (_, v) => (typeof v === 'bigint' ? String(v) : v))).toBe(JSON.stringify(run(code, true), (_, v) => (typeof v === 'bigint' ? String(v) : v)));
+  return x;
+};
+
+test('a sequence in an argument, in parentheses or not, is one value: its last', () => {
+  equal([
+    "m.hello({ name: (log('first'), log('second')) })", 'm.hello({ name: (1, 2) })', "(() => { let i = 0; const names = ['a', 'b']; return m.hello({ name: (i++, names[i]) }); })()",
+    'm.hello(({ name: 1 }, { name: 2 }))', "m.plain((log('a'), log('b')))", "m.two({ a: (log('a'), 'A'), b: 'B' })",
+  ]);
+});
+
+test('a message that starts a statement inside another message\'s argument, in code without semicolons, and in every list of statements', () => {
+  const x = equal([
+    'm.hello({ name: [1].map(() => {\n  var b = log\n  m.plain()\n  return typeof b\n})[0] })',
+    'm.plain((() => {\n  var b = log\n  m.strict()\n  return typeof b\n})())',
+    'm.hello((() => {\n  var b = log\n  m.plain()\n  return { name: typeof b }\n})())',
+    'm.hello({ name: (() => {\n  var b = log\n  m.hello`t`\n  return typeof b\n})() })',
+    '(() => { var r\n  switch (1) { case 1:\n    r = log\n    m.plain()\n  }\n  return typeof r\n})()',
+    '(() => { var r\n  class K { static {\n    r = log\n    m.plain()\n  } }\n  return typeof r + typeof K\n})()',
+  ]);
+  expect(x.code).not.toMatch(/=\s*log\s*\n\s*\(/);
+  // (TypeScript's namespace body is a list of statements too)
+  const ts = inlineTexts("import { m } from '@tiaforge-ui/sinter/messages'\nexport namespace N {\n  export let r = log\n  m.plain()\n}\n", 'n.ts', (k) => DICT[k])!;
+  expect(ts.code).toContain('export let r = log\n  ;("Plain text")');
+});
+
+test('a message written to stays as written, whatever the target: assignment, for-in and for-of, destructuring, a default', () => {
+  const x = equal([
+    '(() => { for (m.plain of [1]) ; return 1; })()', "(() => { for (m.plain in { k: 1 }) ; return 2; })()", '(() => { [m.plain] = [1]; return 3; })()',
+    '(() => { [m.plain = 1] = []; return 4; })()', '(() => { ({ a: m.plain = 1 } = {}); return 5; })()', '(() => { ({ a: m.plain } = { a: 1 }); return 6; })()',
+    '(() => { ({ ...m.plain } = { a: 1 }); return 7; })()', '(() => { [...m.plain] = [1]; return 8; })()', '(() => { m.plain++; m.plain += 1; return 9; })()',
+    'm.hello()',
+  ]);
+  expect(x.left).toEqual(['plain']);
 });
 
 test('code without semicolons: a statement that starts with a message stays a statement of its own', () => {
@@ -136,6 +180,6 @@ test('TypeScript: casts, non-null assertions, types and namespaces', () => {
   expect(x.left).toEqual([]);
   expect(x.code).toContain('typeof m.plain>');
   expect(x.code).toContain('const a = ("Plain text")');
-  expect(x.code).toContain("const b = (\"Hello \"+String('n' as string)+\"!\")");
+  expect(x.code).toContain("const b = ((p=>p?\"Hello \"+(\"name\" in p?String(p[\"name\"]):\"{name}\")+\"!\":\"Hello {name}!\")(({ name: 'n' as string })))");
   expect(x.code).toContain('const c: string = ("Plain text")');
 });

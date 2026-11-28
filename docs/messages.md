@@ -94,8 +94,8 @@ its own would cost more than it saves. The dev server and `sinter render` write 
 The early script is built once per language, and a build writes each message its modules call as the text it has
 in the page's language (its chain's, `de-AT` → `de` → the base language), so the early script needs neither the
 entries nor the messages module. What is written is what the messages module would give at run time, to the
-character: `m.nav_mail()` becomes `"Mail"`; `m.hello({ name: who })` becomes `"Hello "+String(who)+"!"`; a call whose
-argument is not an object literal (`m.hello(params)`), and a message called through a variable
+character: `m.nav_mail()` becomes `"Mail"` (a message without placeholders, or called without arguments, is its
+text); a call with parameters (`m.hello({ name: who })`), and a message called through a variable
 (`label: m.event_dayMo`, called later), become a small function that does what the module does (a placeholder the
 argument lacks stays as written, `{name}`). A text may hold anything (quotes, a newline, `</script>`, `${`).
 

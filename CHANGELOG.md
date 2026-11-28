@@ -203,8 +203,8 @@ How to write an entry (from 0.21.0 on; older sections keep their own form):
 
 - The early script has the texts of the messages its modules call written in, in the page's language, instead of
   reading them from a dictionary in the page: `m.nav_mail()` in a module the early script runs is written as `"Mail"`
-  in the English early script and `"Post"` in the German one, and a message with a parameter as its text with the
-  parameter put in, exactly as the messages module would put it. The early script no longer carries the messages
+  in the English early script and `"Post"` in the German one, and a message called with parameters as a small
+  function that puts them in exactly as the messages module does. The early script no longer carries the messages
   module (about 370 B gzip), and the page no longer carries the entries it read, so the HTML holds no dictionary at
   all on most pages. Caley, against main, before the first paint (HTML and head scripts), gzip: mail 19,584 → 17,948
   B, calendar 11,576 → 10,220 B, search 10,421 → 9,095 B, contacts 9,163 → 8,209 B, sign-in 5,834 → 5,270 B; the
