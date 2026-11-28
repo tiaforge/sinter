@@ -128,6 +128,9 @@ calls anything (unless the build ran the helper and wrote its result into the pa
 helper or a method keep the branch (or the request) in the early file, where the visitor's stored value or URL may open it before the
 first paint.
 
+A page whose early file is left with nothing this way keeps it, empty (about 120 bytes), so that what depends on a page
+having one does not change: its [web fonts still load after the window's `load`](#fonts-after-the-load).
+
 ### Your own early code
 
 `src/sinter.early.ts` is optional app code that runs before anything is rendered, for example to

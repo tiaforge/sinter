@@ -56,10 +56,19 @@ test('a branch the initial state closes: not in the early file, not in the first
   expect(has('menu')).toBe(false);
 });
 
-test('a page whose only early binding is such a branch has no early file', () => {
-  const html = doc('<body data-sn-state="{ open: false }"><button data-sn-on-click="open = true">o</button><template data-sn-if="open"><p>x</p></template></body>');
+test('a page whose only early binding is such a branch keeps an early file, with nothing in it (what a build ties to it stays: fonts after the load)', async () => {
+  const html = doc('<body data-sn-state="{ open: false }"><button id="t" data-sn-on-click="open = true">o</button><template data-sn-if="open"><p id="x">x</p></template></body>');
   const opts: CompileOptions = { file: '/app/index.html', root: '/app', dev: false, readFile: () => '', moduleSrc: '/page.js', helpers: { module: '/h.js', names: [], namespaces: {} }, prerender: true, early: { module: null } };
-  expect(compileParts(html, opts).early ?? null).toBeNull();
+  const early = compileParts(html, opts).early;
+  expect(early).toMatchObject({ ir: { roots: [], templates: [] }, fns: [] });
+  // a page with nothing early at all has none, as before
+  expect(compileParts(html.replace('<template data-sn-if="open"><p id="x">x</p></template>', ''), opts).early ?? null).toBeNull();
+  // and it loads as any page: the page module waits for the early file, which does nothing
+  const { wrote, flush } = await takeover(html);
+  expect(wrote).toEqual([]);
+  click('t');
+  await flush();
+  expect(has('x')).toBe(true);
 });
 
 test('a branch the initial state opens stays early, and is taken over', async () => {

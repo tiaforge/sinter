@@ -13308,9 +13308,14 @@ class Compiler {
       // eslint-disable-next-line no-new-func -- build time only: literals and operators (`stateOnly`), nothing in scope
       try { return !new Function(`"use strict"; return (${written})();`)(); } catch { return false; }
     };
+    /**
+     * whether something that would be in the early file was left out because it would do nothing there (`closedByState`,
+     * `closedAsWritten`, a request whose `when` is closed): a page with nothing else early keeps an early file, empty (below)
+     */
+    let left = false;
     const list = (defs: NodeDef[]): NodeDef[] => {
       // a dialog's bindings wait until it opens (as in the runtime): nothing of a closed dialog is painted
-      const bs = defs.map((nd) => (nd.dl || this.lateNodes.has(nd) ? [] : nd.b.filter((b) => !closedByState(b)).filter(eligible).filter((b) => !closedAtMount(b) && !closedAsWritten(b))));
+      const bs = defs.map((nd) => (nd.dl || this.lateNodes.has(nd) ? [] : nd.b.filter(eligible).filter((b) => !closedAtMount(b)).filter((b) => !(closedByState(b) || closedAsWritten(b)) || !(left = true))));
       for (const nd of defs) if (!nd.dl && !this.lateNodes.has(nd)) for (const b of nd.b) unrendered(b);
       const keep = new Map<number, number>();
       defs.forEach((nd, i) => { if (nd.state !== undefined || bs[i]!.length) keep.set(i, keep.size); });
@@ -13379,9 +13384,6 @@ class Compiler {
       if (def.call || def.each || (def.data != null && !def.so) || !def.src.length || !knownReq(strs(def.deps))) continue;
       // a URL the HTML preloads (see injectScript) leaves earlier than this file runs
       if (this.preloaded(def) || this.late(def.name)) continue;
-      // its `when` is false over the state's initial values, and the early script computes those very values: it would
-      // not send the request (`q` sends only where `u()` is truthy); the page module requests it when the state lets it
-      if (def.when != null && this.whenClosed.has(def.name) && sameEarly(stateOnly(this.fns[def.when]!) ?? [''])) continue;
       // another origin only when listed in `origins` (the runtime's allowlist, known at build time)
       const where = this.earlyOrigin(def.src);
       if (!where) continue;
@@ -13389,11 +13391,19 @@ class Compiler {
       const codes = [...def.src.filter((x): x is number => typeof x === 'number'), ...(def.when != null ? [def.when] : []), ...(start != null ? [start] : [])].map((i) => this.fns[i]!);
       const scope = (def.scope ?? -1) < 0 ? -1 : rootKeep.get(def.scope!);
       if (scope === undefined || codes.some(builtin) || codes.some((c) => /\$(r|meta|el)\b/.test(c))) continue;
+      // its `when` is false over the state's initial values, and the early script computes those very values: it would
+      // not send the request (`q` sends only where `u()` is truthy); the page module requests it when the state lets it
+      if (def.when != null && this.whenClosed.has(def.name) && sameEarly(stateOnly(this.fns[def.when]!) ?? [''])) { left = true; continue; }
       reads.push(...strs(def.deps));
       url ||= codes.some((c) => c.includes('$url'));
       res.push({ src: def.src.map((x) => (typeof x === 'number' ? fn(this.fns[x]!) : x)), ...(def.when != null ? { when: fn(this.fns[def.when]!) } : {}), scope, ...(def.paginate ? { q: firstParams(def.paginate) } : {}), ...(def.paginate && start != null ? { sp: startOf(def.paginate, fn(this.fns[start]!)) } : {}), ...(def.lo ? { lo: 1 as const } : {}), ...(where === 'listed' ? { xo: 1 as const } : {}), ...(settings(def.name)), ...(this.needsToken.has(def.name) || def.so ? { r: 1 as const } : {}) });
     }
-    if (!roots.some((n) => n.b.length) && !res.length && !this.guard) return null;
+    if (!roots.some((n) => n.b.length) && !res.length && !this.guard) {
+      // nothing to run early. Where that is only because the build left out what would do nothing, the page keeps an early
+      // file with nothing in it: what a build ties to a page having one stays as it was (its web fonts load after the
+      // window's `load`, docs/first-paint.md#fonts-after-the-load; the page module waits for it as before)
+      return left ? { ir: { roots: [], templates: [] }, fns: [], helpers: [], namespaces: {} } : null;
+    }
     // only the state fields the early bindings read (and the fields those read): a field whose
     // initializer calls a heavy helper stays out of the early chunk unless something shown needs it
     const need = new Map<number, Set<string> | 'all'>();

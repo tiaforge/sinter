@@ -95,11 +95,13 @@ test('what the early script may see differently keeps the request early: a store
   expect(p.text()).toBe('/api/d?id=5');
 });
 
-test('a page whose only early work was such a request has no early file, and loads as before', async () => {
+test('a page whose only early work was such a request keeps an early file, with nothing in it, and loads as before', async () => {
   const html = `<!doctype html><html><head></head><body data-sn-state="{ sel: null }">
     <sn-resource name="d" src="/api/d?id={sel.id}" when="sel"></sn-resource>
     <button id="pick" data-sn-on-click="sel = { id: 9 }">pick</button><p id="d" data-sn-text="d?.at"></p></body></html>`;
-  expect(compile(html, OPTS).early).toBeNull();
+  const early = compile(html, OPTS).early!;
+  expect(early).toContain('scopes: () => [], render: () => {} }');
+  expect(early).not.toContain('requests');
   const p = await load(html);
   expect(p.early).toEqual([]);
   await p.go('pick');
