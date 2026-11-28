@@ -49,6 +49,15 @@ or only after the page module takes over.
   longer, `SN_FUZZ_FIRST` starts at another seed (run a long sweep in chunks side by side).
   It also writes through aliases (`sel = y; sel.n += 10`): direct, inside another object, in another list, a
   helper's element, one from `reduce()` the compiler cannot follow, and through the list they alias.
+  And it renders computed lists, whose rows read their item without a dependency: a filter over state objects
+  that reads a scalar, a helper that returns its argument or a part of it, a helper that returns new group
+  objects holding the same items (inner rows read the group and the item), and a list of state fields
+  (`col in [picked, other]`); written by the scalar alone, an item in place (through the list, an alias, an
+  inner row's handler), both in one handler, the fields' arrays in place and replaced. One more oracle
+  computes what those rows must show from the state itself, since marking a scope whole goes through the same
+  evaluation of the list. Mutants it catches at the default seeds: kept rows of a computed list not rendered
+  again (seed 1), and not rendered again unless a change of the flush is inside a value the list reads
+  (seed 4).
 - `test/memo-fuzz.test.ts` calls `memo()` with random argument lists: primitives that look alike (`0` and
   `-0`, `NaN`, `''` and `undefined`, strings that run into each other), plain objects and arrays of them in
   other orders, with holes or a null prototype, look-alikes of each list, and arguments that call through.

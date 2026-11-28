@@ -943,6 +943,56 @@ test('a computed list renders a change to its items in place: forEach, an index,
   }
 });
 
+// The rows of a computed list read their item without a dependency, so the list's evaluation is what renders them
+// again: every row it keeps, also one whose item is the object it was. Three pages on which "the same item object at
+// the same place, so the row is as it was" is wrong: a rule that skips such rows (an open item of
+// docs/proposals/redesign-notes/runtime-size-speed.md, section 4, item 2) has to pass these.
+
+test('a computed list of state fields renders the array a checkbox group changed in place', async () => {
+  // the group adds its value to the array it has (models.ts) and marks the field: the mark looks like a new value, the
+  // row's item is the array it was
+  const { root, flush } = await render(`<div data-sn-state="{ picked: ['a'], other: ['x'] }">
+    <template data-sn-for="col in [picked, other]"><i data-sn-text="col.join(',')"></i></template>
+    <input type="checkbox" value="b" data-sn-model="picked"></div>`);
+  const box = root.querySelector('input') as HTMLInputElement, texts = () => [...root.querySelectorAll('i')].map((e) => e.textContent);
+  box.click();
+  await flush();
+  expect(texts()).toEqual(['a,b', 'x']);
+  box.click();
+  await flush();
+  expect(texts()).toEqual(['a', 'x']);
+});
+
+test('a computed list renders what its helper returns now, also when the helper hands back the objects it returned before', async () => {
+  // such a helper breaks the rule (a helper is pure: nothing changed elsewhere, no state kept between calls,
+  // docs/expressions.md), and no build or dev check sees it: the page must not be where it shows, as a row that
+  // keeps its old text with no warning
+  const pool = [{ t: '' }, { t: '' }];
+  const { root, flush } = await render(`<div data-sn-state="{ q: 'a' }">
+    <template data-sn-for="x in rowsFor(q)"><i data-sn-text="x.t"></i></template>
+    <button data-sn-on-click="q = 'z'"></button></div>`,
+    { helpers: { rowsFor: (q: string) => { pool[0]!.t = q + '1'; pool[1]!.t = q + '2'; return pool; } } });
+  const texts = () => [...root.querySelectorAll('i')].map((e) => e.textContent);
+  expect(texts()).toEqual(['a1', 'a2']);
+  root.querySelector('button')!.click();
+  await flush();
+  expect(texts()).toEqual(['z1', 'z2']);
+});
+
+test('an inner row with the same item renders what it reads of its outer item, a new group object of a helper', async () => {
+  // the groups are new objects at each evaluation and hold the same items: the outer row renders for its new item,
+  // and the rows of the list below it with it (the force from above), though their own items did not change
+  const { root, flush } = await render(`<div data-sn-state="{ xs: [{t: 'a'}, {t: 'b'}], q: 'p' }">
+    <template data-sn-for="g in groups(xs, q)" data-sn-key="g.k"><template data-sn-for="x in g.items"><i data-sn-text="g.label + x.t"></i></template></template>
+    <button data-sn-on-click="q = 'z'"></button></div>`,
+    { helpers: { groups: (xs: unknown[], q: string) => [{ k: 1, label: q, items: xs }] } });
+  const texts = () => [...root.querySelectorAll('i')].map((e) => e.textContent);
+  expect(texts()).toEqual(['pa', 'pb']);
+  root.querySelector('button')!.click();
+  await flush();
+  expect(texts()).toEqual(['za', 'zb']);
+});
+
 test('marked outer elements update inner rows that read them', async () => {
   const { root, flush } = await render(`
     <div data-sn-state="{ xs: [{t: 'a', ys: [{v: 1}, {v: 2}]}, {t: 'b', ys: [{v: 3}]}] }">
