@@ -169,11 +169,11 @@ How to write an entry (from 0.21.0 on; older sections keep their own form):
   `data-sn-persist`, one that reads the URL, the clock, another field or a helper, and any branch of a page where a
   persisted model writes inside an object, keep their branch and their request early, so a stored value or the URL
   still opens them before the first paint. To let a branch leave the early file, give what it reads a field of its
-  own. Caley's mail page: early file 3,972 → 3,749 B gzip, `<head>` 3,591 → 3,330 B gzip; its calendar's early file
+  own. Caley's mail page: early file 3,972 → 3,749 B gzip, `<head>` 3,595 → 3,341 B gzip; its calendar's early file
   2,063 → 1,892 B, its message view's 837 → 741 B. On an API with a
   token, a branch over data that needs the token (`data-sn-if="user"`) is left out the same way, as it is closed
   signed out and while the user loads: RealWorld's pages 77 to 137 B gzip each, early file and `<head>` together. A state value a helper computed at build time that only the page script reads is
-  written at the end of the `<body>`, not in the `<head>` (Caley's mail `<head>` 3,340 → 3,135 B gzip). Nothing to do; the first paint and the requests are the same
+  written at the end of the `<body>`, not in the `<head>` (two values on Caley's mail page; counted in its `<head>` above). Nothing to do; the first paint and the requests are the same
   ([docs/first-paint.md](docs/first-paint.md#what-an-early-file-leaves-out)).
 
 - The early script no longer carries bindings that could never paint: one that reads, on every path, the data or
