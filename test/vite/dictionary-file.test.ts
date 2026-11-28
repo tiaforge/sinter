@@ -57,7 +57,7 @@ const FILES: Record<string, string> = {
   'small.html': page(`<body data-sn-state="{ n: 0 }"><button id="more" data-sn-on-click="n = n + 1">more</button><p id="s" data-sn-text="'clicked ' + n"></p></body>`),
 };
 
-async function site(name: string, files: Record<string, string> = {}, options: Parameters<typeof sinter>[0] = {}, sourcemap = false, extra: Plugin[] = []) {
+async function site(name: string, files: Record<string, string> = {}, options: Parameters<typeof sinter>[0] = {}, sourcemap: boolean | 'inline' = false, extra: Plugin[] = []) {
   const root = join(tmp, name), out = join(root, 'dist');
   for (const [f, text] of Object.entries({ ...FILES, ...files })) { mkdirSync(dirname(join(root, f)), { recursive: true }); writeFileSync(join(root, f), text); }
   await build({ root, logLevel: 'silent', resolve: { alias }, plugins: [sinter({ localePrefix: true, swap: true, site: 'https://example.com', ...options }), ...extra], build: { outDir: out, emptyOutDir: true, sourcemap, rollupOptions: { input: ['index.html', 'b.html', 'small.html'].map((f) => join(root, f)) } } });
@@ -204,6 +204,17 @@ describe('the build', () => {
     // (a chunk without a dictionary file has the hint alone)
     const other = one.assets.filter((f) => f.endsWith('.js.map')).map((f) => (JSON.parse(one.read(`assets/${f}`)) as { mappings: string }).mappings);
     expect(other.some((m) => !m.startsWith(';;'))).toBe(true);
+  }, 120_000);
+
+  test('`sourcemap: \'inline\'`: the map in the entry chunk\'s last comment moves down by the import and the hint too', async () => {
+    const inl = await site('inline', {}, { compileHints: true }, 'inline');
+    const p = inl.of('en/index.html');
+    const code = inl.read(p.entry);
+    expect(code).toMatch(/^\/\/# allFunctionsCalledOnLoad\nimport"\.\/en-m-[\w-]{8}\.js";\n/);
+    const b64 = /\/\/# sourceMappingURL=data:application\/json;(?:charset=utf-8;)?base64,(\S+)\s*$/.exec(code)?.[1];
+    const map = JSON.parse(Buffer.from(b64!, 'base64').toString('utf8')) as { mappings: string };
+    expect(map.mappings.startsWith(';;')).toBe(true);
+    expect(map.mappings.startsWith(';;;')).toBe(false);
   }, 120_000);
 });
 

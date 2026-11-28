@@ -3603,6 +3603,10 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
           if (c.map) c.map.mappings = ';' + c.map.mappings;
           const m = bundle[c.fileName + '.map'];
           if (m?.type === 'asset' && typeof m.source === 'string') { const j = JSON.parse(m.source) as { mappings: string }; j.mappings = ';' + j.mappings; m.source = JSON.stringify(j); }
+          // (`sourcemap: 'inline'`: the map is in the code already, a data URL in its last comment)
+          c.code = c.code.replace(/(\/\/# sourceMappingURL=data:application\/json;(?:charset=utf-8;)?base64,)([A-Za-z0-9+/=]+)(\s*)$/, (_, head: string, b64: string, tail: string) => {
+            try { const j = JSON.parse(Buffer.from(b64, 'base64').toString('utf8')) as { mappings: string }; j.mappings = ';' + j.mappings; return head + Buffer.from(JSON.stringify(j)).toString('base64') + tail; } catch { return head + b64 + tail; }
+          });
         };
         // a page's dictionary file (the main plugin's `renderChunk`): the first import of the page's entry chunk, so it
         // runs before every other module of the page
