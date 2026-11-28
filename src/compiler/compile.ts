@@ -13067,6 +13067,8 @@ class Compiler {
      * for the data, `{ loading, error: null, loadedAt: null }` for the status, loading when the `when` holds. A resource
      * with `cache` checks first that this tab has cached nothing (else it throws, and the page module renders the binding).
      */
+    /** the last `status()`'s code before its checks: the binding's value once they pass */
+    let written = '';
     const status = (code: string): string => {
       let ast: acorn.Node;
       try { ast = parseExpression(code); } catch { return code; }
@@ -13134,9 +13136,11 @@ class Compiler {
         }
       };
       visit(ast, null);
+      written = code;
       if (!edits.length) return code;
       let out = code;
       for (const [a, b, t] of edits.sort((x, y) => y[0] - x[0])) out = out.slice(0, a) + t + out.slice(b);
+      written = out;
       // a tab that has cached or prefetched rows of these: the binding throws, and the page module renders it; an embedded
       // resource's data, read first: a placeholder the server left empty throws, and the page module loads it
       const first = [...[...checks].map((i) => `f[${i}]()`), ...[...reads].map((n) => `$.$r${/^[A-Za-z_$][\w$]*$/.test(n) ? `.${n}` : `[${JSON.stringify(n)}]`}`)];
@@ -13273,9 +13277,23 @@ class Compiler {
      * binding is left out, with the templates, functions and state fields only it needs. Anything else is kept.
      */
     const closedByState = (b: Binding) => b.k === 'if' && b.z === undefined && this.initiallyClosed.get(b) === true && sameEarly(stateOnly(this.fns[b.f!]!) ?? ['']);
+    /**
+     * A `data-sn-if` (without a `data-sn-else`) whose condition, with the resources' state at mount written in (`status`),
+     * reads nothing any more and is false (`user` on an API with a token: null signed out and while it loads): the early
+     * script would render nothing, whether its checks pass or throw. Left out, with what the look added to the table.
+     */
+    const closedAsWritten = (b: Binding) => {
+      if (b.k !== 'if' || b.z !== undefined) return false;
+      const mark = fns.length;
+      status(this.fns[b.f!]!);
+      for (const c of fns.splice(mark)) index.delete(c);
+      if (stateOnly(written)?.length !== 0) return false;
+      // eslint-disable-next-line no-new-func -- build time only: literals and operators (`stateOnly`), nothing in scope
+      try { return !new Function(`"use strict"; return (${written})();`)(); } catch { return false; }
+    };
     const list = (defs: NodeDef[]): NodeDef[] => {
       // a dialog's bindings wait until it opens (as in the runtime): nothing of a closed dialog is painted
-      const bs = defs.map((nd) => (nd.dl || this.lateNodes.has(nd) ? [] : nd.b.filter((b) => !closedByState(b)).filter(eligible).filter((b) => !closedAtMount(b))));
+      const bs = defs.map((nd) => (nd.dl || this.lateNodes.has(nd) ? [] : nd.b.filter((b) => !closedByState(b)).filter(eligible).filter((b) => !closedAtMount(b) && !closedAsWritten(b))));
       for (const nd of defs) if (!nd.dl && !this.lateNodes.has(nd)) for (const b of nd.b) unrendered(b);
       const keep = new Map<number, number>();
       defs.forEach((nd, i) => { if (nd.state !== undefined || bs[i]!.length) keep.set(i, keep.size); });

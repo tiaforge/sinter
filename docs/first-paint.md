@@ -109,7 +109,9 @@ An early file holds what can show in the first frame, and nothing the page scrip
 
 - a binding the build wrote into the HTML ([build-time constants](#build-time-constants));
 - a binding that reads, whatever the state, data that is not in the page ([embedded data](#embedded-data));
-- a branch the resources' status closes at mount ([loading branches](#loading-branches));
+- a branch the resources' status closes at mount ([loading branches](#loading-branches)), also on an API with a
+  token: `data-sn-if="user"` is closed signed out and while the user loads, so only the signed-out branch
+  (`$meta.user.loadedAt && !user`) is early;
 - a branch the state's initial values close: a `data-sn-if` without a `data-sn-else` (and not in an else-if chain)
   whose condition is made of state fields, literals and operators alone (`open`, `!sel.busy && sel.keys.length > 0`),
   and is false over the values `data-sn-state` gives those fields. A closed menu, a selection toolbar or a form's error

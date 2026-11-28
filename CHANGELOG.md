@@ -117,8 +117,9 @@ How to write an entry (from 0.21.0 on; older sections keep their own form):
   `detail: null`) no longer brings its early request, which was never sent. A field with `data-sn-persist`, or one
   that reads the URL, the clock or a helper, keeps its branch and its request early, so a stored value or the URL
   still opens it before the first paint. Caley's mail page: early file 3,972 → 3,181 B gzip, `<head>` 3,591 → 3,339 B
-  gzip; its calendar's early file 2,063 → 1,897 B, its message view's 837 → 622 B; RealWorld's pages 21 to 58 B
-  each. Nothing to do; the first paint and the requests are the same
+  gzip; its calendar's early file 2,063 → 1,897 B, its message view's 837 → 622 B. On an API with a
+  token, a branch over data that needs the token (`data-sn-if="user"`) is left out the same way, as it is closed
+  signed out and while the user loads: RealWorld's pages 77 to 137 B gzip each, early file and `<head>` together. Nothing to do; the first paint and the requests are the same
   ([docs/first-paint.md](docs/first-paint.md#what-an-early-file-leaves-out)).
 
 - The early script no longer carries bindings that could never paint: one that reads, on every path, the data or
