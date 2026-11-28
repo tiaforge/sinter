@@ -2646,7 +2646,8 @@ class Compiler {
     // and in an app that sets no locale itself, the locale of `$locale` and the formatters (`pageLocale`)
     { const h = doc.childNodes.find((n): n is P5Element => isElement(n) && n.tagName === 'html'); this.pageLang = (h && attr(h, 'lang')) || undefined; this.htmlLocale = h && !this.tagBindsLang ? literalLang(h) : undefined; }
     this.checkHead();
-    const twice = this.componentIds();
+    const co = this.coexistingIds(doc);
+    const twice = this.componentIds(co);
     for (const { el, why } of this.repeatedIds) {
       const site = this.siteKey(el);
       if (site && twice.has(site)) continue;
@@ -2654,6 +2655,7 @@ class Compiler {
       this.report(el, 'id', 'SN532', `\`id="${attr(el, 'id')}"\` is in markup that renders more than once (${why}): the page would have that id more than once`, 0,
         `compute it from the row: \`data-sn-attr="{ id: '${attr(el, 'id')}-' + item.id }"\`, or move the element out of the repeated markup`);
     }
+    this.duplicateIds(co, twice);
     // the second pass: bindings the first found constant for good, written before the layout and the images read the markup
     if (this.opts.constants?.size) this.prefold(doc);
     const sheets = this.opts.styles ?? this.opts.images?.styles;
@@ -4449,7 +4451,7 @@ class Compiler {
         } else {
           el.attrs.push({ name: a.name, value: a.value });
           // the caller's, on this use only: not an id of the component's markup (`componentIds`)
-          if (a.name === 'id') this.tagIds.add(el);
+          if (a.name === 'id') this.tagIds.set(el, host);
         }
       }
     }
@@ -5237,14 +5239,83 @@ class Compiler {
     return (u.shape ? landingOf(u.shape) : [u.root]).filter((e) => !this.slotOf.has(e) || this.useOf.get(e) === u);
   }
 
-  /** elements whose `id` a component's tag gave them (its use's own) */
-  private readonly tagIds = new WeakSet<P5Element>();
+  /** elements whose `id` a component's tag gave them (its use's own), and that tag */
+  private readonly tagIds = new WeakMap<P5Element, P5Element>();
+
+  /** where an element's `id` was written: on the component tag that gave it (the outermost, when one passed it on), or on the element */
+  private idSite(el: P5Element): P5Element {
+    for (let t = this.tagIds.get(el); t; t = this.tagIds.get(t)) el = t;
+    return el;
+  }
 
   /** literal ids in repeated markup, reported after `componentIds` (which may report the same element as SN209) */
   private readonly repeatedIds: Array<{ el: P5Element; why: string }> = [];
 
+  /**
+   * The literal ids of the expanded page, each with the elements that can have it at the same time: the branches of
+   * an if chain, a choice's candidates and a list's empty state beside its rows are alternatives (the most any one
+   * of them has), everything else adds up. A `data-sn-for` row counts once (its rows are SN532's). A `<template>`
+   * that is not sinter's is not looked into.
+   */
+  coexistingIds(n: P5Parent): Map<string, P5Element[]> {
+    const out = new Map<string, P5Element[]>();
+    const add = (to: Map<string, P5Element[]>, from: Map<string, P5Element[]>) => { for (const [k, v] of from) to.set(k, [...(to.get(k) ?? []), ...v]); };
+    const most = (alts: Array<Map<string, P5Element[]>>) => {
+      const m = new Map<string, P5Element[]>();
+      for (const a of alts) for (const [k, v] of a) if (v.length > (m.get(k)?.length ?? 0)) m.set(k, v);
+      return m;
+    };
+    const one = (el: P5Element) => {
+      const m = new Map<string, P5Element[]>();
+      const id = attr(el, 'id');
+      if (id !== undefined && id !== '') m.set(id, [el]);
+      add(m, this.coexistingIds(el));
+      if (el.tagName === 'template' && el.attrs.some((a) => a.name.startsWith('data-sn-'))) add(m, this.coexistingIds((el as P5Template).content));
+      return m;
+    };
+    const els = n.childNodes.filter(isElement);
+    const isElse = (e: P5Element | undefined) => !!e && e.tagName === 'template' && attr(e, 'data-sn-else') !== undefined;
+    for (let i = 0; i < els.length; i++) {
+      const el = els[i]!;
+      const group = this.choices.get(el)?.group;
+      const alts = [one(el)];
+      // a choice's candidates (the clones of one `<sn-component use>`), then its else
+      if (group) while (i + 1 < els.length && this.choices.get(els[i + 1]!)?.group === group) alts.push(one(els[++i]!));
+      // an if's else-ifs and else, a list's empty state, a choice's else
+      if (group || (el.tagName === 'template' && (attr(el, 'data-sn-if') !== undefined || attr(el, 'data-sn-for') !== undefined))) {
+        while (isElse(els[i + 1])) {
+          alts.push(one(els[++i]!));
+          if (attr(els[i]!, 'data-sn-if') === undefined) break;
+        }
+      }
+      add(out, alts.length > 1 ? most(alts) : alts[0]!);
+    }
+    return out;
+  }
+
+  /**
+   * A literal `id` on more than one element the page can show at once (SN209): from two places in the markup (two
+   * components, a component and the page, two fills). One place rendered more than once is `componentIds`' or SN532's.
+   */
+  duplicateIds(co: Map<string, P5Element[]>, reported: Set<string>) {
+    const repeated = new Set(this.repeatedIds.map(({ el }) => this.siteKey(el)));
+    const where = (e: P5Element) => {
+      const line = e.sourceCodeLocation?.startLine;
+      return `\`<${e.tagName}>\` at ${basename(this.origins.get(e)?.file ?? this.opts.file)}${line ? `:${line}` : ''}`;
+    };
+    for (const [id, all] of co) {
+      const els = all.map((e) => this.idSite(e));
+      const sites = [...new Set(els.map((e) => this.siteKey(e)))];
+      if (sites.length < 2 || sites.some((s) => s === null || reported.has(s) || repeated.has(s))) continue;
+      const first = els[0]!, el = els.find((e) => this.siteKey(e) !== this.siteKey(first))!;
+      this.report(el, 'id', 'SN209', `\`id="${id}"\` is also the id of ${where(first)}: the page would have that id ${els.length} times`, 0,
+        'give each element its own id (and update the `for`, `aria-*` and `run()` references to it)');
+      reported.add(this.siteKey(el)!);
+    }
+  }
+
   /** A literal `id` in the markup of a component used more than once would be on the page more than once. */
-  componentIds(): Set<string> {
+  componentIds(co: Map<string, P5Element[]>): Set<string> {
     const out = new Set<string>();
     for (const [name, list] of this.uses) {
       if (list.length < 2 || list[0]!.head) continue;
@@ -5252,14 +5323,19 @@ class Compiler {
       const find = (n: P5Parent): P5Element | null => {
         for (const c of n.childNodes) {
           if (!isElement(c) || this.slotOf.get(c)) continue;
-          if (attr(c, 'id') !== undefined && this.origins.get(c)?.file === u.file && !this.tagIds.has(c)) return c;
+          // (an id on the tag of an inner component, written in this markup, is this markup's too)
+          if (attr(c, 'id') !== undefined && this.origins.get(this.idSite(c))?.file === u.file && this.idSite(c) !== u.host) return c;
           const x = find(c) ?? (c.tagName === 'template' ? find((c as P5Template).content) : null);
           if (x) return x;
         }
         return null;
       };
-      const el = attr(u.root, 'id') !== undefined && this.origins.get(u.root)?.file === u.file && !this.tagIds.has(u.root) ? u.root : find(u.root);
-      if (el) this.report(el, 'id', 'SN209', `\`<${name}>\` is used ${list.length} times on this page, and its markup has \`id="${attr(el, 'id')}"\`: the page would have that id ${list.length} times`, 0,
+      const found = attr(u.root, 'id') !== undefined && this.origins.get(u.root)?.file === u.file && !this.tagIds.has(u.root) ? u.root : find(u.root);
+      // (uses in an if's branches, or a choice's candidates, are never on the page together)
+      const site = found && this.siteKey(this.idSite(found));
+      const times = found ? (co.get(attr(found, 'id')!) ?? []).filter((e) => e === found || (site !== null && this.siteKey(this.idSite(e)) === site)).length : 0;
+      const el = times > 1 ? found : null;
+      if (el) this.report(el, 'id', 'SN209', `\`<${name}>\` is used ${list.length} times on this page, and its markup has \`id="${attr(el, 'id')}"\`: the page would have that id ${times} times`, 0,
         'compute the id from a prop: `data-sn-attr="{ id: \'edit-\' + item.id }"`, or use the component once');
       if (el && this.siteKey(el)) out.add(this.siteKey(el)!);
     }

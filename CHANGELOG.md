@@ -37,6 +37,12 @@ How to write an entry (from 0.21.0 on; older sections keep their own form):
   in; dev builds threw. Copy the row when storing it (`sel = structuredClone(row)`, or `{ ...row }` where one level is
   enough) to edit a draft, or change the resource with `merge()` or write-through
   ([docs/diagnostics.md](docs/diagnostics.md#sn205-resource-mutation)).
+- A literal `id` written in more than one place that the page shows at once is error `SN209`: twice in a page, in two
+  components, in a component and the page, in two fills, or on two component tags. Before, only a component used more
+  than once with an `id` in its own markup was reported. Give each element its own id, and update the `<label for>`,
+  `aria-*` and `run()` references to it. Elements in the branches of one if chain, in a choice's candidates or in a
+  list's empty state are never on the page together, and may share an id
+  ([docs/components.md](docs/components.md#ids)).
 
 ### Added
 
@@ -100,6 +106,7 @@ How to write an entry (from 0.21.0 on; older sections keep their own form):
 - A `<dialog popover>` opened as a popover (`showPopover()`, a `popovertarget` button) renders its bindings: a dialog
   shown that way has no `open` attribute, so sinter took it as closed and its content, which waits while a dialog is
   closed, never rendered. Opened with `showModal()` or `show()` it worked, and still does. Nothing to do.
+- `SN209` no longer reports a component with an `id` in its markup whose uses are in different branches of one if chain (`data-sn-if`, `data-sn-else`), or in a list's empty state beside its rows: those uses are never on the page together. The message counts the copies of the id the page can show at once ([docs/components.md](docs/components.md#ids)).
 - A component's `:scope` (and `&`) matches its root only. It also matched each top element of the slot content the component passes into another component's slots (marked `data-sn-s="<name>"`), so `:scope { display: contents }` took their boxes, and `:scope > x` reached their children. That content still gets the component's other rules (`.x`, `p`), as before. The compiled selector is `:scope:where([data-sn-c="<name>"])`, with the same specificity. A rule that styled that slot content through `:scope` names it by its class instead ([docs/components.md](docs/components.md#styles)).
 - `SN530` no longer reports an image whose height is a percentage of a box with a fixed height when an `@supports` rule may change that box's `display` and every display it may take gives the percentage the same basis (such as `inline-grid` or `inline-block`); the image counts as sized, as it did without the `@supports` rule. See [SN530](docs/diagnostics.md#sn530-unsized-late-image).
 - A page with `data-sn-transition` that navigates while a cross-document view transition runs no longer leaves an uncaught `Transition was aborted because of invalid state` in Chromium: the transition's `ready` and `updateCallbackDone` rejections are handled as `finished` already was ([docs/navigation.md](docs/navigation.md#page-transitions)).

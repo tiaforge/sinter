@@ -138,9 +138,9 @@ Error, for example:
 
 > `s` is already defined here by `data-sn-let`; use another name
 
-A name is declared twice where one is read: a `data-sn-let` name is inlined wherever it is read, so it cannot share a name with a state variable or loop variable in its scope, or be redeclared inside it; two `<sn-resource>` elements on one page cannot share a name. A resource cannot take the name of a store function (`refresh`, `upsert`, `merge`, `remove`, `page`, `showModal`, `close`, `emit`, `run`, `navigate`).
+A name is declared twice where one is read: a `data-sn-let` name is inlined wherever it is read, so it cannot share a name with a state variable or loop variable in its scope, or be redeclared inside it; two `<sn-resource>` elements on one page cannot share a name. A resource cannot take the name of a store function (`refresh`, `upsert`, `merge`, `remove`, `page`, `showModal`, `close`, `emit`, `run`, `navigate`). The same holds for a literal `id`, which is unique in a page: one written in two places the page shows at once (twice in the page, in two components, in a component and the page, in two fills, on two component tags), or in the markup of a component used more than once. The branches of one if chain, the candidates of `<sn-component use>` and a list's empty state are never on the page together, and may share an id.
 
-**Fix:** Rename the let, the state or loop variable, or one of the resources (or remove the duplicate).
+**Fix:** Rename the let, the state or loop variable, or one of the resources (or remove the duplicate). For an id: give each element its own (and update the `<label for>`, `aria-*` and `run()` references to it), or in a component compute it from a prop: `data-sn-attr="{ id: 'edit-' + item.id }"`.
 
 ## SN210 url-list-mismatch
 
