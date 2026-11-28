@@ -195,10 +195,12 @@ const HELPER_WRITES_ONLY = ['SN214'];
 const LOCATION_ONLY = ['SN349'];
 /** With `sinter({ explainWrites: true })` only: SN548 in test/compiler/explain-writes.test.ts. */
 const EXPLAIN_ONLY = ['SN548'];
+/** App modules' uses of the built-in messages, read by the Vite plugin's build: SN350 in test/vite/messages-reach.test.ts. */
+const MESSAGES_ONLY = ['SN350'];
 
 describe('every diagnostic code has a failing fixture', () => {
   test('all codes covered', () => {
-    expect(new Set([...cases.map((c) => c[0]), ...CHECK_ONLY, ...IMAGES_ONLY, ...STATIC_ONLY, ...LAZY_ONLY, ...APIS_ONLY, ...BUILD_ONLY, ...STYLES_ONLY, ...PRERENDER_ONLY, ...LIBRARY_ONLY, ...SWAP_ONLY, ...OPTIONS_ONLY, ...LOCATION_ONLY, ...EXPLAIN_ONLY, ...HELPER_WRITES_ONLY])).toEqual(new Set(Object.keys(CODES)));
+    expect(new Set([...cases.map((c) => c[0]), ...CHECK_ONLY, ...IMAGES_ONLY, ...STATIC_ONLY, ...LAZY_ONLY, ...APIS_ONLY, ...BUILD_ONLY, ...STYLES_ONLY, ...PRERENDER_ONLY, ...LIBRARY_ONLY, ...SWAP_ONLY, ...OPTIONS_ONLY, ...LOCATION_ONLY, ...EXPLAIN_ONLY, ...HELPER_WRITES_ONLY, ...MESSAGES_ONLY])).toEqual(new Set(Object.keys(CODES)));
   });
   for (const [code, html, message, check] of cases) {
     test(code, () => {
