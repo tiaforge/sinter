@@ -9,7 +9,7 @@ import type { App, Feature, ModelInner } from './runtime/app.js';
 const feature: Feature = {
   name: 'models',
   install(app: App) {
-    app.ext.models = ({ evaluate, deferred }: ModelInner) => {
+    app.ext.models = ({ evaluate, deferred, waits }: ModelInner) => {
       /** each bound select, with the model's value its sync last wrote, its options then and which were selected */
       const selects = new Map<any, { v: string; all: HTMLOptionElement[]; on: boolean[] } | null>();
       const write = (rb: any, v: any) => {
@@ -42,7 +42,7 @@ const feature: Feature = {
         forget(rb) { selects.delete(rb); },
         sync() {
           for (const [rb, last] of selects) {
-            if (rb.c && rb.el.closest('dialog:not([open])')) { deferred.add(rb); continue; }
+            if (rb.c && waits(rb.el)) { deferred.add(rb); continue; }
             const el = rb.el as HTMLSelectElement, v = evaluate(rb), all = [...el.options];
             const key = JSON.stringify(Array.isArray(v) ? v.map(String) : '' + (v ?? ''));
             // the model and the options as sync left them, the selection not: the user's pick, whose `input`

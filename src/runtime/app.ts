@@ -338,7 +338,7 @@ export interface App {
 }
 
 /** The renderer's internals the models of controls other than text fields (models.ts) use. */
-export interface ModelInner { evaluate(rb: any): any; deferred: Set<any> }
+export interface ModelInner { evaluate(rb: any): any; deferred: Set<any>; waits(el: Element | null): boolean }
 export interface Models { write(rb: any, v: unknown): void; read(rb: any): unknown; bound(rb: any): void; forget(rb: any): void; sync(): void }
 
 /** The renderer's internals the selection index (select.ts) uses. */
@@ -937,7 +937,8 @@ export function mount(root: Document | Element, o: MountOptions): App {
   instances.set(root, app);
   for (const f of o.features ?? []) f.install(app);
   /** controls other than text fields (models.ts), on pages with such a model */
-  const models = app.ext.models?.({ evaluate, deferred });
+  // (`waits`: only where a binding can wait, so a core without dialogs keeps none of it)
+  const models = app.ext.models?.(F.DIALOG ? { evaluate, deferred, waits } : { evaluate, deferred } as ModelInner);
   /** the selection index (select.ts), on pages with selection bindings */
   const sel = F.LIST || F.BRANCH ? app.ext.select?.({ hit, isSimple, walkSimple, process }) : undefined;
 
@@ -1169,11 +1170,17 @@ export function mount(root: Document | Element, o: MountOptions): App {
     return true;
   }
 
-  /** In a closed dialog, or one the current event closes: a binding there waits until it opens. */
+  /**
+   * In a closed dialog, or one the current event closes: a binding there waits until it opens. A `<dialog popover>`
+   * that `showPopover()` (or its `popovertarget` button) opened has no `open` attribute and is open: `:popover-open`
+   * says so, asked only of a dialog with `popover` (a browser without the pseudo-class throws: closed, as before).
+   */
   function waits(el: Element | null): boolean {
-    if (!el) return false;
-    if (el.closest('dialog:not([open])')) return true;
-    for (const d of closing) if (d.contains(el)) return true;
+    for (let d = el; d && (d = d.closest('dialog:not([open])')); d = d.parentElement) {
+      if (!d.hasAttribute('popover')) return true;
+      try { if (!d.matches(':popover-open')) return true; } catch { return true; }
+    }
+    if (el) for (const d of closing) if (d.contains(el)) return true;
     return false;
   }
 
@@ -1697,7 +1704,8 @@ export function mount(root: Document | Element, o: MountOptions): App {
     if (!synth) ev ??= e;
     try {
       if (F.DIALOG) {
-        if (e.type == 'toggle' && el.localName == 'dialog' && el.hasAttribute('open') && !closing.has(el)) reveal(el);
+        // (open: by its `open` attribute, or as a popover)
+        if (e.type == 'toggle' && el.localName == 'dialog' && !waits(el)) reveal(el);
         const d = closes(e, el);
         if (d && !closing.has(d)) {
           closing.add(d);
