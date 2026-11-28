@@ -178,7 +178,8 @@ parse the article again. This happens when:
 When the early file has not run (a [swap](navigation.md#swaps) runs no head script, or the script
 failed to load), the page script imports the module's own copy, a chunk of its own, and waits for it
 before it runs. On the pages whose early file has the module, the page names that chunk for the swap
-(`<link data-sn-shared>`, which fetches nothing on a load), so it loads beside the page script. A page
+(`<link data-sn-shared>`, which fetches nothing on a load), so it loads beside the page script (fetched, and
+run by the page script, after [its dictionary file](messages.md#the-pages-dictionary)). A page
 that uses the module but has no early copy of it fetches the chunk with the page (`modulepreload`).
 A build in which no early file calls a helper module (no embedded data, nothing early that calls
 one) is unchanged.

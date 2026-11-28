@@ -105,6 +105,9 @@ How to write an entry (from 0.21.0 on; older sections keep their own form):
   (`constructor(private label = m.save())`) has its text: the build did not read those places, so the page lacked the
   entry and showed its key.
 
+- With `compileHints: true` and `build.sourcemap: 'inline'`, a page module's source map (the data URL at its end)
+  moves down by the hint's line, as a map in its own `.map` file did: every mapping pointed one line too high.
+
 - Embedded data in the head (`<script type="application/json" data-sn-resource>`) whose JSON holds the text
   `</head>` is no longer cut there: the compiler took the first `</head>` of the page's text for the end of the head,
   and wrote the page module's tag (and the Speculation Rules, the stylesheets Vite adds) into the data. The end of the
@@ -181,36 +184,34 @@ How to write an entry (from 0.21.0 on; older sections keep their own form):
   RealWorld's head script 3,140 → 2,958 B gzip, the dashboard example's 2,074 → 1,833 B, Caley's 3,781 → 3,670 B.
   Nothing to do.
 
-- A page no longer carries all the messages its modules call in its HTML. A build writes them into a file per page
-  and language, `assets/<language>-m-<hash>.js`, which the page script imports before anything else, and the HTML keeps
-  only the entries the early script reads (with the texts in the early script, next bullet: none, but for a plural). The HTML is smaller on every view, and less of it
-  stands before the first paint; the file is fetched once and then comes from the cache. Caley, HTML gzip: mail
-  12,165 → 11,014 B (8 of 90 entries stay in the page), settings 6,734 → 5,415 B (none of 88), calendar
-  6,014 → 5,122 B (7 of 76), the German pages 690 to 1,480 B less. The files are 0.8 to 1.8 kB gzip. A first visit
-  transfers 230 to 400 B more than before (the file's own wrapper, its preload link, and what compressing it apart
-  from the page costs), each later view 560 to 1,480 B less.
-  **What is new in `dist/`, and what a server should do:** an `assets/<language>-m-<hash>.js` for each page and
-  language (`en-m-….js`; pages with the same messages share one). Its name has the
-  hash of its text, so give it the cache
-  headers of every other file under `assets/` (`Cache-Control: public, max-age=31536000, immutable`); a server that
-  already does that for `assets/*` needs no change, and `script-src 'self'` covers it. When a text changes, the file
-  and the page script that imports it get new names, for that page and language only: before, a changed text left the
-  page script cached, now that one small script is fetched again (Caley's page scripts: 1 to 29 kB gzip). A
-  dictionary under 1,024 bytes of JSON stays in the page, whole, with no file. The dev server and `sinter render`
-  are unchanged. Nothing to do in an app
-  ([docs/messages.md](docs/messages.md#the-pages-dictionary)).
+- A page no longer carries all the messages its modules call in its HTML. A build writes them into a file per page and
+  language, `assets/<language>-m-<hash>.js`, which the page script imports before anything else, and the HTML keeps
+  only the entries the early script reads (with the texts in the early script, next bullet: none, but for a plural).
+  The HTML is smaller on every view, and less of it stands before the first paint; the file is fetched once and then
+  comes from the cache. Caley, HTML gzip: mail 12,165 → 11,014 B (8 of 90 entries stay in the page), settings 6,734 →
+  5,415 B (none of 88), calendar 6,014 → 5,122 B (7 of 76), the German pages 690 to 1,480 B less. The files are 0.8 to
+  1.8 kB gzip. A first visit transfers 230 to 400 B more than before (the file's own wrapper, its preload link, and
+  what compressing it apart from the page costs), each later view 560 to 1,480 B less. **What is new in `dist/`, and
+  what a server should do:** an `assets/<language>-m-<hash>.js` for each page and language (`en-m-….js`; pages with
+  the same messages share one). Its name has the hash of its text, so give it the cache headers of every other file
+  under `assets/` (`Cache-Control: public, max-age=31536000, immutable`); a server that already does that for
+  `assets/*` needs no change, and `script-src 'self'` covers it. When a text changes, the file and the page script
+  that imports it get new names, for that page and language only: before, a changed text left the page script cached,
+  now that one small script is fetched again (Caley's page scripts: 1 to 29 kB gzip). A dictionary under 1,024 bytes
+  of JSON stays in the page, whole, with no file. The dev server and `sinter render` are unchanged. Nothing to do in
+  an app ([docs/messages.md](docs/messages.md#the-pages-dictionary)).
 
 - The early script has the texts of the messages its modules call written in, in the page's language, instead of
   reading them from a dictionary in the page: `m.nav_mail()` in a module the early script runs is written as `"Mail"`
   in the English early script and `"Post"` in the German one, and a message with a parameter as its text with the
-  parameter put in, exactly as the messages module would put it. The early script no longer carries the messages module (about 370 B gzip),
-  and the page no longer carries the entries it read, so the HTML holds no dictionary at all on most pages. Caley,
-  against main, before the first paint (HTML and head scripts), gzip: mail 19,584 → 17,948 B, calendar
-  11,576 → 10,220 B, search 10,421 → 9,095 B, contacts 9,163 → 8,209 B, sign-in 5,834 → 5,270 B; the German pages
-  689 to 1,765 B less; with the dictionary file above, a first visit 71 to 167 B less on pages whose early script
-  called a message (225 to 328 B more on the others, the file's cost), a later view 564 to 1,480 B less. A plural
-  or a formatted placeholder in the early script still reads its entry, which then stays in the page. What is new in
-  `dist/`: the early scripts differ per language where they call a message (`en-contacts-head-….js` and
+  parameter put in, exactly as the messages module would put it. The early script no longer carries the messages
+  module (about 370 B gzip), and the page no longer carries the entries it read, so the HTML holds no dictionary at
+  all on most pages. Caley, against main, before the first paint (HTML and head scripts), gzip: mail 19,584 → 17,948
+  B, calendar 11,576 → 10,220 B, search 10,421 → 9,095 B, contacts 9,163 → 8,209 B, sign-in 5,834 → 5,270 B; the
+  German pages 689 to 1,765 B less; with the dictionary file above, a first visit 71 to 167 B less on pages whose
+  early script called a message (225 to 331 B more on the others, the file's cost), a later view 564 to 1,480 B less.
+  A plural or a formatted placeholder in the early script still reads its entry, which then stays in the page. What is
+  new in `dist/`: the early scripts differ per language where they call a message (`en-contacts-head-….js` and
   `de-contacts-head-….js` were one text before). Nothing to do
   ([docs/messages.md](docs/messages.md#messages-in-the-early-script)).
 
