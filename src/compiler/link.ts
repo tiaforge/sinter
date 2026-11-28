@@ -533,7 +533,7 @@ class LoggedWeak {
  */
 const BUILD_OPTIONS = new Set(['root', 'dev', 'sourcemap', 'helpers', 'actions', 'config', 'readFile', 'listFiles', 'globCache', 'templates', 'definitions', 'componentCache', 'collections',
   'collectionsError', 'prefetch', 'openapi', 'apis', 'complexity', 'expansionLimit', 'componentNames', 'libraries', 'lazy', 'lazyScript', 'lazyModule',
-  'helperValues', 'helperFold', 'helperWrites', 'foldLog', 'prerender', 'changesRequests', 'observe', 'embed', 'componentCss', 'base', 'file', 'decided', 'unrolled', 'constants', 'frozen', 'overLimit', 'rendered']);
+  'helperValues', 'helperFold', 'helperWrites', 'foldLog', 'prerender', 'changesRequests', 'observe', 'headMark', 'embed', 'componentCss', 'base', 'file', 'decided', 'unrolled', 'constants', 'frozen', 'overLimit', 'rendered']);
 
 /**
  * A top-level definition compiled as a unit (`unitChild`) and recorded as it compiles. Its writes are applied to the page,

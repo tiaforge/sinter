@@ -231,6 +231,13 @@ export interface CompileOptions {
   /** the early module runs as a classic script in the head, started by `observe` (see `@tiaforge-ui/sinter/runtime/early`); with `early.src`, its tag is classic */
   observe?: boolean;
   /**
+   * builds: the text of a comment (`<!--headMark-->`) the compiler writes in the head where the head scripts go,
+   * which the Vite plugin replaces with them (src/vite.ts) once the bundle names them: after the leading `<meta>`s,
+   * the values the early script reads and the preconnect and preload links, before the first stylesheet, module
+   * preload or script (`injectScript`). Taken from the page's tree, so no text inside an element can be the place.
+   */
+  headMark?: string;
+  /**
    * builds served by a server that fills embedded data (sinter-axum): every resource whose request
    * only the page's URL decides gets a placeholder in the head, so it is neither preloaded nor
    * requested early; not `call`, `each`, or `early="off"` (a request a middleware changes)
@@ -14347,6 +14354,15 @@ class Compiler {
     script.parentNode = head;
     OWN_SCRIPTS.add(script);
     head.childNodes.push(script as never);
+    // builds: where the Vite plugin writes the head scripts (`headMark`), before the first of the head's own elements
+    // that is a stylesheet, a module preload or a script (a classic script waits for the stylesheets before it, and the
+    // page module waits for the early script); the values the early script reads are no such script (`placeFolded`)
+    if (this.opts.headMark) {
+      const first = head.childNodes.findIndex((n) => isElement(n) && (n.tagName === 'script' ? !this.earlyValues.has(n) : n.tagName === 'link' && /^(stylesheet|modulepreload)/i.test(attr(n, 'rel') ?? '')));
+      const mark = parse5.parseFragment(`<!--${this.opts.headMark}-->`).childNodes[0]!;
+      mark.parentNode = head;
+      head.childNodes.splice(first, 0, mark as never);
+    }
   }
 }
 

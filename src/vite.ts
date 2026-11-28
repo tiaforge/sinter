@@ -3,7 +3,7 @@
 // first paint on, each page also gets an early script: classic scripts first in the
 // head (one shared by every page, one of the page's own) that render what needs no
 // data as the parser inserts it, before the first paint, with nothing render-blocking.
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { dirname, isAbsolute, join, posix, relative, resolve, sep } from 'node:path';
 import { gzipSync } from 'node:zlib';
@@ -334,6 +334,10 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     const off = was.fonts.inline === false, preload = was.fonts.preload !== undefined;
     throw new Error(`sinter({ fonts: { inline } }) is renamed to \`${off ? (preload ? 'fonts: { bundle: false, preload }' : 'fonts: false') : 'fonts: { bundle }'}\`: the build bundles Google Fonts' stylesheets as CSS files, it inlines nothing${off || preload ? '' : ' (`bundle: true` is the default: leave it out)'}`);
   }
+  // builds: the comment the compiler writes where a page's head scripts go (`headMark`), replaced with them once the
+  // bundle names them; its text is this build's own, so no text of a page (an article about HTML in embedded data)
+  // can be taken for it
+  const headMark = `sn-head-${randomBytes(8).toString('hex')}`;
   // nested options take known keys only, as markup does: a typo fails the build instead of doing nothing
   const keysOf = (name: string, v: unknown, keys: string[]) => {
     if (typeof v !== 'object' || v === null) return;
@@ -1667,6 +1671,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       ...(remoteConfig ? { remoteImages: dev ? devRemote(remoteConfig, resolved?.base ?? '/') : remoteConfig } : {}),
       ...(firstPaint ? { early: { module: p.early, src: earlySrc } } : {}),
       ...(firstPaint ? { observe: true } : {}),
+      ...(dev ? {} : { headMark }),
       ...(options.embed && !dev ? { embed: true } : {}),
       componentCss: (name) => `${COMPONENT_CSS}${name}.css`,
       ...(p.swap ? { swapList: swapId(group) } : {}),
@@ -2534,6 +2539,10 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         // shared helper modules the page's bundle reaches: their own copies, for a swap or fetched with the page
         if (shared.size && ctx.bundle) html = withShared(html, rel, ctx.bundle, base);
         const inline = pageMessages.get(rel);
+        // where the head scripts go: the compiler's comment (`headMark`), in the head's own elements
+        // (after the white space that follows it, which is the next tag's indent)
+        const mark = `<!--${headMark}-->`, found = html.indexOf(mark), at = found < 0 ? -1 : found + /^\s*/.exec(html.slice(found + mark.length))![0].length;
+        if (found >= 0) html = html.slice(0, found) + html.slice(found + mark.length);
         if (!early && !own && !inline) return html;
         // a page in one language: the messages its app modules call, before any script that reads them
         const tags: string[] = inline ? [inline] : [];
@@ -2543,13 +2552,12 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         if (early) report(rel, { fileName: own!, ...early }, null, ctx.bundle ? () => pageModules(ctx.bundle!, rel) : null);
         // first in the head, before the stylesheets (a classic script waits for the stylesheets before it) and the page
         // module (which the hold script changes as the parser inserts it): the early requests leave at once. After the
-        // build-computed values the early file reads, which the compiler wrote first in the head (`placeFolded`: a
-        // `<script data-sn="id">` is one of those, never a script to stand before): the head scripts make the page's
-        // states as they start, and read each value from the head parsed so far
-        const at = html.search(/<link\b[^>]*\brel=["']?(stylesheet|modulepreload)|<script\b(?![^>]*\sdata-sn=["']?\d)/i);
-        const block = tags.join('\n  ');
-        // (a function: a message's text may hold `$&`)
-        return at >= 0 ? html.slice(0, at) + block + '\n  ' + html.slice(at) : html.replace('</head>', () => `  ${block}\n</head>`);
+        // build-computed values the early file reads, which the compiler wrote first in the head (`placeFolded`): the
+        // head scripts make the page's states as they start, and read each value from the head parsed so far. The
+        // compiler says where (`headMark`, `injectScript`): the plugin searches no markup, whose text (embedded data)
+        // may hold anything
+        if (at < 0) throw new Error(`sinter: ${rel}: the place of the head scripts is gone from the page (the comment \`${mark}\` the compiler wrote in its head): a plugin that runs before sinter's last HTML step removed it`);
+        return html.slice(0, at) + tags.join('\n  ') + '\n  ' + html.slice(at);
       },
     },
   };

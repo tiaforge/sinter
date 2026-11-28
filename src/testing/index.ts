@@ -529,7 +529,7 @@ async function paint(parts: CompiledParts, helpers: Record<string, unknown>, app
  * DOMContentLoaded. One node per parser chunk is the order that leaves the most elements open at each pass.
  * The early script stands after the head's leading `<meta>`s and the build-computed values the compiler wrote after
  * them (compile.ts `placeFolded`): there the dev server's tag is (`injectScript`), and a build's head scripts come no
- * earlier (src/vite.ts puts them before the first stylesheet, module preload or script, which is at or after that
+ * earlier (the compiler marks their place before the first stylesheet, module preload or script, at or after that
  * place). So `early` starts with those nodes parsed, and nothing after them.
  */
 async function parse(early: () => void) {

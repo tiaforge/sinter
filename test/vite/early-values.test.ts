@@ -10,7 +10,7 @@ import { join, resolve } from 'node:path';
 import { createRequire } from 'node:module';
 import { createServer as httpServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { build, createServer } from 'vite';
+import { build, createServer, type Plugin } from 'vite';
 import { afterAll, expect, test } from 'vitest';
 import sinter from '../../src/vite.js';
 
@@ -141,3 +141,118 @@ test('a value whose text has `$&` or `$1` reaches the first paint as written', a
   expect(stored.errors).toEqual([]);
   expect(stored.document.querySelector('h1')?.textContent).toBe("all for $& or $' and $1");
 });
+
+// Where the head scripts go is the compiler's: a comment among the head's own elements (`headMark`), which the plugin
+// replaces with them. Before (review round 2 of the branch), the plugin searched the page's text for the first
+// stylesheet, module preload or script, and passed over any `<script … data-sn="N">` start tag to stand after the
+// values: an embedded resource's data element is such a tag, and the search went on into its JSON text, where an
+// article about HTML holds `<script`. The head scripts were written there, the data cut in two.
+
+/** a site of one page, built: its HTML, and its output folder */
+async function page(name: string, html: string, options: Parameters<typeof sinter>[0] = {}, more: Plugin[] = [], helpers = HELPERS) {
+  const root = join(tmp, name), out = join(root, 'dist');
+  mkdirSync(join(root, 'src'), { recursive: true });
+  writeFileSync(join(root, 'src/sinter.helpers.ts'), helpers);
+  writeFileSync(join(root, 'index.html'), html);
+  await build({ root, logLevel: 'silent', resolve: { alias }, plugins: [sinter(options), ...more], build: { outDir: out, emptyOutDir: true, rollupOptions: { input: { index: join(root, 'index.html') } } } });
+  const built = readFileSync(join(out, 'index.html'), 'utf8');
+  // (the compiler's comment is gone from every built page)
+  expect(built).not.toMatch(/<!--sn-head-/);
+  return { out, html: built };
+}
+
+/** the text of a post about HTML: what a search of the page's text would take for tags */
+const TRICKY = 'Write <script src="/app.js" defer></script> in the head, <link rel="stylesheet" href="/x.css"> for its styles, <!-- a note --> and $& or $1.';
+/** a post's JSON as an author writes it in a data element (`</` as `<\/`, which JSON allows, so the element ends where it does) */
+const postJson = (body: string) => JSON.stringify({ title: 'Loading a script', body }).replace(/<\//g, '<\\/');
+/** a page with the post's data in its head after `before`, a build-computed value the early file reads, and a stored choice */
+const POST = (before: string) => `<!doctype html><html lang="en"><head><meta charset="utf-8">${before}<title>x</title>
+<script type="application/json" data-sn-resource="post">${postJson(TRICKY)}</script></head>
+<body data-sn-state="{ pinned: false, title: titled('hello world') }"><sn-resource name="post" src="/api/post" type="any"></sn-resource>
+<input id="pin" type="checkbox" data-sn-model="pinned" data-sn-persist="pinned"><button data-sn-on-click="title = title + '!'">t</button>
+<h1 data-sn-text="post.title"></h1><p id="body" data-sn-text="post.body"></p><template data-sn-if="pinned"><h2 data-sn-text="title"></h2></template></body></html>
+`;
+
+/** where the built head's parts are: the post's data element, the value, the head scripts, the first stylesheet, the page module */
+function places(html: string) {
+  return {
+    data: /<script type="application\/json" data-sn="\d+">(\{[\s\S]*?)<\/script>/.exec(html), value: html.search(/<script type="application\/json" data-sn="\d+">"Hello World"<\/script>/),
+    shared: html.search(/<script src="[^"]*sinter-head-[^"]*"><\/script>/), own: html.search(/<script src="[^"]*index-head-[^"]*"><\/script>/),
+    css: html.search(/<link rel="stylesheet"/), module: html.search(/<script type="module"/), end: html.indexOf('</head>'),
+  };
+}
+
+test('embedded data that holds the text `<script`: the data is as written, the head scripts are tags of the head, and the first paint has the post', async () => {
+  const { out, html } = await page('data', POST(''));
+  const p = places(html);
+  expect(p.data, 'the page has its data element').not.toBeNull();
+  expect(JSON.parse(p.data![1]!)).toEqual({ title: 'Loading a script', body: TRICKY });
+  expect(p.shared).toBeGreaterThan(-1);
+  expect(p.shared).toBeLessThan(p.data!.index);
+  const painted = await firstPaint(out, html, { 'sn:pinned': 'true' });
+  expect(painted.errors).toEqual([]);
+  expect(painted.document.querySelector('#body')?.textContent).toBe(TRICKY);
+  expect(painted.document.querySelector('h2')?.textContent).toBe('Hello World');
+}, 120000);
+
+test.each([
+  ['minified, a title first', '', {}],
+  ['as written (`minifyHtml: false`), a title first', '', { minifyHtml: false }],
+  ['a <style> first', '<style>h1 { color: teal }</style>', {}],
+  ['a script of the page\'s own first', '<script>document.documentElement.dataset.theme = "dark";</script>', {}],
+  ['a stylesheet of the page\'s own first', '<link rel="stylesheet" href="https://cdn.example/hand.css">', { minifyHtml: false }],
+] as const)('%s: the value, then the head scripts, then the stylesheets and the page module; the data as written', async (what, before, options) => {
+  const { out, html } = await page(`order-${what.replace(/\W+/g, '-')}`, POST(before), options);
+  const p = places(html);
+  expect(JSON.parse(p.data![1]!)).toEqual({ title: 'Loading a script', body: TRICKY });
+  expect(p.value).toBeGreaterThan(-1);
+  expect(p.value, 'the value before the head scripts').toBeLessThan(p.shared);
+  expect(p.shared).toBeLessThan(p.own);
+  expect(p.own, 'the head scripts before the first stylesheet').toBeLessThan(p.css < 0 ? p.end : p.css);
+  expect(p.own, 'and before the page module').toBeLessThan(p.module);
+  const painted = await firstPaint(out, html, { 'sn:pinned': 'true' });
+  expect(painted.errors).toEqual([]);
+  expect(painted.document.querySelector('h2')?.textContent).toBe('Hello World');
+  expect(painted.document.querySelector('#body')?.textContent).toBe(TRICKY);
+}, 120000);
+
+test('a value whose text holds `</script`, `<!--`, `<link rel="stylesheet"` and `$&`: written escaped, before the head scripts, read as written', async () => {
+  const text = TRICKY.replace('$1', '</script><!--');
+  const { out, html } = await page('tricky-value', POST(''), {}, [], `export const titled = (s: string): string => ${JSON.stringify(text)} + s;\n`);
+  const value = /<script type="application\/json" data-sn="\d+">("Write[^<]*?)<\/script>/.exec(html);
+  expect(value).not.toBeNull();
+  expect(value!.index).toBeLessThan(places(html).shared);
+  const painted = await firstPaint(out, html, { 'sn:pinned': 'true' });
+  expect(painted.errors).toEqual([]);
+  expect(painted.document.querySelector('h2')?.textContent).toBe(text + 'hello world');
+}, 120000);
+
+test('another plugin writes a script first in the head: the values the early script reads still stand before the head scripts', async () => {
+  const prepend: Plugin = { name: 'prepend', transformIndexHtml: { order: 'post', handler: () => [{ tag: 'script', children: 'window.__theme = 1;', injectTo: 'head-prepend' }] } };
+  const { out, html } = await page('prepend', PAGE, {}, [prepend]);
+  const p = places(html);
+  expect(html).toContain('window.__theme = 1;');
+  expect(p.value).toBeGreaterThan(-1);
+  expect(p.value).toBeLessThan(p.shared);
+  const stored = await firstPaint(out, html, { 'sn:pinned': 'true' });
+  expect(stored.errors).toEqual([]);
+  expect(stored.document.querySelector('h1')?.textContent).toBe('Hello World');
+}, 120000);
+
+test('a placeholder a server fills (`embed: true`, empty at build): after the head scripts, last in the head, and empty', async () => {
+  const { html } = await page('placeholder', `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>x</title></head>
+<body><sn-resource name="post" src="/api/post"></sn-resource><h1 data-sn-text="post.title"></h1></body></html>
+`, { embed: true });
+  const slot = /<script type="application\/json" data-sn="\d+"><\/script>/.exec(html);
+  expect(slot, 'the page has its placeholder, empty').not.toBeNull();
+  const p = places(html);
+  expect(p.shared).toBeGreaterThan(-1);
+  expect(p.shared).toBeLessThan(slot!.index);
+  expect(slot!.index).toBeLessThan(p.end);
+}, 120000);
+
+test('a page with no early file: no head scripts, and nothing left of the compiler\'s comment', async () => {
+  const { html } = await page('none', PAGE, { firstPaint: false });
+  expect(html).not.toMatch(/<script src="[^"]*-head-/);
+  expect(html).toMatch(/<script type="module"/);
+}, 120000);
