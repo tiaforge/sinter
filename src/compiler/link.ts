@@ -251,7 +251,7 @@ export const LINK_FIELDS: Record<string, { kinds: string[]; how: 'table' | 'weak
   swapOff: { kinds: ['boolean'], how: 'fixed' },
   twin: { kinds: ['boolean'], how: 'fixed' },
   syncs: { kinds: ['Array'], how: 'table' },
-  tagIds: { kinds: ['WeakSet'], how: 'weak' },
+  tagIds: { kinds: ['WeakMap'], how: 'weak' },
   templateAt: { kinds: ['Map'], how: 'table' },
   templates: { kinds: ['Array'], how: 'replayed' },
   textAt: { kinds: ['Map'], how: 'table' },
