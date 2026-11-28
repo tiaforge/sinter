@@ -102,22 +102,43 @@ Not shipped, but not refuted:
 ## 4. Open, with what is known
 
 Evaluations. A handler's write list says what it may have changed; everything reading that is evaluated again.
-Calendar next ×2 on Caley: 1,210 evaluations for 247 DOM writes. In a precise prototype the 542 that remained were:
-363 for the 192 rows that are new, about 100 structural checks after data arrived, 79 evaluated to the same value.
-So the floor is about 460. Three separate gaps:
+Calendar next ×2 on Caley: 1,210 evaluations for 247 DOM writes before #139, 544 on main after it (measured again
+2026-11-28; see 1). In a precise prototype the 542 that remained were: 363 for the 192 rows that are new, about 100
+structural checks after data arrived, 79 evaluated to the same value. So the floor is about 460. Three separate gaps:
 
-1. Write lists that say "anything below X" because a helper's result may share its arguments' objects (668 of the
-   1,210; about 50 on mail). Cheapest sound route: rely on declared primitive types and check them at run time (a
-   string cannot share an object); a prototype trusting types without the guard reached 542. Estimate: 200 lines,
-   5 B per guarded call.
+1. Write lists that say "anything below X" because a helper's result may share its arguments' objects. Corrected
+   2026-11-28: the 668 of the 1,210 were the rule #139 removed (a helper call in a handler wrote its state
+   arguments); with that rule put back the count is 1,212, on main 544, and no mark of next ×2 ends in `**`. What
+   remains is writes inside a draft a helper built (`draft = $event.detail` of `emit('event-new', newEventDraft(…))`,
+   compose, the account and import forms). Measured at 4x CPU: typing five characters in the event form's summary
+   evaluates 2,420 bindings for no DOM write (exact lists: 35), 71.8 ms of script (67.8–91.6) against 36.5
+   (35.2–40.9), five rounds; in compose's subject 565 (exact: 35), 38 against 22 ms, inside the spread; opening a
+   mail 726 (exact: 230), one round, time not separable. Lists the aliases extend: calendar 31 (all in the event
+   form), mail 45, mail view 24, search 31, settings 9, contacts 0.
+   - The guard on declared primitive results, proposed here before, does not address it: 544 → 544, 2,420 → 2,355,
+     565 → 555 (simulated: the types trusted, no guard). The results that over-mark are objects.
+   - The same guard on declared primitive parameters too (a primitive argument shares nothing) is not refuted and
+     not built. Simulated the same way: compose 565 → 35, opening a mail 726 → 260, the event form 2,420 → 1,920
+     (42.6 ms against 56.3, three rounds), where `editEventDraft(detail, …)` and `$now` are objects. Estimate:
+     250–300 lines, 100 B in the core, 6 B per guarded call. Where a review would go first: a piece dropped where no
+     guard runs (a let pasted into its users, a computed list, the dev build's `$hc`); code that evaluates the call
+     elsewhere (folding, the early script, state kept across a swap); a failed guard marks everything from then on,
+     silently in production.
+   - What works on main is a copy where the draft is stored (`draft = structuredClone($event.detail)`; a fresh
+     value, docs/spec.md, Aliases). Four in Caley's event form and compose (tried in a copy, not merged there) make
+     calendar and search exact and both typings 35 evaluations (34.4 ms); on Caley's dev build the forms behaved
+     the same over 30 steps (new, edit, cancel, reopen, a suggestion, save; new, a recipient, reply), with no
+     warning 36 or 37. `explainWrites` names these places (SN548, the form for a helper's result).
 2. A computed list (`contacts.filter(…)`) forces all its rows on every re-evaluation, because its rows have no path
    to watch: typing in Caley's contacts filter evaluates 583 bindings for 0 writes. Needs the compiler to mark which
    inputs can change the elements and which only select among them. Not prototyped.
 3. Same-value evaluations: a per-row test such as `iso === focusDate` runs for every row; a resource that returns
    equal data re-runs its readers.
 
-None of this is visible in time on Caley (evaluations are cheap; rows, DOM work and app helpers are not), and exact
-lists would save under 0.5 KB gzip per page module. Worth doing as "no wasted work", not for speed or size.
+None of this is visible in time on Caley's reference interactions (evaluations are cheap; rows, DOM work and app
+helpers are not); typing in a draft's field is the one place it is (1, about 7 ms a keystroke at 4x CPU in the event
+form). Exact lists would save under 0.5 KB gzip per page module (measured with every helper's result trusted:
+calendar 11,002 → 10,858 B gzip, mail 28,466 → 28,159). Worth doing as "no wasted work", not for speed or size.
 
 First paint with data:
 
