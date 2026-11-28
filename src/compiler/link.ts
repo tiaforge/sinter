@@ -266,6 +266,7 @@ export const LINK_FIELDS: Record<string, { kinds: string[]; how: 'table' | 'weak
   unlisted: { kinds: ['Set'], how: 'table' },
   unrolls: { kinds: ['Map'], how: 'table' },
   urlBinds: { kinds: ['Array'], how: 'table' },
+  whenClosed: { kinds: ['Set'], how: 'table' },
   useById: { kinds: ['Map'], how: 'table' },
   useIds: { kinds: ['number'], how: 'renumbered' },
   useOf: { kinds: ['WeakMap'], how: 'weak' },

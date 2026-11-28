@@ -113,12 +113,15 @@ An early file holds what can show in the first frame, and nothing the page scrip
   and is false over the values `data-sn-state` gives those fields. A closed menu, a selection toolbar or a form's error
   message is rendered by the page script when a handler opens it; the early script would only find it closed. Its
   markup is at the end of the `<body>`, not in the `<head>`;
-- the setter of a `data-sn-model` that is not persisted (the early script only shows such a model's value).
+- the setter of a `data-sn-model` that is not persisted (the early script only shows such a model's value);
+- an [early request](#requests-start-early) whose `when` is such a condition and false over the initial values
+  (`when="detail"` with `detail: null`: a dialog's data): the early script would not send it. The page script
+  requests it when the state lets it, as before.
 
-The build leaves a branch out only where the early script would compute the very values it did. A field with
+The build leaves a branch or a request out only where the early script would compute the very values it did. A field with
 `data-sn-persist` (on the state or on a model of the field), a field whose initializer reads the URL, the clock or
 calls anything (unless the build ran the helper and wrote its result into the page), and a condition that calls a
-helper or a method keep the branch in the early file, where the visitor's stored value or URL may open it before the
+helper or a method keep the branch (or the request) in the early file, where the visitor's stored value or URL may open it before the
 first paint.
 
 ### Your own early code

@@ -152,13 +152,15 @@ test('early requests: resources whose URL reads only what is known early (state,
     <body data-sn-state="{ week: monday($now), q: $url.q, sel: null }">
       <sn-resource name="user" src="/api/user"></sn-resource>
       <sn-resource name="days" src="/api/days?start={week}&q={q}" when="view === 'week'"></sn-resource>
-      <sn-resource name="detail" src="/api/x/{sel.id}" when="sel"></sn-resource>
+      <sn-resource name="detail" src="/api/x/{sel.id}" when="sel || q"></sn-resource>
+      <sn-resource name="closed" src="/api/c/{sel.id}" when="sel"></sn-resource>
       <sn-resource name="dep" src="/api/y?u={user.id}"></sn-resource>
       <sn-resource name="pg" src="/api/p?u={user.id}" paginate="{ numbered: true, size: 10 }" key="id"></sn-resource>
       <sn-resource name="fmt" src="/api/z?d={date($now)}"></sn-resource>
       <p data-sn-text="dep.x"></p>
     </body></html>`, {}, ['monday']);
-  // not: one that reads another resource (paginated or not), one that calls a built-in formatter
+  // not: one that reads another resource (paginated or not), one that calls a built-in formatter, one whose `when` the
+  // state's initial values make false (`closed`: the early script would not send it; `detail`'s also reads the URL)
   expect(ir.res.map((r: { src: string[] }) => r.src[0])).toEqual(['/api/days?start=', '/api/x/']);
   // `user` is fixed at build time: a preload link in the head, first, and not requested again by the early file
   expect(html).toMatch(/<head><link rel="preload" as="fetch" crossorigin="" href="\/api\/user"><script/);

@@ -1667,7 +1667,7 @@ function secondPass(html: string, opts: CompileOptions, kept: KeptExpansion | un
 }
 
 /** an entry's evaluation, which a copy of the kept walk for the route from the walk starts with empty (`fromWalk` clears it) */
-const FW_FRESH = new Set(['decided', 'undecided', 'unrolls', 'foldReads', 'overLimit', 'constants', 'constantSites', 'rowPaint', 'foldWhy', 'painted', 'initiallyClosed', 'tplPainted', 'paintValue', 'textFolded', 'rendered', 'unrendered', 'foldedFields']);
+const FW_FRESH = new Set(['decided', 'undecided', 'unrolls', 'foldReads', 'overLimit', 'constants', 'constantSites', 'rowPaint', 'foldWhy', 'painted', 'initiallyClosed', 'whenClosed', 'tplPainted', 'paintValue', 'textFolded', 'rendered', 'unrendered', 'foldedFields']);
 
 /**
  * B1: an entry of a kept template whose evaluation decided only page-level branches and rendered rows: its page from
@@ -2474,6 +2474,11 @@ class Compiler {
    * evaluated. The early file leaves out those that are true (`earlyParts`, which checks the rest of the rule).
    */
   readonly initiallyClosed = new Map<Binding, boolean>();
+  /**
+   * resources (by name) whose `when` is made of state fields, literals and operators alone and that `prerender()` evaluated
+   * false over the state's initial values: the early file does not carry their request (`earlyParts`, which checks the rest)
+   */
+  readonly whenClosed = new Set<string>();
   /** what `prerender()` wrote for each binding it wrote into the HTML or a template's markup */
   private readonly paintValue = new Map<Binding, ConstantWrite>();
   /** what each binding in the rows of an unrolled loop writes, by the row's instance path (null: not a constant), for the second pass */
@@ -2892,7 +2897,7 @@ class Compiler {
   /** after `decideOnly`: evaluated again, writing (`settle`), when its own output or its constants are needed after all */
   settleAgain() {
     this.diagnostics.length = this.walked;
-    for (const m of [this.decided, this.undecided, this.unrolls, this.foldReads, this.overLimit, this.constants, this.constantSites, this.rowPaint, this.foldWhy, this.painted, this.initiallyClosed, this.tplPainted, this.paintValue, this.textFolded, this.rendered, this.unrendered]) m.clear();
+    for (const m of [this.decided, this.undecided, this.unrolls, this.foldReads, this.overLimit, this.constants, this.constantSites, this.rowPaint, this.foldWhy, this.painted, this.initiallyClosed, this.whenClosed, this.tplPainted, this.paintValue, this.textFolded, this.rendered, this.unrendered]) m.clear();
     this.foldedFields.length = 0;
     this.needsMarkup = false;
     this.settle();
@@ -3239,7 +3244,7 @@ class Compiler {
     (this as { opts: CompileOptions }).opts = { ...this.opts, page: options.page, foldLog: options.foldLog };
     this.fileData.get(this.pagesDecl!.name)!.value = options.page!.value;
     this.diagnostics.length = this.walked;
-    for (const m of [this.decided, this.undecided, this.unrolls, this.foldReads, this.overLimit, this.constants, this.constantSites, this.rowPaint, this.foldWhy, this.painted, this.initiallyClosed, this.tplPainted, this.paintValue, this.textFolded, this.rendered]) m.clear();
+    for (const m of [this.decided, this.undecided, this.unrolls, this.foldReads, this.overLimit, this.constants, this.constantSites, this.rowPaint, this.foldWhy, this.painted, this.initiallyClosed, this.whenClosed, this.tplPainted, this.paintValue, this.textFolded, this.rendered]) m.clear();
     this.foldedFields.length = 0;
     this.prerender(true);
     // the constants the layout and the images read: those of rows come from the evaluation (`rowPaint`); one written into
@@ -9277,7 +9282,9 @@ class Compiler {
       for (const [node, el] of this.tplEls) { const own = !skip; if (skip) skip--; for (const b of node.b) { if (own) { value(el, b, true); decide(el, b); } closing(el, b); } }
     }
     const choosing = reuse ? kept!.choosing : this.collecting() && [...this.pointOf.values()].some((p) => p.pick);
-    if (!cands.length && !choosing && !this.textRoots.length) return;
+    // a resource's `when` over state fields alone: its value over their initial values is the early script's (`whenClosed`)
+    const whens = this.resources.filter((d) => d.when != null && !!stateOnly(this.fns[d.when]!)?.length);
+    if (!cands.length && !choosing && !this.textRoots.length && !whens.length) return;
     // everything the page could call is shadowed: what is not a constant throws
     const NOT = new Error('not a build-time constant');
     const stub = new Proxy(function () {}, { apply() { throw NOT; }, get() { throw NOT; } });
@@ -9333,6 +9340,7 @@ class Compiler {
       const set = new Set<string>();
       for (const st of this.stateInits) for (const x of st.fields) set.add(x.code);
       for (const c of cands) set.add(this.fns[c.f]!);
+      for (const d of whens) set.add(this.fns[d.when!]!);
       for (const c of rowCodes) set.add(c);
       for (const t of texts) set.add(this.fns[t.b.f!]!);
       return [...set];
@@ -9470,6 +9478,7 @@ class Compiler {
     // (a model's own path is its own: past its candidate, a persisted field is persisted for every read, the texts' and
     // the walk's below as the candidates' before it; redesign-notes/bugs.md, 7)
     own = null;
+    for (const d of whens) { const v = run(this.fns[d.when!]!); if (v !== FAIL && !v) this.whenClosed.add(d.name); }
     // a text node over constants: plain text in the HTML, its anchor pair gone, its binding and node dropped
     for (const t of texts) {
       const v = known(strs(t.b.d)) ? run(this.fns[t.b.f!]!) : FAIL;
@@ -12333,7 +12342,7 @@ class Compiler {
     (this as { opts: CompileOptions }).opts = next;
     this.keepsAttrs = false;
     this.dry = null;
-    for (const m of [this.decided, this.undecided, this.unrolls, this.foldReads, this.overLimit, this.constants, this.constantSites, this.rowPaint, this.foldWhy, this.painted, this.initiallyClosed, this.tplPainted, this.paintValue, this.textFolded, this.rendered, this.unrendered]) m.clear();
+    for (const m of [this.decided, this.undecided, this.unrolls, this.foldReads, this.overLimit, this.constants, this.constantSites, this.rowPaint, this.foldWhy, this.painted, this.initiallyClosed, this.whenClosed, this.tplPainted, this.paintValue, this.textFolded, this.rendered, this.unrendered]) m.clear();
     this.foldedFields.length = 0;
     this.attrSources.length = 0;
     this.diagnostics.length = this.walked;
@@ -13333,6 +13342,9 @@ class Compiler {
       if (def.call || def.each || (def.data != null && !def.so) || !def.src.length || !knownReq(strs(def.deps))) continue;
       // a URL the HTML preloads (see injectScript) leaves earlier than this file runs
       if (this.preloaded(def) || this.late(def.name)) continue;
+      // its `when` is false over the state's initial values, and the early script computes those very values: it would
+      // not send the request (`q` sends only where `u()` is truthy); the page module requests it when the state lets it
+      if (def.when != null && this.whenClosed.has(def.name) && sameEarly(stateOnly(this.fns[def.when]!) ?? [''])) continue;
       // another origin only when listed in `origins` (the runtime's allowlist, known at build time)
       const where = this.earlyOrigin(def.src);
       if (!where) continue;

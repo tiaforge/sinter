@@ -107,9 +107,12 @@ How to write an entry (from 0.21.0 on; older sections keep their own form):
 - Early files are smaller where a page has closed menus, toolbars and error messages: a `data-sn-if` without a
   `data-sn-else` that reads only state fields and is false over their initial values is no longer in the early file
   (it would render nothing), and its markup moves from the `<head>` to the end of the `<body>`; a model that is not
-  persisted no longer brings its setter. A field with `data-sn-persist`, or one that reads the URL, the clock or a
-  helper, keeps its branch early, so a stored value or the URL still opens it in the first paint. Caley's mail page:
-  early file 3,992 → 3,443 B gzip, `<head>` 3,591 → 3,337 B gzip. Nothing to do; the first paint is the same
+  persisted no longer brings its setter; and a resource whose `when` is such a condition (`when="detail"` with
+  `detail: null`) no longer brings its early request, which was never sent. A field with `data-sn-persist`, or one
+  that reads the URL, the clock or a helper, keeps its branch and its request early, so a stored value or the URL
+  still opens it before the first paint. Caley's mail page: early file 3,972 → 3,181 B gzip, `<head>` 3,591 → 3,339 B
+  gzip; its calendar's early file 2,063 → 1,897 B, its message view's 837 → 622 B; RealWorld's pages 21 to 58 B
+  each. Nothing to do; the first paint and the requests are the same
   ([docs/first-paint.md](docs/first-paint.md#what-an-early-file-leaves-out)).
 
 - The early script no longer carries bindings that could never paint: one that reads, on every path, the data or
