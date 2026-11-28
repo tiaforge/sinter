@@ -2163,10 +2163,11 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       }
       const json = JSON.stringify(packed(at[ns]!.format ?? '', Object.fromEntries([...keys].sort().map((k) => [k, at[ns]!.entries[k] ?? null])))).replace(/</g, '\\u003c');
       if (json.length < DICT_FILE_MIN) return null;
-      // its entries, under the page's language: the one the messages module read already (a head script called a message),
-      // or found as that module's `ready()` will find it (src/messages.ts), which then keeps what is there. The module
+      // its entries, under the page's language, found as the messages module's `ready()` finds it (src/messages.ts), which
+      // keeps what is there; when that module has started already (a head script read the dictionary), it found the same
+      // language in the same document (a swap imports the next page's file before the next page is in it). The module
       // itself is as it was: every early file that calls a message has a copy of it
-      const source = `{const s=globalThis[Symbol.for("sinter.i18n")]??={locale:"",base:"",locales:[],dicts:{}};let l=s.locale;if(!l)try{l=document.querySelector('script[data-sn-ns="${ns.replace(/[^\w-]/g, '')}"]')?.getAttribute("lang")??document.documentElement.lang}catch{}Object.assign(s.dicts[l||" "]??={},${json})}\n`;
+      const source = `{const s=globalThis[Symbol.for("sinter.i18n")]??={locale:"",base:"",locales:[],dicts:{}};let l;try{l=document.querySelector('script[data-sn-ns="${ns.replace(/[^\w-]/g, '')}"]')?.getAttribute("lang")??document.documentElement.lang}catch{}Object.assign(s.dicts[l||" "]??={},${json})}\n`;
       // named after its language and its text: pages with the same dictionary (a blog's posts) share one file
       const lang = pageLang(resolve(root, rel))?.replace(/[^\w-]/g, '');
       const dir = posix.dirname(chunk.fileName);
@@ -2369,12 +2370,13 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         // with a dictionary file (`renderChunk`), the head keeps what is read before the page's entry chunk runs, which
         // is what the head scripts read: an entry a module of theirs names (`earlyKeys`, by module) whose name is still in
         // their code (`m.key` is the one way to an entry, and a property's name is written out: an entry whose name is
-        // not there cannot be read). And any entry the file does not hold. Where a head script reaches the messages in
-        // a way the build did not read (`KEYS_INEXACT`), all of it stays in the head.
+        // not there cannot be read). Where a head script reaches the messages in a way the build did not read
+        // (`KEYS_INEXACT`), all of it stays in the head. (An entry the file lacks that the head scripts do not name is read
+        // by nothing: the file holds every entry the page's chunks call, `renderChunk` walking the graph this walk does.)
         const file = dictFiles.get(rel), early = earlyKeys.get(rel) ?? new Set<string>();
         const headCode = (sharedHead?.code ?? '') + '\n' + (earlyFiles.get(rel)?.code ?? '');
         const named = (k: string) => k.split('.').every((p) => !/^[A-Za-z0-9_$]+$/.test(p) || new RegExp(`(?<![\\w$])${p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\w$])`).test(headCode));
-        const inHead = (ns: string, k: string) => !file || ns !== file.ns || !file.keys.has(k) || early.has(KEYS_INEXACT) || (early.has(`${ns}\0${k}`) && named(k));
+        const inHead = (ns: string, k: string) => !file || ns !== file.ns || early.has(KEYS_INEXACT) || (early.has(`${ns}\0${k}`) && named(k));
         // (said, since it costs the page its saving: which module, and why)
         if (file && early.has(KEYS_INEXACT) && infoShown()) resolved?.logger.info(`sinter: ${rel}: the page keeps its whole dictionary in its head, since its early script reaches the messages in a way the build does not read: ${[...early].filter((x) => x.startsWith(KEYS_WHY)).map((x) => x.slice(KEYS_WHY.length)).join('; ')}`);
         const tags = [...want].map(([ns, keys]) => `<script type="application/json" data-sn-ns="${attr(ns)}"${lang ? ` lang="${attr(lang)}"` : ''}>${JSON.stringify(packed(at[ns]?.format ?? '', Object.fromEntries([...keys].sort().filter((k) => inHead(ns, k)).map((k) => [k, at[ns]?.entries[k] ?? null])))).replace(/</g, '\\u003c')}</script>`);

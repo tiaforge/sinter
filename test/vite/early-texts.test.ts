@@ -142,6 +142,17 @@ describe('the build', () => {
     expect(one.of('index.html').inline).toBeNull();
   }, 120_000);
 
+  test('an entry only a head script\'s source names, which its minified code no longer has, is not kept in the page', async () => {
+    // (`dead` is in no chunk of the page and in no head script's code: nothing could read it)
+    const dead = await site('dead', {
+      'src/sinter.early.ts': "import { m } from '@tiaforge-ui/sinter/messages';\n(globalThis as { __early?: string }).__early = m.plain();\nif (false) (globalThis as { __early?: string }).__early = m.dead();\n",
+      ...Object.fromEntries((['en', 'de', 'de-AT'] as const).map((l) => [`messages/${l}.json`, JSON.stringify({ ...messages(l), dead: 'Dead' })])),
+    });
+    expect(dead.of('en/index.html').shared).toMatch(RUNTIME);
+    expect(dead.of('en/index.html').shared).not.toContain('dead');
+    expect(dead.of('en/index.html').inline).toEqual(['plain']);
+  }, 120_000);
+
   test('early sources in two languages that differ only in a literal (a message of the markup) share no build: each has its texts', async () => {
     // (the markup's message is compiled into the early source, "Plain" or "Schlicht": the shapes of en and de are one)
     const marked = await site('marked', { 'index.html': shows("m.plain() + probe(n)", "m.plain() + probe(n)") });
@@ -203,6 +214,10 @@ describe.skipIf(!chromium)('in Chromium, on the built site', () => {
       await live.waitForFunction(() => !!document.getElementById('late')?.textContent);
       const later = await live.evaluate(() => document.getElementById('late')!.textContent);
       expect(early).toBe(later);
+      // the entries only the dictionary file has (on count/ and refs/ the head script started the messages module first)
+      await live.click('#fill');
+      await live.waitForFunction(() => !!document.getElementById('all')?.textContent);
+      expect((await live.evaluate(() => document.getElementById('all')!.textContent))!.split('|').every((t) => /^Text (number|Nummer) \d+ /.test(t))).toBe(true);
       expect(early).toContain(path.startsWith('en') ? 'Hello Ada!' : 'Hallo Ada!');
       expect(early).toContain('</script>');
       expect(early).toContain(' ');
