@@ -4,7 +4,9 @@ import dev, { protocolOf } from '../../src/dev.js';
 import type { App } from '../../src/runtime/app.js';
 import { mockRequests, mockStream, render } from '../../src/testing/index.js';
 
+// (a `performance` with the navigation entry the warning reads, and the clock the dev module's other checks read)
 const navigation = (protocol: string, name = 'http://localhost/') => ({
+  now: () => Date.now(),
   getEntriesByType: (type: string) => (type === 'navigation' ? [{ name, nextHopProtocol: protocol }] : []),
 });
 
