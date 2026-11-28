@@ -142,6 +142,15 @@ describe('the build', () => {
     expect(one.of('index.html').inline).toBeNull();
   }, 120_000);
 
+  test('early sources in two languages that differ only in a literal (a message of the markup) share no build: each has its texts', async () => {
+    // (the markup's message is compiled into the early source, "Plain" or "Schlicht": the shapes of en and de are one)
+    const marked = await site('marked', { 'index.html': shows("m.plain() + probe(n)", "m.plain() + probe(n)") });
+    expect(marked.of('de/index.html').head).toContain('Hallo ');
+    expect(marked.of('de/index.html').head).not.toContain('Hello ');
+    expect(marked.of('en/index.html').head).toContain('Hello ');
+    expect(marked.of('en/index.html').head).not.toContain('Hallo ');
+  }, 120_000);
+
   test('without `localePrefix` (one language): the texts of the base language', async () => {
     const one = await site('one', {}, { localePrefix: false });
     const p = one.of('index.html');
