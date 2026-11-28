@@ -92,4 +92,10 @@ test('the exports that read entries by key, by name: `t` and `state`; any other 
   expect(at('state')).toMatchObject({ how: 'import', name: 'state' });
   for (const name of ['getLocale', 'install', 'Messages', 'Entries', 'I18nState', 'anythingElse']) expect(at(name)).toBeNull();
   expect(at('type t')).toBeNull();
+  // what statements decide, read alone: a type re-export of an entry-reading name passes nothing on; `export default m` does
+  const of = (code: string) => statementReach(code, 'a.ts');
+  expect(of("export { type t, type m } from '@tiaforge-ui/sinter/messages';\n")).toBeNull();
+  expect(of("export { t } from '@tiaforge-ui/sinter/messages';\n")).toMatchObject({ how: 'reexport', name: 't' });
+  expect(of("import { m } from '@tiaforge-ui/sinter/messages';\nexport default m;\n")).toMatchObject({ how: 'export', name: 'm' });
+  expect(of("import { m } from '@tiaforge-ui/sinter/messages';\nexport default m.title;\n")).toBeNull();
 });
