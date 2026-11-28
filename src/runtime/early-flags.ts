@@ -6,3 +6,9 @@
 
 /** a page has embedded data its early file reads (`EarlyIR.emb`): `$r` early, and the token's read it makes */
 export const EMBEDDED = true;
+/**
+ * the app has an early module (`src/sinter.early.ts`), which runs in the head script before the pages' early files and may
+ * `configure()` (the URL schemes, the environment): without one the configuration is the default there, and its reads are
+ * compiled away. Not a part a page uses: the build's own fact.
+ */
+export const CONFIG = true;

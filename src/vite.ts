@@ -415,7 +415,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
    */
   const EARLY_FLAGS = (() => { for (const f of ['./runtime/early-flags.js', './runtime/early-flags.ts']) try { return realpathSync(fileURLToPath(new URL(f, import.meta.url))); } catch { /* the other */ } return null; })();
   const earlyUsed = new Map<string, string[]>();
-  const earlyFlags = () => { const on = new Set([...earlyPages.keys()].flatMap((rel) => earlyUsed.get(rel) ?? EARLY_PARTS)); return EARLY_PARTS.map((p) => `export const ${p} = ${on.has(p)};`).join('\n') + '\n'; };
+  const earlyFlags = () => { const on = new Set([...earlyPages.keys()].flatMap((rel) => earlyUsed.get(rel) ?? EARLY_PARTS)); return EARLY_PARTS.map((p) => `export const ${p} = ${on.has(p)};`).join('\n') + `\nexport const CONFIG = ${!!appEarly};\n`; };
   type EarlyJob = { code: string; keys: Set<string>; rt: string[] | null; runtimeId: string | null; map?: SourceMap; own: string[] };
   /** the nested build's config for an early script; its entry plugin reads what it builds from `job` (a session swaps it) */
   const earlyConfig = (job: EarlyJob, rolldown: boolean): InlineConfig => {

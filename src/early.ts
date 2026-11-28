@@ -7,7 +7,7 @@
 // one chunk, `runtime/security` and `url`, and hold copies of the rest), so what they
 // share goes through a global: `start` (early file) and `rendered` (page module, from the core) meet there.
 import { config, signInTarget } from './runtime/config.js';
-import { EMBEDDED } from './runtime/early-flags.js';
+import { CONFIG, EMBEDDED } from './runtime/early-flags.js';
 import type { Env } from './runtime/env.js';
 import { meeting, prefetched, setPrefetched, type EarlyApi, type Prefetched } from './runtime/handoff.js';
 import { schemesOf, STYLE_BAD, urlAllowed } from './runtime/security.js';
@@ -353,7 +353,9 @@ export const $so = (s: 'l' | 's', k: string): boolean => token({ s, k, h: '', p:
 
 /** an API's token, from its storage (`setEnv()`'s in tests), as the request layer reads it; null when none is stored */
 const token = (t: NonNullable<EarlyApi['t']>): string | null => {
-  try { return (t.s == 's' ? (io?.session ? io.session() : sessionStorage) : (io?.storage ? io.storage() : localStorage))?.getItem(t.k) || null; } catch { return null; }
+  // (`CONFIG`: off in a build of an app without an early module, where nothing can have configured an environment)
+  const e = CONFIG ? io : null;
+  try { return (t.s == 's' ? (e?.session ? e.session() : sessionStorage) : (e?.storage ? e.storage() : localStorage))?.getItem(t.k) || null; } catch { return null; }
 };
 
 /** Renders a page's early part (tests; the early file goes through `start`). */
@@ -373,7 +375,7 @@ export function away(o: ReturnType<EarlyPage>, base: any, out: typeof $so, to: (
   if (!g || (document as Document & { prerendering?: boolean }).prerendering) return false;
   // `out`: `$so`, which the page passes (the shared head script's, when every page reads a token: no second copy here)
   try { if (!out(g.t.s, g.t.k) || (g.f != null && !o.fns[g.f]!(base))) return false; } catch { return false; }
-  const e = io;
+  const e = CONFIG ? io : null;
   if (!e) document.documentElement.hidden = true;
   let session: Storage | null = null;
   try { session = e?.session ? e.session() : sessionStorage; } catch { /* none */ }
@@ -404,7 +406,7 @@ function prepare(o: ReturnType<EarlyPage>, req: EarlyRequests | null) {
 /** a persisted value (`sn:<key>`), parsed; undefined when there is none or it cannot be read */
 const read = (key: string): unknown => {
   try {
-    const v = (config.env?.storage ? config.env.storage() : globalThis.localStorage)?.getItem('sn:' + key);
+    const v = (CONFIG && config.env?.storage ? config.env.storage() : globalThis.localStorage)?.getItem('sn:' + key);
     return v == null ? undefined : JSON.parse(v);
   } catch { return undefined; }
 };
@@ -579,7 +581,7 @@ export const set = (el: HTMLElement, v: any, n: string) => {
 };
 /** a URL attribute whose value may have any scheme: written only if the scheme is allowed */
 export const attr = (el: HTMLElement, v: any, n: string) => {
-  if (v == null || v === false || urlAllowed(el, n, v === true ? '' : '' + v, document.baseURI, schemesOf(config.urlSchemes))) set(el, v, n);
+  if (v == null || v === false || urlAllowed(el, n, v === true ? '' : '' + v, document.baseURI, schemesOf(CONFIG ? config.urlSchemes : []))) set(el, v, n);
 };
 export const style = (el: HTMLElement, v: any, n: string) => {
   if (v == null || v === false) el.style.removeProperty(n);

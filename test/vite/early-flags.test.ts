@@ -21,9 +21,10 @@ const KEYED = page('<section data-sn-state="{ tab: \'a\', names: { a: \'A\', b: 
 const EMBEDDED = page('<sn-resource name="user" src="/api/user" type="any"></sn-resource><p data-sn-text="user.name"></p>', '<script type="application/json" data-sn-resource="user">{"name":"Ada"}</script>');
 
 /** builds a site of these pages, and returns its shared head script and each page's own early file */
-async function site(name: string, pages: Record<string, string>) {
+async function site(name: string, pages: Record<string, string>, earlyModule?: string) {
   const root = join(tmp, name), out = join(tmp, name + '-out');
-  mkdirSync(root, { recursive: true });
+  mkdirSync(join(root, 'src'), { recursive: true });
+  if (earlyModule) writeFileSync(join(root, 'src/sinter.early.ts'), earlyModule);
   for (const [n, html] of Object.entries(pages)) writeFileSync(join(root, `${n}.html`), html);
   await build({ root, logLevel: 'silent', resolve: { alias }, plugins: [sinter()], build: { outDir: out, emptyOutDir: true, rollupOptions: { input: Object.fromEntries(Object.keys(pages).map((n) => [n, join(root, `${n}.html`)])) } } });
   const files = readdirSync(join(out, 'assets')), read = (f: string) => readFileSync(join(out, 'assets', f), 'utf8');
@@ -51,4 +52,17 @@ test('a site with a page that has embedded data: its head script holds the reade
   const b = await site('embedded-all', { b: EMBEDDED });
   expect(reader(b.shared)).toBe(true);
   expect(b.own.b).toBe(a.own.b);
+});
+
+test('an app without an early module: the head script reads no configuration (nothing can have set one before it runs)', async () => {
+  // the configuration object, by a field only it has; the persisted state's read is of the browser's storage either way
+  const config = (code: string) => code.includes('sessionProbe');
+  const a = await site('no-early', { a: PLAIN });
+  expect(config(a.shared)).toBe(false);
+  expect(a.shared).toContain('localStorage');
+  const b = await site('with-early', { a: PLAIN }, "import { configure } from '@tiaforge-ui/sinter';\nconfigure({ urlSchemes: ['app'] });\n");
+  expect(config(b.shared)).toBe(true);
+  expect(b.shared).toContain('env?.storage');
+  // the page's own early file does not differ
+  expect(b.own.a).toBe(a.own.a);
 });
