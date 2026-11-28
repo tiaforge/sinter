@@ -40,6 +40,13 @@ How to write an entry (from 0.21.0 on; older sections keep their own form):
 
 ### Added
 
+- A dev build warns when an app helper is called again and again with the same arguments while the page renders and
+  the repeats cost time (runtime warning 38): a `data-sn-let` or a prop is its expression at every read, so a helper
+  in a let that 42 rows read through several bindings runs hundreds of times a render. The message names the helper,
+  its calls and repeats, the milliseconds the repeats took, the let it is read through with its place, and the fix:
+  `memo()` on the helper, or on the expensive function it calls when its arguments are not ones `memo()` keys
+  ([docs/expressions.md](docs/expressions.md#memoized-helpers)). Once a helper; nothing in a production build.
+
 - An app can install an unreleased sinter from a git commit: `npm install github:tiaforge/sinter#<commit>` builds the package (`dist/`) as it installs, through a `prepare` script. `npm ci` in a checkout builds it too.
 - `data-sn-optimistic` sees `$event`, as `data-sn-body`, `data-sn-confirm`, `then` and `catch` do (it was SN201). An action on a component's tag triggered by the component's event (`data-sn-put="/api/tasks/order" data-sn-trigger="move"`) reads `$event.detail` in its optimistic change as in its body, typed by `data-sn-emits`, so a page needs no state and hidden `run()` target to carry it. `data-sn-when` goes on a component's tag with the action, as the other action attributes do (it was SN102) ([docs/actions.md](docs/actions.md#optimistic-updates)).
 - `closePopover()` and `closePopover('id')` in handlers: hide the `popover` around the element, or the one with that

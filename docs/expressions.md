@@ -91,6 +91,27 @@ export const toc = memo((body: string, depth: number) => headings(parseDocument(
   values run at build time as the function it calls would (its cache is the memo's own state, which the
   build's checks allow). Each bundle has its own cache: the early file and the page module each parse once.
 
+**The dev build says when a helper needs it** (warning 38). A `data-sn-let` or a prop is its expression at every
+read: a let on a list's container that every row reads through five bindings calls its helper five times a row, in
+every render. The dev build counts each app helper's calls in bindings while the page renders, and warns in the
+console, once a helper, when the repeats cost time:
+
+> sinter: helper `monthDaysOf` was called 343 times while the page rendered, 341 of them with the same arguments as an earlier call of the same render, and those repeats took 5.4 ms. It is read through `days` (`data-sn-let`, calendar/index.html:249:79). …
+
+- A repeat is a call whose arguments are each the same value (`Object.is`) as in an earlier call of the same render,
+  so a formatter called once a row with that row's value never counts, and an equal object built anew at each call
+  (`{ pad: 2 }`) does not either.
+- It warns when, in the renders one event causes (renders less than a quarter of a second apart), a helper had 20
+  repeats or more that took 5 ms or more together and 5 microseconds or more each (`memo()`'s own lookup takes
+  about one: it cannot help a cheaper helper). The times are the developer's machine's: a phone takes several times
+  as long.
+- The fix is `memo()` on the helper, when its arguments are ones `memo()` keys (the first point above). When the
+  helper takes an array of objects or another value `memo()` passes through, wrap the expensive function it calls
+  with the primitives that one needs: in the example, `monthDaysOf(days, ym)` computes the month's first and last
+  day from `ym` at every call, and `export const monthCells = memo(monthCellsImpl)` inside it is the fix.
+- A production build has none of this, and a test's `render()` reports it in `warnings()` without failing in strict
+  mode (it depends on the machine's speed).
+
 ### Built-in formatters
 
 Always available, no import. They read the current locale, so a locale switch updates them. Each `Intl` formatter is built once per locale and options, then reused.

@@ -22,7 +22,7 @@ import * as parse5 from 'parse5';
 import { freeRefs, parseExpression, parseProgram } from './parse.js';
 import type { DefaultTreeAdapterMap } from 'parse5';
 import { type Code, type Diagnostic, didYouMean, distance, severityOf, suggest } from './diagnostics.js';
-import { type AliasSite, aliasNote, analyze, applyEdits, elementPieces, foldsInto, nsLocal, refNames, STORE_FNS, throughField, wild, type SlotScope, type ComponentScope, type ExprOptions, type ExprResult, type LetEntry, type LoopEntry, type PageInfo, type Read, type ResourceInfo, type Scope } from './expr.js';
+import { type AliasSite, aliasNote, analyze, applyEdits, HELPER_MARK, elementPieces, foldsInto, nsLocal, refNames, STORE_FNS, throughField, wild, type SlotScope, type ComponentScope, type ExprOptions, type ExprResult, type LetEntry, type LoopEntry, type PageInfo, type Read, type ResourceInfo, type Scope } from './expr.js';
 import { callerAttribute, COMPONENT_NAME, componentPaths, DOM_EVENTS, inlineScriptLang, inlineScriptPath, inlineScripts, type InlineScript, isArrayType, LIBRARY_LAYER, rootCss, scopeCss, SLOT_TYPE, typeMembers, withoutSlots, type Member } from './components.js';
 import type { Node } from 'acorn';
 import type * as acorn from 'acorn';
@@ -3047,6 +3047,7 @@ class Compiler {
     this.fileJson(early);
     // builds: the last pass over the tables, after every pass that leaves a template or a function unused
     if (!this.opts.dev) this.compactTables(ir, early);
+    else this.repeatCalls();
     return {
       ...(this.jsonOut.size ? { json: this.jsonOut } : {}),
       ...(this.lateDiags.length ? { lateDiagnostics: this.lateDiags } : {}),
@@ -7190,6 +7191,31 @@ class Compiler {
     return o;
   }
 
+  /** `file:line:col` of a place in the markup, as the dev build's messages give it */
+  placeOf(site: Site | null | undefined): string | null {
+    const o = site && this.origins.get(site.el);
+    if (!site || !o || !site.el.sourceCodeLocation) return null;
+    const { line, col } = this.lineCol(o.src, this.valueOffset(site.el, site.attr) + site.shift);
+    return `${o.file}:${line}:${col}`;
+  }
+
+  /**
+   * A dev build: each marked helper call of the page module's functions (`HELPER_MARK`, expr.ts) goes through the dev
+   * module's count of repeated calls, `$.$hv(helper, name, where)(…)` (dev.ts, warning 38); `where` is the let it is
+   * read through, else the place of the expression. A mark that is no longer before a call (the call was folded) is
+   * left as the comment it is.
+   */
+  repeatCalls() {
+    this.fns.forEach((code, i) => {
+      if (!code.includes('/*h')) return;
+      const next = code.replace(/\/\*h(?::([^*]*))?\*\/([A-Za-z_$][\w$]*)(?=\()/g, (_, where: string | undefined, f: string) =>
+        `$.$hv(${f}, ${JSON.stringify(f.replace(/\${1,2}(?=.)/g, '.'))}, ${JSON.stringify(where ?? this.placeOf(this.fnAt[i]) ?? '')})`);
+      // (a function is found by its code, `sourcesOf`: by the code it has now)
+      if (this.fnIndex.get(code) === i) { this.fnIndex.delete(code); this.fnIndex.set(next, i); }
+      this.fns[i] = next;
+    });
+  }
+
   devAt(o: { at?: Record<number, string> }, fs: Array<number | null | undefined>) {
     if (!this.opts.dev) return;
     const at: Record<number, string> = {};
@@ -7451,6 +7477,8 @@ class Compiler {
       const v = p.value as import('acorn').Expression & { start: number; end: number };
       const r = this.expr(el, 'data-sn-let', scope, { mode: 'value', waits: true }, src.slice(v.start, v.end), v.start);
       const waiting = r.ok ? this.lazyLet(r.inner, r.deps) : null;
+      // (a dev build: the helper calls in it say which let they are read through, warning 38)
+      if (r.ok && r.inner.includes(HELPER_MARK)) r.inner = r.inner.split(HELPER_MARK).join(`/*h:\`${name}\` (\`data-sn-let\`, ${this.placeOf({ el, attr: 'data-sn-let', shift: p.key.start }) ?? ''})*/`);
       const entry: LetEntry = { name, code: waiting?.code ?? r.inner, deps: waiting?.deps ?? r.deps, usesEl: r.usesEl, usesIndex: r.usesIndex, resource: r.resource, src: r.itemOf ?? null, list: r.listOf ?? null, text: src.slice(v.start, v.end), ...(r.pieces ? { pieces: r.pieces } : {}) };
       // the resources it can be, for store calls and `$meta[…]` that take it as one: its value as their names
       // (also when the value has an undeclared name: the use reports it as a resource, with the suggestion)

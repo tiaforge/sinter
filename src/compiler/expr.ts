@@ -38,6 +38,14 @@ export type Sources = string[];
 
 export interface StateEntry { sid: number; names: Set<string> }
 
+/**
+ * A dev build's mark before an app helper's call in a value expression: the page module's functions call it through
+ * the dev module's count of repeated calls (`repeatCalls` in compile.ts, `$.$hv`, warning 38). A comment, so every pass
+ * over the compiled code, the build's own evaluation and the early file read the call as it is. A `data-sn-let` adds
+ * its name and place: `/*h:…*\/`.
+ */
+export const HELPER_MARK = '/*h*/';
+
 /** A `data-sn-let` name: a value expression inlined wherever the name is read. */
 export interface LetEntry {
   name: string;
@@ -1475,6 +1483,8 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
       const m = callee as acorn.MemberExpression & Node;
       const method = !m.computed && m.property.type === 'Identifier' ? m.property.name : null;
       const isNs = m.object.type === 'Identifier' && page.namespaces.has(m.object.name) && !locals.has(m.object.name);
+      // (a namespace's helper, not a message of the content's: see the helper's call below)
+      if (isNs && mode === 'value' && page.dev && !page.contentNs?.has((m.object as acorn.Identifier).name)) edits.push({ start: callee.start, end: callee.start, text: HELPER_MARK });
       if (!isNs) {
         const recv = chainPath(m.object as Node, locals);
         if (method && recv) {
@@ -1551,6 +1561,9 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
           const texts = n.arguments.map((a) => src.slice(a.start, a.end));
           edits.push({ start: callee.start, end: callee.end, text: `$.$hc(${callee.name}, ${JSON.stringify(callee.name)}, ${JSON.stringify(texts)})` });
         }
+        // a let or a prop is its expression at every read, so a helper in one runs again for every binding and row
+        // that reads it. A dev build counts a helper's calls in values to say so (warning 38): the call is marked
+        else if (mode === 'value' && page.dev) edits.push({ start: callee.start, end: callee.start, text: HELPER_MARK });
       }
     } else {
       visit(callee, locals);
