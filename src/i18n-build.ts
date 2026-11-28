@@ -120,6 +120,165 @@ export function keysOnly(code: string, id: string, from: string = MESSAGES_MODUL
   return ok;
 }
 
+/** a text as a JavaScript string literal, valid wherever it stands (`</script`, U+2028 and U+2029 escaped too) */
+const lit = (s: string) => JSON.stringify(s).replace(/[<\u2028\u2029]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`);
+/** the placeholders the messages module's `fill` replaces (src/messages.ts): the same expression */
+const PLACEHOLDER = /\{(\w+)\}/g;
+/** a write to what stands here: `x = …`, `x++`, `for (x of …)`, a destructuring target */
+const written = (n: any, p: any) => (p?.type === 'AssignmentExpression' && p.left === n) || (p?.type === 'UpdateExpression' && p.argument === n)
+  || (/^For(In|Of)Statement$/.test(p?.type) && p.left === n) || /^(ArrayPattern|ObjectPattern|RestElement)$/.test(p?.type) || (p?.type === 'AssignmentPattern' && p.left === n)
+  || (p?.type === 'Property' && p.value === n && p.kind === 'init' && p.shorthand === false && p.method === false && p.__inPattern === true);
+
+/**
+ * The messages module's `t(key, p)` for a plain message (`text`, the entry as the page's dictionary holds it: a string)
+ * as source, the same operations in the same order: the text itself when `p` is falsy, else each `{name}` replaced by
+ * `String(p.name)` when `name in p`, and kept as written when not (src/messages.ts, `fill`). A function of its arguments.
+ */
+const textFn = (text: string): string => {
+  const parts = text.split(PLACEHOLDER);
+  if (parts.length === 1) return `()=>${lit(text)}`;
+  const body = parts.map((x, i) => (i % 2 ? `(${lit(x)} in p?String(p[${lit(x)}]):${lit(`{${x}}`)})` : x ? lit(x) : '')).filter(Boolean).join('+');
+  return `p=>p?${body}:${lit(text)}`;
+};
+
+/**
+ * Step 1 of a page's dictionary (docs/messages.md#messages-in-the-early-script): in a module of a page's early script, each
+ * use of a message whose entry in the page's language is a plain text (`textOf(key)` is a string: what the messages
+ * module would read from the page's dictionary) is replaced by what the messages module would make of it, so the
+ * early script needs neither the entry nor the module. Exact by construction, for every shape:
+ * - `m.key()`, and a call whose arguments do not reach a placeholder of the text (it has none, or there are no
+ *   arguments): the text, after the arguments are evaluated (`(a, b, "text")`);
+ * - `m.key({ n: x })`, an object literal of plain properties with at most one value that is not a primitive literal,
+ *   used by one placeholder once, and no name the literal lacks that an object has from its prototype
+ *   (`toString`): the text with `String(x)` in that placeholder's place and the literal's primitives in theirs;
+ * - any other call (`m.key(params)`, a spread, a second argument), a tagged template, `new`: the same call of a
+ *   function that does what the messages module's `t` does (`textFn`);
+ * - `m.key` not called (`label: m.key`): that function, through `ref` (`ref(f)` is `f`, marked pure): the caller
+ *   checks whether a reference is left in the bundle, where the function is not the messages module's proxy (reading a
+ *   property of it, or turning it into a string, differs), and builds again with `refs: false` if one is.
+ * Left as written (the module then still reads the dictionary): an entry that is not a plain text (a plural, a formatted
+ * placeholder) or that the page lacks, `m.key` written to or read a property of (`m.key[x]`), and every use in a
+ * module where `m` may not be the import (`keysOnly` says no: another binding of the name, `export { m }`) or where
+ * `String` may not be the global one. Null when nothing is replaced. `left`: the ids of the uses left as written.
+ */
+export function inlineTexts(code: string, id: string, textOf: (key: string) => unknown, o: { from?: string; exported?: string; ref?: string | null; before?: (key: string) => string | null } = {}): { code: string; left: string[]; done: string[]; refs: number; before: number; install: boolean } | null {
+  const from = o.from ?? MESSAGES_MODULE, exported = o.exported ?? 'm';
+  if (!code.includes(from)) return null;
+  const r = moduleKeys(code, id, from, exported, true);
+  if (r.errors.length || !r.keys.length || !keysOnly(code, id, from, exported, r.keys)) return null;
+  let ast: ReturnType<typeof parseModule>;
+  try { ast = parseModule(code, id.replace(/\?.*$/, '')); } catch { return null; }
+  const names = new Set<string>();
+  for (const st of ast.body as any[]) if (st.type === 'ImportDeclaration' && st.source.value === from) for (const s of st.specifiers) names.add(s.local.name);
+  // the uses: each chain `m.a.b` as keysOnly reads it, its parent, and what `String` is
+  const uses: Array<{ node: any; parent: any; key: string }> = [];
+  let ownString = false;
+  const visit = (n: any, up: any[]) => {
+    if (!n || typeof n.type !== 'string' || n.declare === true) return;
+    if (n.type === 'ImportDeclaration' || n.type === 'TSInterfaceDeclaration' || n.type === 'TSTypeAliasDeclaration') return;
+    const p = up[up.length - 1];
+    if (n.type === 'ObjectPattern') for (const q of n.properties) if (q.type === 'Property') q.__inPattern = true;
+    if (n.type === 'Identifier' && n.name === 'String' && !(p && ((p.type === 'CallExpression' && p.callee === n) || (p.type === 'MemberExpression' && p.object === n) || (p.type === 'MemberExpression' && p.property === n && !p.computed) || (/^(Property|MethodDefinition|PropertyDefinition)$/.test(p.type) && p.key === n && !p.computed && !p.shorthand)))) ownString = true;
+    if (n.type === 'Identifier' && names.has(n.name) && p?.type === 'MemberExpression' && p.object === n && !p.computed && p.property.type === 'Identifier') {
+      let key = p.property.name, at = p, i = up.length - 2;
+      for (; i >= 0; i--) {
+        const q = up[i];
+        if (q.type !== 'MemberExpression' || q.object !== at || q.computed || q.property.type !== 'Identifier') break;
+        key += '.' + q.property.name;
+        at = q;
+      }
+      uses.push({ node: at, parent: i >= 0 ? up[i] : null, key });
+      // (its parent, for a write through a cast: `(m.key as any) = …`)
+      let w = at, wi = i;
+      while (wi >= 0 && /^(TSNonNullExpression|TSAsExpression|TSSatisfiesExpression|TSTypeAssertion|ParenthesizedExpression)$/.test(up[wi].type)) { w = up[wi]; wi--; }
+      uses[uses.length - 1]!.parent = wi >= 0 ? up[wi] : null;
+      (uses[uses.length - 1] as any).target = w;
+      return;
+    }
+    up.push(n);
+    for (const k of Object.keys(n)) {
+      if (k === 'type' || k === 'start' || k === 'end' || k === 'loc' || k === 'range' || k === '__inPattern') continue;
+      if (k === 'typeAnnotation' || k === 'returnType' || k === 'typeParameters' || k === 'typeArguments' || k === 'superTypeArguments' || k === 'superTypeParameters' || k === 'implements') continue;
+      const v = n[k];
+      if (Array.isArray(v)) for (const c of v) visit(c, up); else if (v && typeof v === 'object') visit(v, up);
+    }
+    up.pop();
+  };
+  visit(ast, []);
+  if (ownString) return null;
+  type Site = { start: number; end: number; out: () => string };
+  const sites: Site[] = [], left = new Set<string>(), done = new Set<string>();
+  let refs = 0, before = 0, install = false;
+  // the source of a range, the sites inside it replaced
+  const render = (s: number, e: number, self?: Site): string => {
+    let out = '', at = s;
+    for (const x of sites) if (x !== self && x.start >= at && x.end <= e) { out += code.slice(at, x.start) + x.out(); at = x.end; }
+    return out + code.slice(at, e);
+  };
+  const protoName = (k: string) => k in Object.prototype || k === '__proto__';
+  for (const u of uses) {
+    const text = textOf(u.key), p = u.parent, target = (u as any).target;
+    if (typeof text !== 'string' || written(target, p) || (p?.type === 'MemberExpression' && p.object === target)) {
+      left.add(u.key);
+      // a call left as written that needs something first (`before`: the formatter's registration, for an entry that
+      // is not a plain text): that, then the call; any other use of such an entry needs it at the module's top level
+      const pre = text != null && typeof text !== 'string' ? o.before?.(u.key) ?? null : null;
+      if (pre && p?.type === 'CallExpression' && p.callee === target) {
+        const site: Site = { start: p.start, end: p.end, out: () => `(${pre},${render(p.start, p.end, site)})` };
+        sites.push(site);
+        before++;
+      } else if (text != null && typeof text !== 'string') install = true;
+      continue;
+    }
+    done.add(u.key);
+    const fn = `(${textFn(text)})`, holes = [...text.matchAll(PLACEHOLDER)].map((x) => x[1]!);
+    if (p?.type === 'CallExpression' && p.callee === target) {
+      const args: any[] = p.arguments, spread = args.some((a) => a.type === 'SpreadElement');
+      // each argument in parentheses of its own (a sequence stays one argument)
+      const arg = (a: any) => (a.type === 'SpreadElement' ? `...(${render(a.argument.start, a.argument.end)})` : `(${render(a.start, a.end)})`);
+      const argText = () => args.map(arg).join(',');
+      let out: (() => string) | null = null;
+      if (!spread && (!args.length || !holes.length)) out = () => (args.length ? `(${argText()},${lit(text)})` : `(${lit(text)})`);
+      else if (args.length === 1 && args[0].type === 'ObjectExpression') {
+        // the object literal: plain properties, each name once
+        const props: any[] = args[0].properties;
+        const by = new Map<string, any>();
+        let ok = props.every((q) => q.type === 'Property' && q.kind === 'init' && !q.method && !q.computed && (q.key.type === 'Identifier' || (q.key.type === 'Literal' && (typeof q.key.value === 'string' || typeof q.key.value === 'number'))));
+        if (ok) for (const q of props) { const k = q.key.type === 'Identifier' ? q.key.name : String(q.key.value); if (by.has(k) || k === '__proto__') ok = false; by.set(k, q.value); }
+        const prim = (v: any) => (v.type === 'Literal' && !v.regex) || (v.type === 'TemplateLiteral' && v.expressions.length === 0 && typeof v.quasis[0]?.value.cooked === 'string');
+        const primValue = (v: any) => (v.type === 'Literal' ? String(v.value) : String(v.quasis[0].value.cooked));
+        const others = [...by].filter(([, v]) => !prim(v));
+        if (ok && holes.some((h) => !by.has(h) && protoName(h))) ok = false;
+        if (ok && others.length > 1) ok = false;
+        if (ok && others.length === 1 && holes.filter((h) => h === others[0]![0]).length !== 1) ok = false;
+        if (ok) out = () => {
+          const parts = text.split(PLACEHOLDER).map((x, i) => {
+            if (!(i % 2)) return { s: x };
+            const v = by.get(x);
+            return v === undefined ? { s: `{${x}}` } : prim(v) ? { s: primValue(v) } : { e: `String(${render(v.start, v.end)})` };
+          });
+          const merged: Array<{ s?: string; e?: string }> = [];
+          for (const x of parts) { const last = merged[merged.length - 1]; if (x.s !== undefined && last?.s !== undefined) last.s += x.s; else merged.push({ ...x }); }
+          return `(${merged.filter((x) => x.e !== undefined || x.s).map((x) => (x.e ?? lit(x.s!))).join('+') || '""'})`;
+        };
+      }
+      out ??= () => `(${fn}(${argText()}))`;
+      sites.push({ start: p.start, end: p.end, out });
+      continue;
+    }
+    // a tagged template, `new`, or a reference: the function in the use's place
+    if ((p?.type === 'TaggedTemplateExpression' && p.tag === target) || (p?.type === 'NewExpression' && p.callee === target)) { sites.push({ start: u.node.start, end: u.node.end, out: () => fn }); continue; }
+    if (o.ref === null) { left.add(u.key); done.delete(u.key); continue; }
+    refs++;
+    sites.push({ start: u.node.start, end: u.node.end, out: () => `(/* @__PURE__ */ ${o.ref ?? '(f=>f)'}(${fn}))` });
+  }
+  // (a key used both ways is left: the module still reads its entry)
+  for (const k of left) done.delete(k);
+  if (!sites.length) return null;
+  sites.sort((a, b) => a.start - b.start);
+  return { code: render(0, code.length), left: [...left].sort(), done: [...done].sort(), refs, before, install };
+}
+
 /**
  * The modules a module names: the sources of its imports, re-exports, `import()`s and `require()`s that are written as
  * a text (one that is computed is not known; a bundle resolves none of those). Null for a module that cannot be parsed.

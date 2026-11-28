@@ -136,8 +136,10 @@ what it reads in a field of its own: `selecting: false` rather than `sel: { sele
 A page whose early file is left with nothing this way keeps it, empty (about 120 bytes), so that what depends on a page
 having one does not change: its [web fonts still load after the window's `load`](#fonts-after-the-load).
 
-The same idea keeps the page itself small: of the [messages](messages.md#the-pages-dictionary) the page's modules call,
-the HTML holds only the entries the early script reads. The rest is in a cached file the page script imports first.
+The same idea keeps the page itself small. The early script has the [texts of the messages](messages.md#messages-in-the-early-script)
+its modules call written in, in the page's language, and carries no dictionary and no messages module; the messages
+the page script calls are in a cached file it imports first ([the page's dictionary](messages.md#the-pages-dictionary)).
+The HTML holds an entry only where the early script still reads one (a plural).
 
 ### Your own early code
 

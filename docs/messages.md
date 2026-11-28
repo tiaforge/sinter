@@ -81,16 +81,36 @@ are the page's dictionary: one entry per message, in the page's language. A buil
   When a text changes, the file and the page script that imports it get new names, for that page and language only.
 - **In the page**, before the head scripts
   (`<script type="application/json" data-sn-ns="m" lang="de">`): only the entries the
-  [early script](first-paint.md#the-early-script) reads, because it runs before the page script. Most pages keep a
-  handful there, or none (then the page has no such element).
+  [early script](first-paint.md#the-early-script) still reads, because it runs before the page script. Since the
+  early script has its texts written in (below), most pages keep none, and have no such element.
 
 A dictionary under 1,024 bytes of JSON (about 0.4 kB compressed) stays in the page whole, with no file: a request of
 its own would cost more than it saves. The dev server and `sinter render` write the whole dictionary into the page.
 
-Which entries the early script reads is decided from its code: it gets a message through `m.key` only, so an entry
-whose name is not in the early script's final code cannot be read by it. If a module in the early script reaches the
-messages another way (the module's `t(key)`, a re-export of `m`, a package the build does not read), the build
-cannot tell, and the page keeps its whole dictionary in the page as well. Nothing to configure.
+#### Messages in the early script
+
+The early script is built once per language, and a build writes each message its modules call as the text it has
+in the page's language (its chain's, `de-AT` → `de` → the base language), so the early script needs neither the
+entries nor the messages module. What is written is what the messages module would give at run time, to the
+character: `m.nav_mail()` becomes `"Mail"`; `m.hello({ name: who })` becomes `"Hello "+String(who)+"!"`; a call whose
+argument is not an object literal (`m.hello(params)`), and a message called through a variable
+(`label: m.event_dayMo`, called later), become a small function that does what the module does (a placeholder the
+argument lacks stays as written, `{name}`). A text may hold anything (quotes, a newline, `</script>`, `${`).
+
+Left to the page's dictionary, which then keeps those entries in the page as before:
+
+- a plural or a formatted placeholder (`{count: plural}`, `{rate: number}`): the call reads its entry, and the
+  formatter is registered as the call is made;
+- a message referenced in a way that stays in the early script as a value (`typeof m.key`, or a function the script
+  keeps): the build tries the texts, sees the reference left, and builds that early script again with every reference
+  as written;
+- every use in a module that names `m` for something else too (a parameter, a local) or has a `String` of its own;
+- the shared head script, which every page runs, when the pages are in more than one language (one language, or a
+  single build without `localePrefix`: it has the texts too).
+
+If a module in the early script reaches the messages another way than `m.key` (the module's `t(key)`, a re-export of
+`m`, a package the build does not read), the build cannot tell, and the page keeps its whole dictionary in the page as
+well. Nothing to configure.
 
 ## Another library
 

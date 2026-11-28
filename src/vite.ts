@@ -16,7 +16,7 @@ import { applyStrict, CODES, compile, describedPrefetch, moduleWith, pageHead, C
 import { sinterFile } from './own-files.js';
 import { buildInput, checkOptionsOf, compileOptionsOf, htmlInputs, lazyOf, lazyReachOf, project, retiredExport, retiredOptions, staticPages, strictOf, type PluginApi, type ProjectOptions } from './project.js';
 import { CHUNK_MARK, chainText, componentOfHtml, isComponentScript, LAZY, lazyPackage, type LazyScan, lineCol, loaderModule, mentions, parseLazyId, reachLazy, rewriteLazy, scanLazy, stubModule } from './lazy-build.js';
-import { keysOnly, MESSAGES_MODULE, moduleKeys, sourcesOf } from './i18n-build.js';
+import { inlineTexts, keysOnly, MESSAGES_MODULE, moduleKeys, sourcesOf } from './i18n-build.js';
 import { HOLD_SCRIPT } from './paint-build.js';
 import { shareOpaque, shapesOn } from './early-opaque.js';
 import { earlyImports, OWN, registration, SHARED_MARKS, sharedKey, sharedMark, stubModule as sharedStub, topLevelAwait } from './shared-build.js';
@@ -262,6 +262,11 @@ const EARLY = `${PREFIX}early/`;
  */
 const RT_KEY = 'sinter.early.rt';
 const RT_ID = '\0sinter:early-rt';
+/**
+ * builds: in an early script, a message referenced without a call becomes a function (`inlineTexts`), passed through this
+ * module's `r` (`r(f)` is `f`, marked pure): the module is in the bundle only when such a reference is left in it
+ */
+const REF_ID = '\0sinter:early-msg-ref';
 /** this package, as apps and libraries import it */
 const SELF = '@tiaforge-ui/sinter';
 const EARLY_PKG = '@tiaforge-ui/sinter/runtime/early';
@@ -428,7 +433,12 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   const EARLY_FLAGS = (() => { for (const f of ['./runtime/early-flags.js', './runtime/early-flags.ts']) try { return realpathSync(fileURLToPath(new URL(f, import.meta.url))); } catch { /* the other */ } return null; })();
   const earlyUsed = new Map<string, string[]>();
   const earlyFlags = () => { const on = new Set([...earlyPages.keys()].flatMap((rel) => earlyUsed.get(rel) ?? EARLY_PARTS)); return EARLY_PARTS.map((p) => `export const ${p} = ${on.has(p)};`).join('\n') + `\nexport const CONFIG = ${!!appEarly};\n`; };
-  type EarlyJob = { code: string; keys: Set<string>; rt: string[] | null; runtimeId: string | null; map?: SourceMap; own: string[] };
+  /**
+   * `texts`: builds, the page's entries of the built-in messages in its language, as its dictionary holds them (packed):
+   * the early script's modules get the texts in place of the calls (`inlineTexts`); `refs`: a message referenced
+   * without a call becomes a function too (off on the second build of a script where one was left, `earlyScript`)
+   */
+  type EarlyJob = { code: string; keys: Set<string>; rt: string[] | null; runtimeId: string | null; map?: SourceMap; own: string[]; texts?: { ns: string; entries: Record<string, unknown> } | null; refs?: boolean };
   /** the nested build's config for an early script; its entry plugin reads what it builds from `job` (a session swaps it) */
   const earlyConfig = (job: EarlyJob, rolldown: boolean): InlineConfig => {
         /** the runtime as a page's early file sees it: the shared head script's exports from its global, `own` bundled in (PAGE_OWN) */
@@ -442,6 +452,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
             name: 'sinter:early-entry', enforce: 'pre',
             async resolveId(id, importer, o) {
               if (id === ENTRY) return entryId;
+              if (id === REF_ID) return REF_ID;
               // the page's own exports, from the runtime itself (PAGE_OWN)
               if (id === RT_ID || importer === RT_ID) return null;
               // the runtime, however it is named (an alias may resolve the package to its source)
@@ -455,7 +466,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
               if (reached && importer && !job.keys.has(KEYS_CLEAN + importer.replace(/[?#].*$/, ''))) job.keys.add(KEYS_INEXACT);
               return job.rt && res && job.runtimeId && res.id === job.runtimeId ? RT_ID : null;
             },
-            load: (id) => (!dev && id === EARLY_FLAGS ? earlyFlags() : id === entryId ? (job.map ? { code: job.code, map: job.map } : job.code) : id === RT_ID ? runtimeStub(job.rt!, job.own) : null),
+            load: (id) => (id === REF_ID ? { code: 'export const r = (f) => f;\n', moduleSideEffects: false } : !dev && id === EARLY_FLAGS ? earlyFlags() : id === entryId ? (job.map ? { code: job.code, map: job.map } : job.code) : id === RT_ID ? runtimeStub(job.rt!, job.own) : null),
             async transform(src, id) {
               // a content namespace the early modules call through its module: its ids (`ns \0 id`), written into the page,
               // and the formatter for one that is not plain text (`withFormatter`)
@@ -463,12 +474,28 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
               if (content?.namespaces.size && !id.includes('/node_modules/') && !sinterFile(id) && /\.[cm]?[jt]sx?$/.test(id)) {
                 const by = new Map<string, string[]>();
                 let clean = true;
+                let code = src;
                 for (const d of content.namespaces.values()) if (d.module) {
-                  const r = moduleKeys(src, id, d.module, d.name, true), ks = r.keys;
+                  const r = moduleKeys(src, id, d.module, d.name, true);
+                  let ks = r.keys;
+                  // the built-in messages' texts in the page's language, in place of the calls: what is left reads the
+                  // dictionary, in the page (docs/messages.md#messages-in-the-early-script)
+                  const t = job.texts && job.texts.ns === d.name && d.module === MESSAGES_MODULE ? job.texts : null;
+                  // (a call left as written of an entry that is not a plain text registers the formatter as it is made, not
+                  // the module as it runs: an early script that does not keep the call does not keep the messages module)
+                  const reg = `$sni$${d.name}(null, $snf$${d.name}, ${JSON.stringify(d.name)})`;
+                  const x = t && !src.includes('$snr$') ? inlineTexts(code, id, (k) => t.entries[k], { from: d.module, exported: d.name, ref: job.refs === false ? null : `$snr$`, before: () => reg }) : null;
+                  let late = false;
+                  if (x) {
+                    late = x.before > 0 && !x.install;
+                    code = (x.refs ? `import { r as $snr$ } from ${JSON.stringify(REF_ID)};\n` : '')
+                      + (late ? `import { format as $snf$${d.name} } from ${JSON.stringify(formatSpec(d.format))};\nimport { install as $sni$${d.name} } from ${JSON.stringify(d.module)};\n` : '') + x.code;
+                    ks = ks.filter((k) => x.left.includes(k) || !x.done.includes(k));
+                  }
                   for (const k of ks) job.keys.add(`${d.name}\0${k}`);
-                  if (ks.length) by.set(d.name, ks);
+                  if (ks.length && !late) by.set(d.name, ks);
                   // (its keys are all it can read of the namespace: `resolveId` above asks, for each importer of the module)
-                  if (r.errors.length || !keysOnly(src, id, d.module, d.name, ks)) clean = false;
+                  if (r.errors.length || !keysOnly(src, id, d.module, d.name, r.keys)) clean = false;
                 }
                 // and it names a namespace's module by the namespace's own specifier only (the one `moduleKeys` and
                 // `keysOnly` look for): any other spelling that resolves to it would be read by neither
@@ -479,7 +506,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
                   if (at && nsFiles.has(at.id.replace(/[?#].*$/, ''))) { clean = false; break; }
                 }
                 if (clean) job.keys.add(KEYS_CLEAN + id.replace(/[?#].*$/, ''));
-                fmt = withFormatter(src, by);
+                fmt = withFormatter(code, by) ?? (code !== src ? { code, map: null } : undefined);
               }
               // the helpers module's re-exports of lazy packages: an early binding calls its own helpers, never
               // the barrel's copy of a namespace, which would put the package in the early file (as lazyTransform)
@@ -527,12 +554,20 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
    * module's own (dev), carried into the script's (the entry then has a plain id: Rolldown drops a `\0` module's map).
    * `session`: a build's builder (`earlySession`), else a `vite build` of its own.
    */
-  const earlyScript = async (code: string, keys: Set<string>, rt: string[] | null, what: string, runtimeId: string | null = null, map?: SourceMap, own: string[] = [], session?: ((j: EarlyJob) => Promise<unknown>) | null) => {
-        const r = resolved!, job: EarlyJob = { code, keys, rt, runtimeId, ...(map ? { map } : {}), own };
+  const earlyScript = async (code: string, keys: Set<string>, rt: string[] | null, what: string, runtimeId: string | null = null, map?: SourceMap, own: string[] = [], session?: ((j: EarlyJob) => Promise<unknown>) | null, texts: EarlyJob['texts'] = null) => {
+        const r = resolved!, keys0 = new Set(keys), job: EarlyJob = { code, keys, rt, runtimeId, ...(map ? { map } : {}), own, texts, refs: true };
         const vite = await appVite();
-        const out = session ? await session(job) : await vite.build(earlyConfig(job, 'rolldownVersion' in vite));
-        const output = (Array.isArray(out) ? out[0] : out) as { output: Array<{ type: string; fileName: string; code?: string; map?: SourceMap | null; modules?: Record<string, { renderedLength: number }> }> };
-        const chunks = output.output.filter((c) => c.type === 'chunk');
+        type Out = { output: Array<{ type: string; fileName: string; code?: string; map?: SourceMap | null; modules?: Record<string, { renderedLength: number }> }> };
+        const run = async () => { const out = session ? await session(job) : await vite.build(earlyConfig(job, 'rolldownVersion' in vite)); return ((Array.isArray(out) ? out[0] : out) as Out).output.filter((c) => c.type === 'chunk'); };
+        let chunks = await run();
+        // a message referenced without a call is left in the script (`REF_ID`): built again with those references as
+        // written (they read the page's dictionary), since the function in its place is not the messages module's
+        if (texts && chunks.some((c) => (c.modules?.[REF_ID]?.renderedLength ?? 0) > 0)) {
+          keys.clear();
+          for (const k of keys0) keys.add(k);
+          Object.assign(job, { keys, refs: false });
+          chunks = await run();
+        }
         if (chunks.length !== 1) throw new Error(`sinter: the early script of ${what} came out as ${chunks.length} chunks; it must be one file with nothing imported`);
         // the map's sources are relative to where the script would have been written: absolute, as the page module's
         const c = chunks[0]!, at = resolve(root, r.build.outDir, posix.dirname(c.fileName));
@@ -2153,7 +2188,26 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       const runtimeId = earlyPages.size ? (await this.resolve(EARLY_PKG, resolve(root, 'index.html')))?.id ?? null : null;
       // every early script of this build through one builder (`earlySession`)
       const session = earlyPages.size ? await earlySession(runtimeId) : null;
-      const bundleEarly = (code: string, keys: Set<string>, rt: string[] | null, what: string, own: string[] = []) => earlyScript(code, keys, rt, what, runtimeId, undefined, own, session);
+      const bundleEarly = (code: string, keys: Set<string>, rt: string[] | null, what: string, own: string[] = [], texts: EarlyJob['texts'] = null) => earlyScript(code, keys, rt, what, runtimeId, undefined, own, session, texts);
+      /**
+       * a page's entries of the built-in messages, as its dictionary holds them, for its early script (`EarlyJob.texts`),
+       * and their print: pages whose early sources are the same text share a build only with the same texts
+       */
+      const textsOf = new Map<string, { texts: NonNullable<EarlyJob['texts']>; print: string } | null>(), prints = new WeakMap<object, string>();
+      const pageTexts = (rel: string) => {
+        if (textsOf.has(rel)) return textsOf.get(rel)!;
+        const at = pageNs.get(rel) ?? contentNsAt(pageLang(resolve(root, rel)));
+        const ns = Object.keys(at).find((k) => at[k]!.module === MESSAGES_MODULE);
+        let v: { texts: NonNullable<EarlyJob['texts']>; print: string } | null = null;
+        if (ns) {
+          const d = at[ns]!, entries = packed(d.format ?? '', d.entries);
+          let print = prints.get(d.entries);
+          if (print === undefined) prints.set(d.entries, (print = createHash('sha256').update(JSON.stringify([ns, entries])).digest('base64url')));
+          v = { texts: { ns, entries }, print };
+        }
+        textsOf.set(rel, v);
+        return v;
+      };
       fontPages.clear();
       if (earlyPages.size) {
         // the app's early module runs once, from the shared script, before any page's bindings
@@ -2173,11 +2227,14 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         const imported = [...pages.values()].map(runtimeNames);
         const names = [...new Set(imported.flat())].filter((n) => !PAGE_OWN.has(n) || imported.every((x) => x.includes(n))).sort();
         const sharedKeys = new Set<string>();
-        sharedHead = { fileName: '', ...await bundleEarly(`${app}import { ${names.join(', ')} } from '${EARLY_PKG}';\nglobalThis[Symbol.for(${JSON.stringify(RT_KEY)})] = { ${names.join(', ')} };\n`, sharedKeys, null, 'every page') };
+        // (the shared script is one for every page: it gets the texts only when every page has the same)
+        const allPrints = new Set([...pages.keys()].map((rel) => pageTexts(rel)?.print ?? ''));
+        const common = allPrints.size === 1 ? pageTexts([...pages.keys()][0]!)?.texts ?? null : null;
+        sharedHead = { fileName: '', ...await bundleEarly(`${app}import { ${names.join(', ')} } from '${EARLY_PKG}';\nglobalThis[Symbol.for(${JSON.stringify(RT_KEY)})] = { ${names.join(', ')} };\n`, sharedKeys, null, 'every page', [], common) };
         // pages whose early source is the same text (on a blog, every post's) share one build: its output and the content
         // keys its modules call depend on that source and the runtime names alone (a nested `vite build` is ~15 ms)
         const built = new Map<string, { out: Awaited<ReturnType<typeof bundleEarly>>; keys: Set<string> }>();
-        const jobs = new Map<string, { src: string; take: string[]; own: string[]; rel: string }>();
+        const jobs = new Map<string, { src: string; take: string[]; own: string[]; rel: string; texts: EarlyJob['texts']; print: string }>();
         const ids = new Map<string, string>();
         for (const [rel, code] of pages) {
           // the shared modules this early file imports and the page's bundle reaches: their namespaces on the global
@@ -2185,18 +2242,18 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
           const regs = [...earlyImports(code).keys()].map((spec) => ({ spec, file: specFile(spec) })).filter((x): x is { spec: string; file: string } => !!x.file && shared.has(x.file) && reach.has(x.file));
           if (regs.length) registered.set(rel, new Set(regs.map((x) => x.file)));
           const rt = runtimeNames(code), src = registration(regs) + code, take = rt.filter((n) => names.includes(n)), own = rt.filter((n) => !names.includes(n));
-          const id = JSON.stringify([src, take, own]);
+          const texts = pageTexts(rel), id = JSON.stringify([src, take, own, texts?.print ?? '']);
           ids.set(rel, id);
-          if (!jobs.has(id)) jobs.set(id, { src, take, own, rel });
+          if (!jobs.has(id)) jobs.set(id, { src, take, own, rel, texts: texts?.texts ?? null, print: texts?.print ?? '' });
         }
-        const one = async (j: { src: string; take: string[]; own: string[] }, what: string) => {
+        const one = async (j: { src: string; take: string[]; own: string[]; texts: EarlyJob['texts'] }, what: string) => {
           const keys = new Set(sharedKeys);
-          return { ...await bundleEarly(j.src, keys, j.take, what, j.own), keys };
+          return { ...await bundleEarly(j.src, keys, j.take, what, j.own, j.texts), keys };
         };
         if (shapesOn()) {
           // sources that differ only in literals share one build, a free identifier in each literal's place (early-opaque.ts)
           const js = [...jobs];
-          const outs = await shareOpaque(js.map(([, j]) => ({ src: j.src, extra: JSON.stringify([j.take, j.own]), what: j.rel })), (src, i, what) => one({ ...js[i]![1], src }, what), (x) => gzipSync(x).length, Object.keys(r.define ?? {}));
+          const outs = await shareOpaque(js.map(([, j]) => ({ src: j.src, extra: JSON.stringify([j.take, j.own, j.print]), what: j.rel })), (src, i, what) => one({ ...js[i]![1], src }, what), (x) => gzipSync(x).length, Object.keys(r.define ?? {}));
           js.forEach(([id], i) => { const { keys, ...o } = outs[i]!; built.set(id, { out: { ...o, map: null }, keys }); });
         } else for (const [id, j] of jobs) { const { keys, ...o } = await one(j, j.rel); built.set(id, { out: o, keys }); }
         for (const rel of pages.keys()) {

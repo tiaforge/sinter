@@ -115,14 +115,17 @@ describe('the build', () => {
     expect(b.text).toContain(`"${fill(7)}":`);
   });
 
-  test('the page keeps the entries its head scripts read, and no dictionary element when they read none', () => {
-    // the first page's head script shows one message (behind a stored choice); its helper module's other messages are not in the script
-    // (and the two of a module the head script's bundle loads without using it, which the page's own chunks do not hold:
-    // no file has them, so they stay)
-    expect(main.of('en/index.html').inline).toEqual(['early_label', 'only_b', 'price']);
-    expect(main.of('de/index.html').inline).toEqual(['early_label', 'only_b', 'price']);
-    expect(main.of('de/index.html').html).toContain('data-sn-ns="m" lang="de">{"early_label":"Früh gezeigt","only_b":');
-    expect(main.read(main.of('en/index.html').html.match(/<script src="\/(assets\/en-head-[^"]+)"/)![1]!)).not.toContain('fill_');
+  test('the head scripts have their messages\' texts (docs/messages.md#messages-in-the-early-script): the page keeps no entry, and no dictionary element', () => {
+    // the first page's head script shows one message (behind a stored choice): its text is in the script, in the page's
+    // language, and the script has no messages module
+    for (const [lang, text] of [['en', 'Shown early'], ['de', 'Früh gezeigt']] as const) {
+      const p = main.of(`${lang}/index.html`), head = main.read(p.html.match(/<script src="\/(assets\/[\w-]*-head-[^"]+)"/g)!.map((t) => t.slice(14, -1)).find((f) => !f.includes('sinter-head'))!);
+      expect(p.inline).toBeNull();
+      expect(p.html).not.toContain('data-sn-ns');
+      expect(head).toContain(text);
+      expect(head).not.toContain('sinter.i18n');
+      expect(head).not.toContain('fill_');
+    }
     // the second page's head scripts read none
     expect(main.of('en/b/index.html').inline).toBeNull();
     expect(main.of('de/b/index.html').html).not.toContain('data-sn-ns');
@@ -182,7 +185,7 @@ describe('the build', () => {
     const one = await site('one', {}, { localePrefix: false, minifyHtml: false, compileHints: true }, true, [after]);
     const p = one.of('index.html');
     expect(p.dict).toMatch(/^en-m-[\w-]{8}\.js$/);
-    expect(p.inline).toEqual(['early_label', 'only_b', 'price']);
+    expect(p.inline).toBeNull();
     expect(one.of('b/index.html').dict).toMatch(/^en-m-[\w-]{8}\.js$/);
     expect(one.of('b/index.html').dict).not.toBe(p.dict);
     expect(p.html).toContain(`<link rel="modulepreload" crossorigin href="/assets/${p.dict}">`);
