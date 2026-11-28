@@ -136,6 +136,9 @@ what it reads in a field of its own: `selecting: false` rather than `sel: { sele
 A page whose early file is left with nothing this way keeps it, empty (about 120 bytes), so that what depends on a page
 having one does not change: its [web fonts still load after the window's `load`](#fonts-after-the-load).
 
+The same idea keeps the page itself small: of the [messages](messages.md#the-pages-dictionary) the page's modules call,
+the HTML holds only the entries the early script reads. The rest is in a cached file the page script imports first.
+
 ### Your own early code
 
 `src/sinter.early.ts` is optional app code that runs before anything is rendered, for example to

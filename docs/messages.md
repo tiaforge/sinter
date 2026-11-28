@@ -44,10 +44,9 @@ part for a project that had the built-in messages (`sinter({ messages })`, remov
 - **App code**: `import { m } from '@tiaforge-ui/sinter/messages'` and `m.inbox.title()`, typed by the generated
   `sinter.namespaces.d.ts` next to the content module (rewritten on every build and dev load, so you can git-ignore
   it). Only `m.key` is allowed: `m[key]`, and passing or aliasing `m`, are build errors. For a dynamic choice use a map
-  of `() => m.key()` functions. The build writes the messages a page's modules call into the page, in its language
-  (`<script type="application/json" data-sn-ns="m" lang="de">`), a plain message as its text: nothing is loaded. A page
-  whose modules call no message ships none of this module, and a module brings the formatter only when it calls a
-  plural or a formatted placeholder.
+  of `() => m.key()` functions. The build gives each page the messages its modules call, in its language, a plain
+  message as its text ([the page's dictionary](#the-pages-dictionary)). A page whose modules call no message ships
+  none of this module, and a module brings the formatter only when it calls a plural or a formatted placeholder.
 - Your helpers module must not also export a namespace `m`: one name calls one namespace.
 - **Per tenant** ([docs/static-pages.md](static-pages.md#a-site-per-tenant-axes)):
   `inlang({ per: [tenants, locales], tenantFiles: (t) => './tenants/' + t.key + '/{locale}.json' })` reads a tenant's
@@ -67,6 +66,31 @@ A page has one language, chosen at build:
   `configure({ locale })` sets one.
 
 An app without `inlang()` in its content module ships none of this.
+
+### The page's dictionary
+
+The messages a page's modules call (`m.key()` in app code, not the ones in markup, which are compiled into the page)
+are the page's dictionary: one entry per message, in the page's language. A build puts it in two places.
+
+- **In a file of its own**, `assets/<language>-m-<hash>.js`, for each page and language; pages with the same
+  entries share one. The page script imports it
+  before anything else, so every module of the page, at its top level too, finds its messages there. The file's
+  name has the hash of its text, like every file under `assets/`: serve it with the same long-lived cache headers
+  (`Cache-Control: public, max-age=31536000, immutable`). The page asks for it with the page script
+  (`<link rel="modulepreload">`, right after the script's own tag), and a later visit takes it from the cache.
+  When a text changes, the file and the page script that imports it get new names, for that page and language only.
+- **In the page**, before the head scripts
+  (`<script type="application/json" data-sn-ns="m" lang="de">`): only the entries the
+  [early script](first-paint.md#the-early-script) reads, because it runs before the page script. Most pages keep a
+  handful there, or none (then the page has no such element).
+
+A dictionary under 1,024 bytes of JSON (about 0.4 kB compressed) stays in the page whole, with no file: a request of
+its own would cost more than it saves. The dev server and `sinter render` write the whole dictionary into the page.
+
+Which entries the early script reads is decided from its code: it gets a message through `m.key` only, so an entry
+whose name is not in the early script's final code cannot be read by it. If a module in the early script reaches the
+messages another way (the module's `t(key)`, a re-export of `m`, a package the build does not read), the build
+cannot tell, and the page keeps its whole dictionary in the page as well. Nothing to configure.
 
 ## Another library
 

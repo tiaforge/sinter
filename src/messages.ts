@@ -36,7 +36,8 @@ const fill = (s: string, p?: Record<string, unknown>) => (p ? s.replace(/\{(\w+)
 /**
  * The state, read from the page the first time a message is called: its language and the entries its modules call
  * (`<script type="application/json" data-sn-ns="m" lang="de">`). A page whose modules call none has no such script, and
- * nothing imports this module.
+ * nothing imports this module. A build's dictionary file (docs/messages.md#the-pages-dictionary) may have run before:
+ * it put its entries under the page's language, found as here, and they are kept (`...s.dicts[s.locale]`).
  */
 function ready(name = 'm', locale?: string): I18nState {
   const s = state();

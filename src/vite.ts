@@ -16,7 +16,7 @@ import { applyStrict, CODES, compile, describedPrefetch, moduleWith, pageHead, C
 import { sinterFile } from './own-files.js';
 import { buildInput, checkOptionsOf, compileOptionsOf, htmlInputs, lazyOf, lazyReachOf, project, retiredExport, retiredOptions, staticPages, strictOf, type PluginApi, type ProjectOptions } from './project.js';
 import { CHUNK_MARK, chainText, componentOfHtml, isComponentScript, LAZY, lazyPackage, type LazyScan, lineCol, loaderModule, mentions, parseLazyId, reachLazy, rewriteLazy, scanLazy, stubModule } from './lazy-build.js';
-import { moduleKeys } from './i18n-build.js';
+import { keysOnly, MESSAGES_MODULE, moduleKeys, sourcesOf } from './i18n-build.js';
 import { HOLD_SCRIPT } from './paint-build.js';
 import { shareOpaque, shapesOn } from './early-opaque.js';
 import { earlyImports, OWN, registration, SHARED_MARKS, sharedKey, sharedMark, stubModule as sharedStub, topLevelAwait } from './shared-build.js';
@@ -276,6 +276,14 @@ const runtimeNames = (code: string) => /import \{([^}]*)\} from '@tiaforge-ui\/s
 const PAGE_OWN = new Set(['$so', 'away', 'awayVia', 'lists', 'withParams', 'toPage', '$hq', '$href', 'cr', 'fonts']);
 /** every part of the early runtime a build may turn off (src/runtime/early-flags.ts), which a page's compile names when its early file uses it */
 const EARLY_PARTS = ['EMBEDDED'];
+/**
+ * A page's dictionary (the entries of the built-in messages its modules call) goes into a file of its own when it is at
+ * least this long as JSON; a shorter one stays in the page, whole: under it a view saves less than about 0.4 kB gzip,
+ * which is not worth a request of its own on the first visit (docs/messages.md#the-pages-dictionary).
+ */
+const DICT_FILE_MIN = 1024;
+/** marks in an early build's key set (beside `ns \0 key`): a module read through `m.key` alone, and a build that is not */
+const KEYS_CLEAN = '\0clean\0', KEYS_INEXACT = '\0inexact';
 /** the page's image rules (a CSS module the page module imports) */
 const IMG_CSS = `${PREFIX}img-css/`;
 /** builds: a page's reserved-space rules (docs/first-paint.md#reserved-space), imported by its module */
@@ -435,24 +443,42 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
             async resolveId(id, importer, o) {
               if (id === ENTRY) return entryId;
               // the page's own exports, from the runtime itself (PAGE_OWN)
-              if (!job.rt || id === RT_ID || importer === RT_ID) return null;
+              if (id === RT_ID || importer === RT_ID) return null;
               // the runtime, however it is named (an alias may resolve the package to its source)
-              if (id === EARLY_PKG) return RT_ID;
+              if (job.rt && id === EARLY_PKG) return RT_ID;
+              if (!job.rt && !nsFiles.size) return null;
               const res = await this.resolve(id, importer, { ...o, skipSelf: true });
-              return res && job.runtimeId && res.id === job.runtimeId ? RT_ID : null;
+              // a content namespace's module reached from a module the build did not read as reading it by its keys alone
+              // (`transform` below; a module it does not scan at all: a package's, sinter's own): what this script may read
+              // of the page's dictionary is then not known, and the page keeps it whole in its head (`KEYS_INEXACT`)
+              const reached = (res && nsFiles.has(res.id.replace(/[?#].*$/, ''))) || [...nsFiles.values()].includes(id);
+              if (reached && importer && !job.keys.has(KEYS_CLEAN + importer.replace(/[?#].*$/, ''))) job.keys.add(KEYS_INEXACT);
+              return job.rt && res && job.runtimeId && res.id === job.runtimeId ? RT_ID : null;
             },
             load: (id) => (!dev && id === EARLY_FLAGS ? earlyFlags() : id === entryId ? (job.map ? { code: job.code, map: job.map } : job.code) : id === RT_ID ? runtimeStub(job.rt!, job.own) : null),
-            transform(src, id) {
+            async transform(src, id) {
               // a content namespace the early modules call through its module: its ids (`ns \0 id`), written into the page,
               // and the formatter for one that is not plain text (`withFormatter`)
               let fmt: { code: string; map: null } | undefined;
               if (content?.namespaces.size && !id.includes('/node_modules/') && !sinterFile(id) && /\.[cm]?[jt]sx?$/.test(id)) {
                 const by = new Map<string, string[]>();
+                let clean = true;
                 for (const d of content.namespaces.values()) if (d.module) {
-                  const ks = moduleKeys(src, id, d.module, d.name, true).keys;
+                  const r = moduleKeys(src, id, d.module, d.name, true), ks = r.keys;
                   for (const k of ks) job.keys.add(`${d.name}\0${k}`);
                   if (ks.length) by.set(d.name, ks);
+                  // (its keys are all it can read of the namespace: `resolveId` above asks, for each importer of the module)
+                  if (r.errors.length || !keysOnly(src, id, d.module, d.name, ks)) clean = false;
                 }
+                // and it names a namespace's module by the namespace's own specifier only (the one `moduleKeys` and
+                // `keysOnly` look for): any other spelling that resolves to it would be read by neither
+                const own = new Set([...content.namespaces.values()].map((d) => d.module));
+                if (clean && nsFiles.size) for (const source of sourcesOf(src, id) ?? (clean = false, [])) {
+                  if (own.has(source)) continue;
+                  const at = await this.resolve(source, id);
+                  if (at && nsFiles.has(at.id.replace(/[?#].*$/, ''))) { clean = false; break; }
+                }
+                if (clean) job.keys.add(KEYS_CLEAN + id.replace(/[?#].*$/, ''));
                 fmt = withFormatter(src, by);
               }
               // the helpers module's re-exports of lazy packages: an early binding calls its own helpers, never
@@ -667,6 +693,13 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   const infoShown = () => !!resolved && (!!resolved.customLogger || (resolved.logLevel ?? 'info') === 'info');
   /** the entries of the content namespaces a page's app modules call (its own are compiled in), written into its head */
   const pageMessages = new Map<string, string>();
+  /**
+   * builds: each page's dictionary file (docs/messages.md#the-pages-dictionary), made as its entry chunk is rendered
+   * (`renderChunk`, which writes the import of it first in the chunk): its name, its text, and the entries it holds
+   */
+  const dictFiles = new Map<string, { fileName: string; source: string; ns: string; keys: Set<string> }>();
+  /** builds: the content namespaces' modules as the build resolves them, each with the specifier app code imports it by */
+  const nsFiles = new Map<string, string>();
   let images: Images | null = null;
   // a template or origin that cannot work fails before Vite starts
   const remoteConfig = options.images && options.images.remote ? resolveRemote(options.images.remote) : null;
@@ -1947,6 +1980,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       unlisted.clear();
       earlyFiles.clear();
       pageMessages.clear();
+      dictFiles.clear();
       described.clear(); entriesDescribed.clear(); axisListsKept = null; axisIndexKept = null;
       lateParts.clear(); latePages.clear(); lateSettled.clear(); lateReady = null; auditedDescriptions.clear();
       pagesCache = null;
@@ -2020,9 +2054,62 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
      * with the page bundle are copies: state the app sets early (an i18n library's locale,
      * configure()) is set again by the page.
      */
+    /**
+     * builds: a page's dictionary file. The entries of the built-in messages that the modules of the page's chunks call
+     * (the chunks its entry imports, and those they load later), in the page's language, go into a module of their own,
+     * which the entry chunk imports before anything else: an ES module evaluates its imports in the order written, so
+     * the file has run before any module of the page that could call a message. Made here, where the chunks a page's
+     * entry reaches are known and no name has its hash yet. The entry's hash is told of the file's name, which has the
+     * hash of its text (`augmentChunkHash`): a page whose texts change gets a new entry chunk, never a cached one that
+     * imports a file that is gone. The import itself is written into the finished chunk (the last `generateBundle`:
+     * after the minifier, so the chunk's source map moves by one line and nothing else). Not for a dictionary under
+     * DICT_FILE_MIN, a page with nothing to run, a namespace of another module, or dev (all of it stays in the page).
+     */
+    renderChunk(_code, chunk, output, meta) {
+      const facade = chunk.isEntry ? chunk.facadeModuleId?.replace(/[?#].*$/, '') : null;
+      const rel = facade ? relOf(facade) : null;
+      // (an `import` is written: ES modules only, which a page's script is)
+      if (dev || !rel || !moduleNs.size || !runtimeOf.get(rel)?.length || output.format !== 'es') return null;
+      const at = pageNs.get(rel) ?? contentNsAt(pageLang(resolve(root, rel)));
+      const ns = Object.keys(at).find((k) => at[k]!.module === MESSAGES_MODULE);
+      if (!ns) return null;
+      const keys = new Set<string>(), seen = new Set<string>(), todo = [chunk.fileName];
+      const chunks = { ...meta.chunks, [chunk.fileName]: chunk };
+      while (todo.length) {
+        const c = chunks[todo.pop()!];
+        if (!c || seen.has(c.fileName)) continue;
+        seen.add(c.fileName);
+        for (const id of c.moduleIds) for (const k of moduleNs.get(id)?.get(ns) ?? []) keys.add(k);
+        todo.push(...c.imports, ...c.dynamicImports);
+      }
+      const json = JSON.stringify(packed(at[ns]!.format ?? '', Object.fromEntries([...keys].sort().map((k) => [k, at[ns]!.entries[k] ?? null])))).replace(/</g, '\\u003c');
+      if (json.length < DICT_FILE_MIN) return null;
+      // its entries, under the page's language: the one the messages module read already (a head script called a message),
+      // or found as that module's `ready()` will find it (src/messages.ts), which then keeps what is there. The module
+      // itself is as it was: every early file that calls a message has a copy of it
+      const source = `{const s=globalThis[Symbol.for("sinter.i18n")]??={locale:"",base:"",locales:[],dicts:{}};let l=s.locale;if(!l)try{l=document.querySelector('script[data-sn-ns="${ns.replace(/[^\w-]/g, '')}"]')?.getAttribute("lang")??document.documentElement.lang}catch{}Object.assign(s.dicts[l||" "]??={},${json})}\n`;
+      // named after its language and its text: pages with the same dictionary (a blog's posts) share one file
+      const lang = pageLang(resolve(root, rel))?.replace(/[^\w-]/g, '');
+      const dir = posix.dirname(chunk.fileName);
+      const fileName = posix.join(dir, `${lang ? `${lang}-` : ''}${ns.replace(/[^\w-]/g, '')}-${createHash('sha256').update(source).digest('base64url').slice(0, 8)}.js`);
+      dictFiles.set(rel, { fileName, source, ns, keys });
+      return null;
+    },
+
+    /** a page's entry chunk is named after its dictionary file too (`renderChunk` made it): another text, another name */
+    augmentChunkHash(chunk) {
+      const facade = chunk.isEntry ? chunk.facadeModuleId?.replace(/[?#].*$/, '') : null;
+      const rel = facade ? relOf(facade) : null;
+      return (rel && dictFiles.get(rel)?.fileName) || undefined;
+    },
+
     async generateBundle(_, bundle) {
       const r = resolved!;
       guardLazy(this);
+      for (const f of new Map([...dictFiles.values()].map((x) => [x.fileName, x])).values()) this.emitFile({ type: 'asset', fileName: f.fileName, source: f.source });
+      // the content namespaces' modules, as resolved: the early files' build asks who imports them (`KEYS_INEXACT`)
+      nsFiles.clear();
+      for (const d of content?.namespaces.values() ?? []) if (d.module) { const at = await this.resolve(d.module, resolve(root, 'index.html')); if (at) nsFiles.set(at.id.replace(/[?#].*$/, ''), d.module); }
       // the placeholders a server fills (data-sn-resource), next to the pages: what a middleware reads to know each page's requests
       if (embedPages.size) {
         const b = resolved?.base ?? '/', root_ = b.startsWith('/') ? b.replace(/\/?$/, '/') : '/';
@@ -2167,7 +2254,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         const entry = entryChunk(bundle, rel) as Extract<(typeof bundle)[string], { type: 'chunk' }> | undefined;
         const want = new Map<string, Set<string>>(), seen = new Set<string>(), todo = entry ? [entry.fileName] : [];
         const add = (ns: string, k: string) => { if (!want.has(ns)) want.set(ns, new Set()); want.get(ns)!.add(k); };
-        for (const x of earlyKeys.get(rel) ?? []) { const [ns, k] = x.split('\0') as [string, string]; add(ns, k); }
+        for (const x of earlyKeys.get(rel) ?? []) { if (x[0] === '\0') continue; const [ns, k] = x.split('\0') as [string, string]; add(ns, k); }
         while (todo.length) {
           const c = bundle[todo.pop()!];
           if (!c || c.type !== 'chunk' || seen.has(c.fileName)) continue;
@@ -2178,7 +2265,16 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         if (!want.size) continue;
         const at = pageNs.get(rel) ?? contentNsAt(pageLang(resolve(root, rel)));
         const lang = pageLang(resolve(root, rel));
-        const tags = [...want].map(([ns, keys]) => `<script type="application/json" data-sn-ns="${attr(ns)}"${lang ? ` lang="${attr(lang)}"` : ''}>${JSON.stringify(packed(at[ns]?.format ?? '', Object.fromEntries([...keys].sort().map((k) => [k, at[ns]?.entries[k] ?? null])))).replace(/</g, '\\u003c')}</script>`);
+        // with a dictionary file (`renderChunk`), the head keeps what is read before the page's entry chunk runs, which
+        // is what the head scripts read: an entry a module of theirs names (`earlyKeys`, by module) whose name is still in
+        // their code (`m.key` is the one way to an entry, and a property's name is written out: an entry whose name is
+        // not there cannot be read). And any entry the file does not hold. Where a head script reaches the messages in
+        // a way the build did not read (`KEYS_INEXACT`), all of it stays in the head.
+        const file = dictFiles.get(rel), early = earlyKeys.get(rel) ?? new Set<string>();
+        const headCode = (sharedHead?.code ?? '') + '\n' + (earlyFiles.get(rel)?.code ?? '');
+        const named = (k: string) => k.split('.').every((p) => !/^[A-Za-z0-9_$]+$/.test(p) || new RegExp(`(?<![\\w$])${p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\w$])`).test(headCode));
+        const inHead = (ns: string, k: string) => !file || ns !== file.ns || !file.keys.has(k) || early.has(KEYS_INEXACT) || (early.has(`${ns}\0${k}`) && named(k));
+        const tags = [...want].map(([ns, keys]) => `<script type="application/json" data-sn-ns="${attr(ns)}"${lang ? ` lang="${attr(lang)}"` : ''}>${JSON.stringify(packed(at[ns]?.format ?? '', Object.fromEntries([...keys].sort().filter((k) => inHead(ns, k)).map((k) => [k, at[ns]?.entries[k] ?? null])))).replace(/</g, '\\u003c')}</script>`);
         pageMessages.set(rel, tags.join(''));
       }
       heads();
@@ -2538,7 +2634,14 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         if (pre && ctx.bundle) html = withPreloads(html, rel, pre, ctx.bundle, base);
         // shared helper modules the page's bundle reaches: their own copies, for a swap or fetched with the page
         if (shared.size && ctx.bundle) html = withShared(html, rel, ctx.bundle, base);
-        const inline = pageMessages.get(rel);
+        // the dictionary file, which the entry chunk imports first: asked for with the page (the entry would name it only
+        // once it is parsed), right after the entry and so before its other modules, after the stylesheets (above); as
+        // the entry is asked for (`crossorigin`, a nonce)
+        const dict = dictFiles.get(rel);
+        if (dict && ctx.chunk) html = html.replace(new RegExp(`<script type="module"[^>]*\\ssrc="${(base + ctx.chunk.fileName).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"[^>]*></script>`), (t) => `${t}\n  <link rel="modulepreload"${/\scrossorigin\b/.test(t) ? ' crossorigin' : ''}${/\snonce="[^"]*"/.exec(t)?.[0] ?? ''} href="${attr(base + dict.fileName)}">`);
+        // a dictionary tag with nothing left in it says only the page's language, which `<html lang>` says when it is the same
+        const htmlLang = /<html\b[^>]*?\slang="([^"]*)"/i.exec(html)?.[1];
+        const inline = pageMessages.get(rel)?.replace(/<script type="application\/json" data-sn-ns="[^"]*"(?: lang="([^"]*)")?>\{\}<\/script>/g, (t, l?: string) => (l === undefined || l === htmlLang ? '' : t));
         // where the head scripts go: the compiler's comment (`headMark`), in the head's own elements
         // (after the white space that follows it, which is the next tag's indent)
         const mark = `<!--${headMark}-->`, found = html.indexOf(mark), at = found < 0 ? -1 : found + /^\s*/.exec(html.slice(found + mark.length))![0].length;
@@ -3403,14 +3506,25 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     generateBundle: {
       order: 'post',
       handler(_, bundle) {
+        /** a line put first in a finished chunk: its source map, and the map's own file, move down by that line */
+        const first = (c: Extract<(typeof bundle)[string], { type: 'chunk' }>, line: string) => {
+          c.code = line + c.code;
+          if (c.map) c.map.mappings = ';' + c.map.mappings;
+          const m = bundle[c.fileName + '.map'];
+          if (m?.type === 'asset' && typeof m.source === 'string') { const j = JSON.parse(m.source) as { mappings: string }; j.mappings = ';' + j.mappings; m.source = JSON.stringify(j); }
+        };
+        // a page's dictionary file (the main plugin's `renderChunk`): the first import of the page's entry chunk, so it
+        // runs before every other module of the page
+        for (const [rel, f] of dictFiles) {
+          const c = entryChunk(bundle, rel) as Extract<(typeof bundle)[string], { type: 'chunk' }> | undefined;
+          const line = `import${JSON.stringify('./' + posix.relative(posix.dirname(c?.fileName ?? ''), f.fileName))};\n`;
+          if (c?.type === 'chunk' && !c.code.startsWith(line)) first(c, line);
+        }
         if (!options.compileHints) return;
         const HINT = '//# allFunctionsCalledOnLoad\n';
         for (const c of Object.values(bundle)) {
           if (c.type !== 'chunk' || !(c.isEntry || holdsCore(c.moduleIds)) || c.code.startsWith(HINT)) continue;
-          c.code = HINT + c.code;
-          if (c.map) c.map.mappings = ';' + c.map.mappings;
-          const m = bundle[c.fileName + '.map'];
-          if (m?.type === 'asset' && typeof m.source === 'string') { const j = JSON.parse(m.source) as { mappings: string }; j.mappings = ';' + j.mappings; m.source = JSON.stringify(j); }
+          first(c, HINT);
         }
       },
     },

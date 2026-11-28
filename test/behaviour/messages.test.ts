@@ -3,7 +3,7 @@
 import { expect, test } from 'vitest';
 import { firstPaint, render } from '@tiaforge-ui/sinter/testing';
 import { m } from '../../src/messages.js';
-import { moduleKeys } from '../../src/i18n-build.js';
+import { keysOnly, moduleKeys } from '../../src/i18n-build.js';
 
 const messages = {
   en: { title: 'People', hello: 'Hello {name}', only_en: 'Only in English' },
@@ -72,4 +72,104 @@ test('the messages module starts on its first call: the page\'s entries and thei
   expect((m as unknown as { bye(p: { name: string }): string }).bye({ name: 'Ada' })).toBe('Tschüss Ada');
   expect(state().locale).toBe('de');
   (globalThis as any)[Symbol.for('sinter.i18n')] = undefined;
+});
+
+// A build writes most of a page's dictionary into a file the page module imports first (docs/messages.md): the file's
+// text is `FILE(entries)`, as src/vite.ts writes it. It may run before the page's language is read (no head script
+// called a message) or after.
+const FILE = (d: Record<string, unknown>) => `{const s=globalThis[Symbol.for("sinter.i18n")]??={locale:"",base:"",locales:[],dicts:{}};let l=s.locale;if(!l)try{l=document.querySelector('script[data-sn-ns="m"]')?.getAttribute("lang")??document.documentElement.lang}catch{}Object.assign(s.dicts[l||" "]??={},${JSON.stringify(d)})}`;
+// eslint-disable-next-line no-new-func -- the file's text, run as the browser runs the module
+const run = (d: Record<string, unknown>) => new Function(FILE(d))();
+type M = Record<string, (p?: Record<string, unknown>) => string>;
+
+test('a dictionary file that runs before any message was called: its entries wait under the page\'s language, and the first call has them with the page\'s own', async () => {
+  const { state } = await import('../../src/messages.js');
+  (globalThis as any)[Symbol.for('sinter.i18n')] = undefined;
+  document.documentElement.lang = 'de';
+  document.body.innerHTML = '<script type="application/json" data-sn-ns="m" lang="de">{"early":"Früh"}</script>';
+  try {
+    run({ late: 'Spät {n}', early: 'Früh' });
+    // (the module has not started: the language is not set, only looked up for where the entries go)
+    expect(state().locale).toBe('');
+    expect(Object.keys(state().dicts)).toEqual(['de']);
+    expect([(m as unknown as M).late!({ n: 2 }), (m as unknown as M).early!()]).toEqual(['Spät 2', 'Früh']);
+    expect(state().locale).toBe('de');
+    // a second page's file (a swap): added to what is there
+    run({ other: 'Anders' });
+    expect([(m as unknown as M).other!(), (m as unknown as M).late!({ n: 1 })]).toEqual(['Anders', 'Spät 1']);
+  } finally { (globalThis as any)[Symbol.for('sinter.i18n')] = undefined; document.documentElement.removeAttribute('lang'); }
+});
+
+test('a dictionary file that runs after a head script called a message: added to the page\'s language', async () => {
+  const { state } = await import('../../src/messages.js');
+  (globalThis as any)[Symbol.for('sinter.i18n')] = undefined;
+  document.body.innerHTML = '<script type="application/json" data-sn-ns="m" lang="de">{"early":"Früh"}</script>';
+  try {
+    expect((m as unknown as M).early!()).toBe('Früh');
+    // (not there yet: the key, as for any message the page does not hold)
+    expect((m as unknown as M).late!()).toBe('late');
+    run({ late: 'Spät', early: 'Früh' });
+    expect((m as unknown as M).late!()).toBe('Spät');
+    expect(state().dicts.de).toEqual({ early: 'Früh', late: 'Spät' });
+  } finally { (globalThis as any)[Symbol.for('sinter.i18n')] = undefined; }
+});
+
+test('a page whose head keeps no entry has no dictionary element: the language is the document\'s, the entries the file\'s', async () => {
+  const { state } = await import('../../src/messages.js');
+  (globalThis as any)[Symbol.for('sinter.i18n')] = undefined;
+  document.documentElement.lang = 'de';
+  document.body.innerHTML = '';
+  try {
+    run({ late: 'Spät' });
+    expect((m as unknown as M).late!()).toBe('Spät');
+    expect(state().locale).toBe('de');
+  } finally { (globalThis as any)[Symbol.for('sinter.i18n')] = undefined; document.documentElement.removeAttribute('lang'); }
+  // a document that names no language: as the module has it
+  document.body.innerHTML = '';
+  try {
+    run({ late: 'Late' });
+    expect((m as unknown as M).late!()).toBe('Late');
+    expect(state().locale).toBe(' ');
+  } finally { (globalThis as any)[Symbol.for('sinter.i18n')] = undefined; }
+});
+
+test('keysOnly: a module reads the messages through the keys `moduleKeys` found, or the answer is no', () => {
+  const M = "import { m } from '@tiaforge-ui/sinter/messages';\n";
+  const yes = (src: string, id = '/a.ts') => expect(keysOnly(src, id), src).toBe(true);
+  const no = (src: string, id = '/a.ts') => expect(keysOnly(src, id), src).toBe(false);
+  // through its keys: calls, a nested id, an alias of the import, a name that is no reference
+  yes(M + 'export const a = () => m.title() + m.inbox.unread({ n: 1 });\nexport const b = { m: 1, x: { m: 2 } }.x.m;\n');
+  yes("import { m as msg } from '@tiaforge-ui/sinter/messages';\nexport const a = () => msg.title();\n");
+  yes('export const a = 1;\n');
+  // a type is no use of it: a member named `m`, an annotation, a cast's type, a type argument
+  yes(M + 'interface Time { h: number; m?: number }\ntype T = { m: string };\nexport const a = (t: Time, u: { m: number }): { m: number } => ({ h: t.h, m: t.m ?? u.m, x: m.title() } as { m: number; h: number });\nexport const b = new Map<string, { m: number }>();\n');
+  yes(M + 'declare const m2: { m: number };\nexport const a = () => m.title();\n');
+  yes("import { x } from './other';\nexport const a = () => x.m;\n");
+  // what `moduleKeys` refuses as well
+  no(M + 'export const a = (k: string) => (m as any)[k]();\n');
+  no(M + 'export const a = () => helper(m);\n');
+  no(M + 'const { title } = m;\nexport const a = () => title();\n');
+  // what it does not see: the name handed on, or used where its walker does not go
+  no(M + 'export { m };\n');
+  no(M + 'export { m as messages };\n');
+  no(M + 'export default m;\n');
+  no(M + 'namespace N { export const all = () => Object.keys(m); }\nexport const a = N.all;\n');
+  no(M + 'namespace N { export const t = () => m.hidden(); }\nexport const a = N.t;\n');
+  no(M + 'enum E { A = m.hidden().length }\nexport const a = E.A;\n');
+  no(M + 'export class C { constructor(private readonly all = m) {} }\n');
+  no(M + 'export const a = { m };\n');
+  no(M + 'export const a = typeof m;\n');
+  no(M + 'export const a = (m as unknown as Record<string, () => string>).title();\n');
+  no(M + 'export const a = <T,>(x: T) => x;\nexport const b = a<object>(m);\n');
+  // other ways to the module
+  no("import { m, t } from '@tiaforge-ui/sinter/messages';\nexport const a = () => m.title() + t('x');\n");
+  no("import { t } from '@tiaforge-ui/sinter/messages';\nexport const a = () => t('title');\n");
+  no("import * as all from '@tiaforge-ui/sinter/messages';\nexport const a = () => all.m.title();\n");
+  no("export { m } from '@tiaforge-ui/sinter/messages';\n");
+  no("export * from '@tiaforge-ui/sinter/messages';\n");
+  no("export const a = async () => (await import('@tiaforge-ui/sinter/messages')).m.title();\n");
+  no("export const a = async () => (await import(`@tiaforge-ui/sinter/messages`)).t('x');\n");
+  no("const { m } = require('@tiaforge-ui/sinter/messages');\nexport const a = () => m.title();\n", '/a.cjs');
+  // a module that cannot be parsed
+  no(M + 'export const a = (;\n');
 });

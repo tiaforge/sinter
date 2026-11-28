@@ -168,6 +168,25 @@ How to write an entry (from 0.21.0 on; older sections keep their own form):
   RealWorld's head script 3,140 → 2,958 B gzip, the dashboard example's 2,074 → 1,833 B, Caley's 3,781 → 3,670 B.
   Nothing to do.
 
+- A page no longer carries all the messages its modules call in its HTML. A build writes them into a file per page
+  and language, `assets/<language>-m-<hash>.js`, which the page script imports before anything else, and the HTML keeps
+  only the entries the early script reads (a handful, or none). The HTML is smaller on every view, and less of it
+  stands before the first paint; the file is fetched once and then comes from the cache. Caley, HTML gzip: mail
+  12,165 → 11,014 B (8 of 90 entries stay in the page), settings 6,734 → 5,415 B (none of 88), calendar
+  6,014 → 5,122 B (7 of 76), the German pages 690 to 1,480 B less. The files are 0.8 to 1.8 kB gzip. A first visit
+  transfers 230 to 400 B more than before (the file's own wrapper, its preload link, and what compressing it apart
+  from the page costs), each later view 560 to 1,480 B less.
+  **What is new in `dist/`, and what a server should do:** an `assets/<language>-m-<hash>.js` for each page and
+  language (`en-m-….js`; pages with the same messages share one). Its name has the
+  hash of its text, so give it the cache
+  headers of every other file under `assets/` (`Cache-Control: public, max-age=31536000, immutable`); a server that
+  already does that for `assets/*` needs no change, and `script-src 'self'` covers it. When a text changes, the file
+  and the page script that imports it get new names, for that page and language only: before, a changed text left the
+  page script cached, now that one small script is fetched again (Caley's page scripts: 1 to 29 kB gzip). A
+  dictionary under 1,024 bytes of JSON stays in the page, whole, with no file. The dev server and `sinter render`
+  are unchanged. Nothing to do in an app
+  ([docs/messages.md](docs/messages.md#the-pages-dictionary)).
+
 - Early files are smaller where a page has closed menus and error messages: a `data-sn-if` without a
   `data-sn-else` whose condition is false when the page starts is no longer in the early file (it would render
   nothing), and its markup moves from the `<head>` to the end of the `<body>`; a model that is not persisted no
