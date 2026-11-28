@@ -9446,7 +9446,9 @@ class Compiler {
     const work = this.worklist(fnOf, known, fixed, schemes, ROW, keep ? this.evalProgram!.walk : undefined, rowFns, written);
     for (const c of cands) {
       own = c.b.k === 'model' && c.b.p !== undefined ? (c.b.w![0] as string).split('.').slice(0, 2).join('.') : null;
-      let v = known(strs(c.b.d)) ? run(this.fns[c.f]!) : FAIL;
+      // (an if that is a candidate for its `$build` alone, over state something writes: `$build` is true only where all that
+      // is read is a build-time constant, so the build does not evaluate it over the initial values; as the browser, below)
+      let v = known(strs(c.b.d)) && !(c.if && !fixed(c.b.d)) ? run(this.fns[c.f]!) : FAIL;
       // an if over `$build` the build cannot decide (it reads data only the browser has): evaluated as the browser will see
       // it, `$build` undefined and anything not a build-time constant unreadable; one that comes out without reading such
       // data is what every visitor gets, so it is decided and the page ships that branch alone (docs/static-pages.md)

@@ -71,6 +71,12 @@ How to write an entry (from 0.21.0 on; older sections keep their own form):
 
 ### Fixed
 
+- A `data-sn-if` over `$build` and state that a handler, a model or an action writes is no longer decided from the
+  state's initial value: `!$build && open` was decided false at build and its branch never shipped, so setting `open`
+  showed nothing; `$build && open` with `open: true` was written into the page for good. `$build` is true only where
+  everything the condition reads is a build-time constant; such a condition is now evaluated as the browser sees it
+  (`$build` undefined), which leaves the first a live branch and makes the second false
+  ([docs/components.md](docs/components.md#choosing-how-it-renders-per-use-build-and-slots)).
 - In a build, the early script could not read a state value a helper had computed at build time: the value's element
   came after the head scripts, so the state's initializer failed and the early script made the state with no field at
   all. A stored `data-sn-model` then showed nothing where it shows such a value, and a branch over another field of

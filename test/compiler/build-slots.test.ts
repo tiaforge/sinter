@@ -66,6 +66,46 @@ describe('one branch per page', () => {
   });
 });
 
+describe('state that a handler writes is no build-time constant, also when nothing else is read', () => {
+  const page = (cond: string, open: boolean) => `<div data-sn-state="{ open: ${open}, d: { a: 1 } }"><button id="t" data-sn-on-click="open = !open"></button><template data-sn-if="${cond}"><b>T</b></template><template data-sn-else><i>S</i></template></div>`;
+
+  test('`!$build && open`: not decided at build (it was: false, the branch gone for good); the browser shows it when `open` is set', async () => {
+    const b = built(page('!$build && open', false), {});
+    expect(b.errors).toEqual([]);
+    expect([b.template, b.other]).toEqual([true, true]);
+    const r = await render(page('!$build && open', false));
+    expect(text(r.root)).toBe('<div><button id="t"></button><i>S</i></div>');
+    (r.root.querySelector('#t') as HTMLElement).click();
+    await r.flush();
+    expect(text(r.root)).toBe('<div><button id="t"></button><b>T</b></div>');
+  });
+
+  test('`$build && open`: not written into the page from the initial value (it was, and no click could close it); in the browser it is never true, so the other branch ships alone', async () => {
+    const b = built(page('$build && open', true), {});
+    expect(b.errors).toEqual([]);
+    expect([b.template, b.other]).toEqual([false, true]);
+    const r = await render(page('$build && open', true));
+    expect(text(r.root)).toBe('<div><button id="t"></button><i>S</i></div>');
+  });
+
+  test('`($build && d) || open`: in the browser it is `open`, so both branches ship and it switches (it was decided by `d`)', async () => {
+    const b = built(page('($build && d) || open', false), {});
+    expect([b.template, b.other]).toEqual([true, true]);
+    const r = await render(page('($build && d) || open', false));
+    expect(text(r.root)).toBe('<div><button id="t"></button><i>S</i></div>');
+    (r.root.querySelector('#t') as HTMLElement).click();
+    await r.flush();
+    expect(text(r.root)).toBe('<div><button id="t"></button><b>T</b></div>');
+  });
+
+  test('state nothing writes is decided as before', () => {
+    const still = '<div data-sn-state="{ open: true }"><template data-sn-if="$build && open"><b>T</b></template><template data-sn-else><i>S</i></template></div>';
+    const b = built(still, {});
+    expect([b.template, b.other]).toEqual([true, false]);
+    expect(b.r.html).toContain('<b>T</b>');
+  });
+});
+
 describe('where they may be', () => {
   test('`$build` outside a data-sn-if is SN201: the page would show one thing and the browser another', () => {
     const C = { 'x-t': '<template data-sn-props="{ v: any }"><b data-sn-text="$build ? \'built\' : \'browser\'"></b></template>' };
