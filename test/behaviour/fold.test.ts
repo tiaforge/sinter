@@ -183,6 +183,32 @@ describe('a folded value the browser still reads is written once, as embedded da
     } finally { localStorage.clear(); }
   });
 
+  test('where the value stands: after the head\'s leading <meta>s, before the early script (the dev server\'s tag) and everything else of the head', async () => {
+    const html = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>t</title><link rel="icon" href="data:,"></head><body><main data-sn-state="{ pinned: false, title: titled('hello world'), sub: titled('second one'), head: parsedSoFar() }">
+      <input type="checkbox" data-sn-model="pinned" data-sn-persist="pinned"><button data-sn-on-click="title = title + '!'; sub = sub + '!'; head = ''"></button>
+      <template data-sn-if="pinned"><h1 data-sn-text="title"></h1><h2 data-sn-text="sub"></h2></template><i data-sn-text="head"></i></main></body></html>`;
+    // (run in the browser alone: it reads the document; the early script calls it as it makes the state, when it starts)
+    const parsedSoFar = () => [...document.head.children].map((e) => e.localName).join(' ');
+    const order = (out: ReturnType<typeof build>) => [...out.html.slice(0, out.html.indexOf('</head>')).matchAll(/<meta|<title|<link rel="icon|<script src="\/early\.js"|"Hello World"|"Second One"/g)].map((m) => m[0].replace(/^</, ''));
+    // a build (its head scripts are the Vite plugin's, put in before the first stylesheet or script that is no value)
+    const helpers: Record<string, [unknown, FoldVerdict]> = { titled: [titled, yes], parsedSoFar: [parsedSoFar, no('reads the document')] };
+    const built = build(html, { ...helpers }, { early: { module: null }, dev: false });
+    expect(errors(built)).toEqual([]);
+    expect(order(built)).toEqual(['meta', 'meta', '"Hello World"', '"Second One"', 'title', 'link rel="icon']);
+    // the dev server: its early script's tag, a classic script that runs where it stands
+    const dev = build(html, { ...helpers }, { early: { module: null, src: '/early.js' }, observe: true, moduleSrc: '/page.js' });
+    expect(errors(dev)).toEqual([]);
+    expect(order(dev)).toEqual(['meta', 'meta', '"Hello World"', '"Second One"', 'script src="/early.js"', 'title', 'link rel="icon']);
+    // `firstPaint()` starts the early script there: the <meta>s and the values parsed, nothing after them
+    localStorage.setItem('sn:pinned', 'true');
+    try {
+      const early = await firstPaint(html, { helpers: { titled, parsedSoFar }, storage: localStorage });
+      expect(early.root.querySelector('i')?.textContent).toBe('meta meta script script');
+      expect(early.root.querySelector('h1')?.textContent).toBe('Hello World');
+      expect(early.root.querySelector('h2')?.textContent).toBe('Second One');
+    } finally { localStorage.clear(); }
+  });
+
   test('at run time and in the first paint: the value, a copy per state', async () => {
     const r = await render(page, { helpers: { titled } });
     expect(r.root.querySelector('h1')!.textContent).toBe('…');

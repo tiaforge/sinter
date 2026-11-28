@@ -1,13 +1,16 @@
 // @vitest-environment node
 // A built page whose state has a field a helper computed at build time (written into the page, `$.$d(id)`): the early
-// script makes the state as it starts, so the value must be parsed by then. The build writes the values the early file
-// reads before the head scripts. Checked on the built files themselves: jsdom parses the page and runs its classic
-// head scripts where they stand, as a browser does (the page module, a module script, does not run: the first paint).
+// script makes the state as it starts, so the value must be parsed by then. The compiler writes the values the early
+// file reads first in the head, and the early script comes after them: a build's head scripts, and the dev server's
+// early script. Checked on the built files themselves, and on the dev server's page: jsdom parses the page and runs its
+// classic head scripts where they stand, as a browser does (the page module, a module script, does not run: the first paint).
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createRequire } from 'node:module';
-import { build } from 'vite';
+import { createServer as httpServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
+import { build, createServer } from 'vite';
 import { afterAll, expect, test } from 'vitest';
 import sinter from '../../src/vite.js';
 
@@ -47,9 +50,14 @@ async function site(name: string, options: Parameters<typeof sinter>[0] = {}) {
  * reaches it, with only what is before it parsed (an external one it would run after the whole parse).
  */
 async function firstPaint(out: string, html: string, stored: Record<string, string>) {
-  const errors: string[] = [];
   const inlined = html.replace(/<script src="(\/assets\/[^"]+)"><\/script>/g, (_, src: string) => `<script>${readFileSync(join(out, src), 'utf8').replace(/<\/script/gi, '<\\/script')}</script>`);
   expect(inlined).not.toBe(html);
+  return parsed(inlined, stored);
+}
+
+/** a page whose classic scripts are written into their tags, parsed by jsdom with the stored values given: the document at DOMContentLoaded */
+async function parsed(inlined: string, stored: Record<string, string>) {
+  const errors: string[] = [];
   const dom = new JSDOM(inlined, {
     url: 'http://localhost/', runScripts: 'dangerously', pretendToBeVisual: true,
     beforeParse(window) {
@@ -87,4 +95,49 @@ test('with the HTML left as written (`minifyHtml: false`) the values are placed 
   const stored = await firstPaint(out, html, { 'sn:pinned': 'true' });
   expect(stored.document.querySelector('h1')?.textContent).toBe('Hello World');
   expect(!!stored.document.querySelector('#todo')).toBe(false);
+});
+
+test('the dev server: the value is in the head before the early script, and the first paint has the stored model\'s value and the right branch', async () => {
+  const root = join(tmp, 'dev');
+  mkdirSync(join(root, 'src'), { recursive: true });
+  writeFileSync(join(root, 'src/sinter.helpers.ts'), HELPERS);
+  writeFileSync(join(root, 'index.html'), PAGE);
+  const server = await createServer({ root, logLevel: 'silent', resolve: { alias }, server: { middlewareMode: true, hmr: false, ws: false }, appType: 'custom', plugins: [sinter()] });
+  const http = httpServer((req, res) => server.middlewares(req, res, () => { res.writeHead(404); res.end(); }));
+  await new Promise<void>((ok) => http.listen(0, '127.0.0.1', ok));
+  try {
+    const html = await server.transformIndexHtml('/index.html', PAGE);
+    const value = html.search(/<script type="application\/json" data-sn="\d+">"Hello World"<\/script>/);
+    const tag = /<script src="([^"]*\/@sinter\/early\/[^"]*)"><\/script>/.exec(html);
+    expect(value, 'the dev page has the build-computed value as an element').toBeGreaterThan(-1);
+    expect(tag, 'the dev page has a classic early script').not.toBeNull();
+    expect(value, 'the value comes before the early script that reads it').toBeLessThan(tag!.index);
+    // the early script as the dev server serves it, run where its tag stands
+    const code = await (await fetch(`http://127.0.0.1:${(http.address() as AddressInfo).port}${tag![1]}`)).text();
+    expect(code).toContain('$d');
+    const inlined = html.replace(tag![0], () => `<script>${code.replace(/<\/script/gi, '<\\/script')}</script>`);
+    const fresh = await parsed(inlined, {});
+    expect(fresh.errors).toEqual([]);
+    expect([!!fresh.document.querySelector('#todo'), !!fresh.document.querySelector('#fine'), !!fresh.document.querySelector('h1')]).toEqual([false, true, false]);
+    const stored = await parsed(inlined, { 'sn:pinned': 'true' });
+    expect(stored.errors).toEqual([]);
+    expect(stored.document.querySelector('h1')?.textContent).toBe('Hello World');
+    expect([!!stored.document.querySelector('#todo'), !!stored.document.querySelector('#fine')]).toEqual([false, true]);
+  } finally {
+    await new Promise((ok) => http.close(ok));
+    await server.close();
+  }
+}, 120000);
+
+test('a value whose text has `$&` or `$1` reaches the first paint as written', async () => {
+  // (the plugin puts its tags in with string slices, and with a function where it replaces: no replacement pattern is read)
+  const root = join(tmp, 'dollar'), out = join(root, 'dist');
+  mkdirSync(join(root, 'src'), { recursive: true });
+  writeFileSync(join(root, 'src/sinter.helpers.ts'), "export const priced = (s: string): string => s + ' for $& or $\\' and $1';\n");
+  writeFileSync(join(root, 'index.html'), PAGE.replace("titled('hello world')", "priced('all')"));
+  await build({ root, logLevel: 'silent', resolve: { alias }, plugins: [sinter()], build: { outDir: out, emptyOutDir: true, rollupOptions: { input: { index: join(root, 'index.html') } } } });
+  const html = readFileSync(join(out, 'index.html'), 'utf8');
+  const stored = await firstPaint(out, html, { 'sn:pinned': 'true' });
+  expect(stored.errors).toEqual([]);
+  expect(stored.document.querySelector('h1')?.textContent).toBe("all for $& or $' and $1");
 });

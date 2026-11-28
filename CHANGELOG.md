@@ -78,11 +78,11 @@ How to write an entry (from 0.21.0 on; older sections keep their own form):
   (`$build` undefined), which leaves the first a live branch and makes the second false. The early script reads it the
   same way, so such a branch (or its else) is in the first paint
   ([docs/components.md](docs/components.md#choosing-how-it-renders-per-use-build-and-slots)).
-- In a build, the early script could not read a state value a helper had computed at build time: the value's element
-  came after the head scripts, so the state's initializer failed and the early script made the state with no field at
+- The early script could not read a state value a helper had computed at build time, in a build and on the dev server: the value's element
+  came after the early script, so the state's initializer failed and the early script made the state with no field at
   all. A stored `data-sn-model` then showed nothing where it shows such a value, and a branch over another field of
   that state was painted from `undefined` (`data-sn-if="!done"` open although `done` starts true) and taken out again
-  when the page script mounted. The build now writes the values the early script reads before the head scripts.
+  when the page script mounted. The values the early script reads are now first in the `<head>`, after its `<meta>`s.
   Nothing to do ([docs/first-paint.md](docs/first-paint.md#the-early-script)).
 - A component's `:scope` (and `&`) matches its root only. It also matched each top element of the slot content the component passes into another component's slots (marked `data-sn-s="<name>"`), so `:scope { display: contents }` took their boxes, and `:scope > x` reached their children. That content still gets the component's other rules (`.x`, `p`), as before. The compiled selector is `:scope:where([data-sn-c="<name>"])`, with the same specificity. A rule that styled that slot content through `:scope` names it by its class instead ([docs/components.md](docs/components.md#styles)).
 - `SN530` no longer reports an image whose height is a percentage of a box with a fixed height when an `@supports` rule may change that box's `display` and every display it may take gives the percentage the same basis (such as `inline-grid` or `inline-block`); the image counts as sized, as it did without the `@supports` rule. See [SN530](docs/diagnostics.md#sn530-unsized-late-image).

@@ -258,8 +258,8 @@ function scope(o: ReturnType<EarlyPage>, req: EarlyRequests | null): any {
   const more = (h: string, u: any) => (o.lists ? o.lists(h, o.ir.urlArrays!, u) : u);
   return new Proxy(Object.create(null), {
     get(_, k) {
-      // a state field the build computed, embedded in the head: parsed when the early script runs (a build writes the
-      // ones this file reads before the head scripts, src/vite.ts; the dev module runs after the parse)
+      // a state field the build computed, embedded in the head: parsed when the early script runs (the compiler writes
+      // the ones this file reads first in the head, and the early script, a build's or the dev server's, comes after them)
       if (k == '$d') return json;
       // `$locale`: `configure({ locale })` from the app's early module, on pages whose early functions read it
       const l = k == '$locale' ? o.locale?.() : null;

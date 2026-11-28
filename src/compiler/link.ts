@@ -87,6 +87,8 @@ export const LINK_FIELDS: Record<string, { kinds: string[]; how: 'table' | 'weak
   defs: { kinds: ['Map'], how: 'table' },
   diagnostics: { kinds: ['Array'], how: 'table' },
   dlTemplates: { kinds: ['Set'], how: 'table' },
+  // (the values first in the head, for the early script: set as the page is written out, `placeFolded`)
+  earlyValues: { kinds: ['WeakSet'], how: 'weak' },
   dropped: { kinds: ['Set'], how: 'table' },
   dry: { kinds: ['empty', 'object'], how: 'fixed' },
   earlySites: { kinds: ['Map'], how: 'table' },

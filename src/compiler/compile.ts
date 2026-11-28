@@ -9636,17 +9636,35 @@ class Compiler {
     }
   }
 
+  /** the values `placeFolded` put first in the head, for the early script: it stands after them (`injectScript`, src/vite.ts) */
+  private readonly earlyValues = new WeakSet<P5Element>();
+  /** where the head's leading `<meta>`s end, and the values the early script reads after them (`placeFolded`) */
+  private headStart(head: P5Element): number {
+    let at = 0;
+    for (let i = 0; i < head.childNodes.length; i++) { const n = head.childNodes[i]!; if (isElement(n) && n.tagName !== 'meta' && !this.earlyValues.has(n)) break; if (isElement(n)) at = i + 1; }
+    return at;
+  }
+
   /**
-   * A value `foldScriptsOut` wrote that no early function reads (`$.$d(id)`): at the end of the `<body>`, where nothing
-   * waits for it. The early file reads its own from the head, the page module finds any by its id when it mounts.
+   * Where a value `foldScriptsOut` wrote goes. One that an early function reads (`$.$d(id)`): after the head's leading
+   * `<meta>`s, before the early script wherever it comes from (the dev server's tag, `injectScript`; a build's head
+   * scripts, src/vite.ts), which makes the page's states as it starts and reads each value from the head parsed so
+   * far. One that no early function reads: at the end of the `<body>`, where nothing waits for it (the page module
+   * finds any by its id when it mounts).
    */
   placeFolded(doc: P5Parent, early: EarlyParts | null | undefined) {
     const body = findBody(doc);
     if (!body || !this.headEl) return;
     for (const el of this.headEl.childNodes.filter(isElement)) {
       const id = el.tagName === 'script' ? Number(attr(el, 'data-sn') ?? NaN) : NaN;
-      if (!this.foldScripts.has(id) || early?.fns.some((c) => c.includes(`$.$d(${id})`))) continue;
+      if (!this.foldScripts.has(id)) continue;
       detach(el);
+      if (early?.fns.some((c) => c.includes(`$.$d(${id})`))) {
+        el.parentNode = this.headEl;
+        this.headEl.childNodes.splice(this.headStart(this.headEl), 0, el as never);
+        this.earlyValues.add(el);
+        continue;
+      }
       el.parentNode = body as never;
       body.childNodes.push(el as never);
     }
@@ -14153,24 +14171,19 @@ class Compiler {
       const links = [...preconnects(this.resources, this.syncs).map((o) => `<link rel="preconnect" href="${esc(o)}" crossorigin>`), ...this.preloadLinks()]
         .map((t) => parse5.parseFragment(t).childNodes[0] as P5Element);
       for (const l of links) l.parentNode = head;
-      // after the leading <meta>s (charset first), before stylesheets and scripts
-      let at = 0;
-      for (let i = 0; i < head.childNodes.length; i++) { const n = head.childNodes[i]!; if (isElement(n) && n.tagName !== 'meta') break; if (isElement(n)) at = i + 1; }
-      head.childNodes.splice(at, 0, ...(links as never[]));
+      // after the leading <meta>s (charset first) and the values the early script reads, before stylesheets and scripts
+      head.childNodes.splice(this.headStart(head), 0, ...(links as never[]));
     }
     if (early) {
-      // with `observe`, a classic script (the dev server bundles it) after the leading <meta>s, before stylesheets
-      // (a classic script waits for those before it) and scripts: it renders as the parser goes; else a
-      // render-blocking module, before the page module
+      // with `observe`, a classic script (the dev server bundles it) after the leading <meta>s and the values it reads
+      // (`placeFolded`), before stylesheets (a classic script waits for those before it) and scripts: it renders as the
+      // parser goes; else a render-blocking module, before the page module
       const observe = !!this.opts.observe;
       const tag = parse5.parseFragment(observe ? `<script src="${esc(early)}"></script>` : `<script type="module" src="${esc(early)}" blocking="render"></script>`).childNodes[0] as P5Element;
       tag.parentNode = head;
       OWN_SCRIPTS.add(tag);
-      if (observe) {
-        let at = 0;
-        for (let i = 0; i < head.childNodes.length; i++) { const n = head.childNodes[i]!; if (isElement(n) && n.tagName !== 'meta') break; if (isElement(n)) at = i + 1; }
-        head.childNodes.splice(at, 0, tag as never);
-      } else head.childNodes.push(tag as never);
+      if (observe) head.childNodes.splice(this.headStart(head), 0, tag as never);
+      else head.childNodes.push(tag as never);
     }
     const src = this.opts.moduleSrc ?? `./${basename(this.opts.file).replace(/\.html?$/, '')}.sinter.js`;
     const frag = parse5.parseFragment(`<script type="module" src="${esc(src)}"></script>`);

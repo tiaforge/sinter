@@ -182,6 +182,13 @@ describe('in the early file, `$build` is what the browser has (undefined): an if
     expect((await takeover(page(true, false))).wrote).toEqual([]);
   });
 
+  test('closed at first, no else: left out of the early file, as the same branch over `open` alone is', () => {
+    const early = (html: string) => compileParts(html, { file: '/p/index.html', root: '/p', dev: false, prerender: true, readFile: () => '', moduleSrc: '/page.js', helpers: { module: null, names: [], namespaces: {} }, early: { module: null } }).early;
+    expect(early(page(false, false, 'open'))).toMatchObject({ ir: { roots: [] }, fns: [] });
+    expect(early(page(false, false))).toMatchObject({ ir: { roots: [] }, fns: [] });
+    expect(early(page(true, false))!.fns).toEqual(['($) => (!(void 0) && $.$s0.open)', '($) => ({ "open": (true) })']);
+  });
+
   test('the other way round (`$build || open`), and a string that only spells it', async () => {
     await firstPaint(page(false, true, '$build || open'));
     expect([has('x'), has('y')]).toEqual([false, true]);
