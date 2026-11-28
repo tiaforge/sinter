@@ -2537,6 +2537,12 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         if (!early && !own && !inline) return html;
         // a page in one language: the messages its app modules call, before any script that reads them
         const tags: string[] = inline ? [inline] : [];
+        // the build-computed values the early file's functions read (`$.$d(id)`; the compiler left only those in the head):
+        // before the head scripts, which make the page's states as they start and read each from the head parsed so far
+        if (early) for (const id of new Set([...(earlyPages.get(rel) ?? '').matchAll(/\$\.\$d\((\d+)\)/g)].map((m) => m[1]!))) {
+          const m = new RegExp(`<script type="application/json" data-sn="${id}">[\\s\\S]*?</script>`).exec(html);
+          if (m && m.index < html.search(/<\/head\s*>/i)) { html = html.slice(0, m.index) + html.slice(m.index + m[0].length); tags.push(m[0]); }
+        }
         // the shared head script, then the page's: classic scripts, run in order
         if (early && sharedHead) tags.push(`<script src="${attr(base + sharedHead.fileName)}"></script>`);
         if (own) tags.push(`<script src="${attr(base + own)}"></script>`);

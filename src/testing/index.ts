@@ -519,7 +519,8 @@ async function paint(parts: CompiledParts, helpers: Record<string, unknown>, app
   for (const u of page.uses) { names.push(u); values.push((earlyExports as Record<string, unknown>)[u]); }
   // eslint-disable-next-line no-new-func -- tests only; pages load a compiled module
   const made = new Function(...names, `"use strict"; const f = [\n${parts.early.fns.join(',\n')}\n]; return ${page.code};`)(...values);
-  await parse(() => { configured(); observe(() => made, requests(configured)); });
+  // (the build-computed values its functions read, `$.$d(id)`: a built page has them before its head scripts)
+  await parse(() => { configured(); observe(() => made, requests(configured)); }, new Set([...parts.early.fns.join('\n').matchAll(/\$\.\$d\((\d+)\)/g)].map((m) => m[1]!)));
 }
 
 /**
@@ -527,8 +528,10 @@ async function paint(parts: CompiledParts, helpers: Record<string, unknown>, app
  * written page's nodes are taken out and inserted again one by one in document order, an element before its
  * children, as the parser inserts them, each insertion's observer callback run before the next; then
  * DOMContentLoaded. One node per parser chunk is the order that leaves the most elements open at each pass.
+ * `values`: the ids of the head's data elements a built page has before its head scripts (the Vite plugin puts
+ * the build-computed values the early file reads there): parsed when `early` starts.
  */
-async function parse(early: () => void) {
+async function parse(early: () => void, values: Set<string> = new Set()) {
   const doc = document, top = doc.documentElement;
   const kids = [...top.childNodes];
   top.replaceChildren();
@@ -543,8 +546,21 @@ async function parse(early: () => void) {
     for (const c of inner) await put(c, n);
   };
   try {
-    early();
-    for (const k of kids) await put(k, top);
+    const head = kids.find((k) => k.nodeName == 'HEAD');
+    const first = head ? [...head.childNodes].filter((n) => n.nodeName == 'SCRIPT' && values.has((n as Element).getAttribute('data-sn') ?? '')) : [];
+    if (first.length) {
+      // the head so far (those elements), the head scripts, then the rest of the head and the document
+      const rest = [...head!.childNodes].filter((n) => !first.includes(n));
+      for (const c of [...head!.childNodes]) c.remove();
+      top.appendChild(head!);
+      for (const c of first) head!.appendChild(c);
+      early();
+      for (const c of rest) await put(c, head!);
+      for (const k of kids) if (k != head) await put(k, top);
+    } else {
+      early();
+      for (const k of kids) await put(k, top);
+    }
     state = 'interactive';
     doc.dispatchEvent(new Event('DOMContentLoaded'));
   } finally {

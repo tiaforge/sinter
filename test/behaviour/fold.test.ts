@@ -160,6 +160,29 @@ describe('a folded value the browser still reads is written once, as embedded da
     expect(r.root.querySelector('h1')!.textContent).toBe('Hello World');
   });
 
+  test('the early script reads the value: its state is made with every field, a stored model shows it and a branch over another field is as its initial value says', async () => {
+    // (the early script read the value from an element that was not parsed yet when it started: the initializer threw,
+    // the state had no field, and `!done` was painted as true, to be taken out again when the page module mounted)
+    const html = `<!doctype html><html><head></head><body><main data-sn-state="{ pinned: false, done: true, title: titled('hello world') }">
+      <input type="checkbox" data-sn-model="pinned" data-sn-persist="pinned"><button data-sn-on-click="done = !done; title = title + '!'"></button>
+      <template data-sn-if="!done"><p id="todo">to do</p></template><template data-sn-else><p id="fine">done</p></template>
+      <template data-sn-if="pinned"><h1 data-sn-text="title"></h1></template></main></body></html>`;
+    localStorage.setItem('sn:pinned', 'true');
+    try {
+      const early = await firstPaint(html, { helpers: { titled }, storage: localStorage });
+      expect(early.root.querySelector('h1')?.textContent).toBe('Hello World');
+      expect(early.root.querySelector('#todo')).toBeNull();
+      expect(early.root.querySelector('#fine')).not.toBeNull();
+      // and the page module takes that over: the same elements, nothing painted to be removed
+      let fine: Element | null = null;
+      const r = await render(html, { helpers: { titled }, storage: localStorage, firstPaint: { afterEarly: () => { fine = document.querySelector('#fine'); } } });
+      await r.settle();
+      expect(fine).not.toBeNull();
+      expect(document.querySelector('#fine')).toBe(fine);
+      expect(r.root.querySelector('h1')!.textContent).toBe('Hello World');
+    } finally { localStorage.clear(); }
+  });
+
   test('at run time and in the first paint: the value, a copy per state', async () => {
     const r = await render(page, { helpers: { titled } });
     expect(r.root.querySelector('h1')!.textContent).toBe('…');
