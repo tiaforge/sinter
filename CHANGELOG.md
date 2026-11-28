@@ -92,7 +92,8 @@ How to write an entry (from 0.21.0 on; older sections keep their own form):
 - A use of the built-in messages that the build cannot read is now a build error, `SN350`, which says what to write
   instead, where it used to build and show the message's key at run time: `export { m }` or a re-export of
   `@tiaforge-ui/sinter/messages`, `import * as` of it, `t(key)` and the module's other exports that read entries
-  (`getLocale`, `install` and the types are fine), `import()` or `require()` of it, the module under another spelling
+  (`getLocale`, `install` and the types are fine), `import()` or `require()` of it (TypeScript's
+  `import x = require(…)` too), the module under another spelling
   (a path to its file, an alias), and a message in a decorator. The errors that were there (`m[key]`, `m` passed on)
   have the code too. To fix: `import { m } from '@tiaforge-ui/sinter/messages'` in each module that calls a message,
   and call each by name; for a choice at run time, a map of `() => m.key()` functions

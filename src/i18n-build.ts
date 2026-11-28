@@ -97,6 +97,8 @@ export function otherReach(code: string, id: string, from: string = MESSAGES_MOD
       case 'ImportDeclaration': case 'TSInterfaceDeclaration': case 'TSTypeAliasDeclaration': return;
       case 'ExportNamedDeclaration': case 'ExportAllDeclaration': if (text(n.source) === from && n.exportKind !== 'type') { out = { pos: n.start, how: 'reexport', name: '' }; return; } break;
       case 'ImportExpression': if (text(n.source) === from) { out = { pos: n.start, how: 'dynamic', name: '' }; return; } break;
+      // (TypeScript's `import x = require('…')`)
+      case 'TSExternalModuleReference': if (text(n.expression) === from) { out = { pos: n.start, how: 'dynamic', name: '' }; return; } break;
       case 'CallExpression': if (n.callee?.type === 'Identifier' && n.callee.name === 'require' && text(n.arguments[0]) === from) { out = { pos: n.start, how: 'dynamic', name: '' }; return; } break;
       case 'Identifier': case 'JSXIdentifier': {
         if (!names.has(n.name)) return;
@@ -313,6 +315,7 @@ export function sourcesOf(code: string, id: string): string[] | null {
   const visit = (n: any) => {
     if (!n || typeof n.type !== 'string') return;
     if (n.type === 'ImportDeclaration' || n.type === 'ExportNamedDeclaration' || n.type === 'ExportAllDeclaration' || n.type === 'ImportExpression') add(n.source);
+    if (n.type === 'TSExternalModuleReference') add(n.expression);
     if (n.type === 'CallExpression' && n.callee?.type === 'Identifier' && n.callee.name === 'require') add(n.arguments[0]);
     for (const k of Object.keys(n)) {
       if (k === 'type' || k === 'start' || k === 'end' || k === 'loc' || k === 'range') continue;

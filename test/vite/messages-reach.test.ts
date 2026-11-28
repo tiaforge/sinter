@@ -47,7 +47,8 @@ const CASES: Array<[string, string, Record<string, string>, RegExp]> = [
   ['a namespace import', `import * as msg from '@tiaforge-ui/sinter/messages';\nexport const label = (): string => msg.m.hello();\n`, {}, /SN350 .*label\.ts:1:8: `import \* as …` of '@tiaforge-ui\/sinter\/messages': import `\{ m \}`/],
   ['`t(key)`', `import { t } from '@tiaforge-ui/sinter/messages';\nexport const label = (): string => t('hello');\n`, {}, /SN350 .*`t` from '@tiaforge-ui\/sinter\/messages' reads the messages by a key the build does not see/],
   ['`import()`', `export const label = async (): Promise<string> => (await import('@tiaforge-ui/sinter/messages')).m.hello();\n`, {}, /SN350 .*`import\(\)` or `require\(\)` of/],
-  ['an alias', `import { m } from '~messages';\nexport const label = (): string => m.hello();\n`, {}, /SN350 .*label\.ts:1:\d+: `~messages` is `@tiaforge-ui\/sinter\/messages` under another name/],
+  ['TypeScript\'s `import = require()`', `import msg = require('@tiaforge-ui/sinter/messages');\nexport const label = (): string => msg.m.hello();\n`, {}, /SN350 .*label\.ts:1:\d+: `import\(\)` or `require\(\)` of/],
+  ['an alias',`import { m } from '~messages';\nexport const label = (): string => m.hello();\n`, {}, /SN350 .*label\.ts:1:\d+: `~messages` is `@tiaforge-ui\/sinter\/messages` under another name/],
   ['the file\'s path', `import { m } from ${JSON.stringify(`${src}/messages.ts`)};\nexport const label = (): string => m.hello();\n`, {}, /SN350 .*is `@tiaforge-ui\/sinter\/messages` under another name/],
   ['a decorator', `${IMPORT}const d = (_s: string) => (t: unknown) => t;\n@d(m.bye())\nclass C {}\nexport const label = (): string => m.hello() + String(C);\n`, {}, /SN350 .*`m\.bye` stands where the build does not read it/],
 ];
