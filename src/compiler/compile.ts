@@ -2961,6 +2961,7 @@ class Compiler {
     this.guard = this.signedInGuard();
     let early = this.opts.early ? this.earlyParts() : undefined;
     this.placeTemplates(doc, early);
+    this.placeFolded(doc, early);
     if (early && this.opts.sourcemap) early.sources = this.sourcesOf(early.fns, this.earlySites);
     // (after the passes that read one binding per property: the constants written at build time, the early file)
     const styleGroups = this.groupStyles();
@@ -9656,6 +9657,22 @@ class Compiler {
       const el = parse5.parseFragment(`<script type="application/json" data-sn="${id}">${json}</script>`).childNodes[0] as P5Element;
       el.parentNode = this.headEl;
       this.headEl.childNodes.push(el as never);
+    }
+  }
+
+  /**
+   * A value `foldScriptsOut` wrote that no early function reads (`$.$d(id)`): at the end of the `<body>`, where nothing
+   * waits for it. The early file reads its own from the head, the page module finds any by its id when it mounts.
+   */
+  placeFolded(doc: P5Parent, early: EarlyParts | null | undefined) {
+    const body = findBody(doc);
+    if (!body || !this.headEl) return;
+    for (const el of this.headEl.childNodes.filter(isElement)) {
+      const id = el.tagName === 'script' ? Number(attr(el, 'data-sn') ?? NaN) : NaN;
+      if (!this.foldScripts.has(id) || early?.fns.some((c) => c.includes(`$.$d(${id})`))) continue;
+      detach(el);
+      el.parentNode = body as never;
+      body.childNodes.push(el as never);
     }
   }
 

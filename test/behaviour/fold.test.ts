@@ -137,6 +137,29 @@ describe('a folded value the browser still reads is written once, as embedded da
     expect(out.early ?? '').not.toContain('titled');
   });
 
+  test('a value the early file reads stays in the head; one only the page module reads is at the end of the body', async () => {
+    // `title` shows when the stored `open` is true (the early file names it); `sub` only after a click
+    const html = `<!doctype html><html><head></head><body><main data-sn-state="{ open: false, last: '', title: titled('hello world'), sub: titled('later on') }">
+      <input type="checkbox" data-sn-model="open" data-sn-persist="open"><button data-sn-on-click="last = sub"></button>
+      <h1 data-sn-text="open ? title : '…'"></h1><h2 data-sn-text="last"></h2></main></body></html>`;
+    const out = build(html, { titled: [titled, yes] }, { early: { module: null }, dev: false });
+    expect(errors(out)).toEqual([]);
+    const head = out.html.slice(0, out.html.indexOf('</head>')), body = out.html.slice(out.html.indexOf('<body'));
+    expect(head).toMatch(/<script type="application\/json" data-sn="\d+">"Hello World"<\/script>/);
+    expect(head).not.toContain('Later On');
+    expect(body).toMatch(/<script type="application\/json" data-sn="\d+">"Later On"<\/script>\s*<\/body>/);
+    // the page module finds the one at the end of the body by its id, as it finds the head's
+    const r = await render(html, { helpers: { titled }, firstPaint: true });
+    await r.settle();
+    expect(document.body.lastElementChild!.textContent).toBe('"Later On"');
+    r.root.querySelector('button')!.click();
+    await r.flush();
+    expect(r.root.querySelector('h2')!.textContent).toBe('Later On');
+    (r.root.querySelector('input') as HTMLInputElement).click();
+    await r.flush();
+    expect(r.root.querySelector('h1')!.textContent).toBe('Hello World');
+  });
+
   test('at run time and in the first paint: the value, a copy per state', async () => {
     const r = await render(page, { helpers: { titled } });
     expect(r.root.querySelector('h1')!.textContent).toBe('…');

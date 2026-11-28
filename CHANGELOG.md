@@ -119,7 +119,8 @@ How to write an entry (from 0.21.0 on; older sections keep their own form):
   still opens it before the first paint. Caley's mail page: early file 3,972 → 3,181 B gzip, `<head>` 3,591 → 3,339 B
   gzip; its calendar's early file 2,063 → 1,897 B, its message view's 837 → 622 B. On an API with a
   token, a branch over data that needs the token (`data-sn-if="user"`) is left out the same way, as it is closed
-  signed out and while the user loads: RealWorld's pages 77 to 137 B gzip each, early file and `<head>` together. Nothing to do; the first paint and the requests are the same
+  signed out and while the user loads: RealWorld's pages 77 to 137 B gzip each, early file and `<head>` together. A state value a helper computed at build time that only the page script reads is
+  written at the end of the `<body>`, not in the `<head>` (Caley's mail `<head>` 3,340 → 3,135 B gzip). Nothing to do; the first paint and the requests are the same
   ([docs/first-paint.md](docs/first-paint.md#what-an-early-file-leaves-out)).
 
 - The early script no longer carries bindings that could never paint: one that reads, on every path, the data or

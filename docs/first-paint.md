@@ -124,7 +124,7 @@ An early file holds what can show in the first frame, and nothing the page scrip
 
 The build leaves a branch or a request out only where the early script would compute the very values it did. A field with
 `data-sn-persist` (on the state or on a model of the field), a field whose initializer reads the URL, the clock or
-calls anything (unless the build ran the helper and wrote its result into the page), and a condition that calls a
+calls anything (unless the build ran the helper and wrote its result into the page: the value is then the build's), and a condition that calls a
 helper or a method keep the branch (or the request) in the early file, where the visitor's stored value or URL may open it before the
 first paint.
 
