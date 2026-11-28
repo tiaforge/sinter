@@ -178,14 +178,26 @@ export function inlineTexts(code: string, id: string, textOf: (key: string) => u
   let ast: ReturnType<typeof parseModule>;
   try { ast = parseModule(code, id.replace(/\?.*$/, '')); } catch { return null; }
   const names = new Set<string>();
-  for (const st of ast.body as any[]) if (st.type === 'ImportDeclaration' && st.source.value === from) for (const s of st.specifiers) names.add(s.local.name);
+  // (`String` imported is the module's own too: the walk below does not enter imports)
+  let ownString = false;
+  for (const st of ast.body as any[]) if (st.type === 'ImportDeclaration') for (const s of st.specifiers) {
+    if (st.source.value === from) names.add(s.local.name);
+    if (s.local.name === 'String' && st.importKind !== 'type' && s.importKind !== 'type') ownString = true;
+  }
+  if (ownString) return null;
   // the uses: each chain `m.a.b` as keysOnly reads it, its parent, and what `String` is
   const uses: Array<{ node: any; parent: any; key: string }> = [];
-  let ownString = false;
+  /**
+   * where an expression statement in a list of statements starts: a site there that begins with `(` would continue the
+   * statement before it when that one has no semicolon (`a = b⏎m.x()` is two statements; `a = b⏎("x")` a call of `b`),
+   * so it is written after a `;` of its own
+   */
+  const statementStarts = new Set<number>();
   const visit = (n: any, up: any[]) => {
     if (!n || typeof n.type !== 'string' || n.declare === true) return;
     if (n.type === 'ImportDeclaration' || n.type === 'TSInterfaceDeclaration' || n.type === 'TSTypeAliasDeclaration') return;
     const p = up[up.length - 1];
+    if (n.type === 'ExpressionStatement' && /^(Program|BlockStatement|StaticBlock|SwitchCase|TSModuleBlock)$/.test(p?.type)) statementStarts.add(n.start);
     if (n.type === 'ObjectPattern') for (const q of n.properties) if (q.type === 'Property') q.__inPattern = true;
     if (n.type === 'Identifier' && n.name === 'String' && !(p && ((p.type === 'CallExpression' && p.callee === n) || (p.type === 'MemberExpression' && p.object === n) || (p.type === 'MemberExpression' && p.property === n && !p.computed) || (/^(Property|MethodDefinition|PropertyDefinition)$/.test(p.type) && p.key === n && !p.computed && !p.shorthand)))) ownString = true;
     if (n.type === 'Identifier' && names.has(n.name) && p?.type === 'MemberExpression' && p.object === n && !p.computed && p.property.type === 'Identifier') {
@@ -219,9 +231,9 @@ export function inlineTexts(code: string, id: string, textOf: (key: string) => u
   const sites: Site[] = [], left = new Set<string>(), done = new Set<string>();
   let refs = 0, before = 0, install = false;
   // the source of a range, the sites inside it replaced
-  const render = (s: number, e: number, self?: Site): string => {
+  const render = (s: number, e: number, self?: Site, top = false): string => {
     let out = '', at = s;
-    for (const x of sites) if (x !== self && x.start >= at && x.end <= e) { out += code.slice(at, x.start) + x.out(); at = x.end; }
+    for (const x of sites) if (x !== self && x.start >= at && x.end <= e) { out += code.slice(at, x.start) + (top && statementStarts.has(x.start) ? ';' : '') + x.out(); at = x.end; }
     return out + code.slice(at, e);
   };
   const protoName = (k: string) => k in Object.prototype || k === '__proto__';
@@ -285,7 +297,7 @@ export function inlineTexts(code: string, id: string, textOf: (key: string) => u
   for (const k of left) done.delete(k);
   if (!sites.length) return null;
   sites.sort((a, b) => a.start - b.start);
-  return { code: render(0, code.length), left: [...left].sort(), done: [...done].sort(), refs, before, install };
+  return { code: render(0, code.length, undefined, true), left: [...left].sort(), done: [...done].sort(), refs, before, install };
 }
 
 /**

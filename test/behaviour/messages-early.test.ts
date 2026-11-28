@@ -100,6 +100,34 @@ test('left as written: another binding of the name, `String` of the module\'s ow
   expect(inlineTexts("import { m } from '@tiaforge-ui/sinter/messages';\nexport const a = [m.plain, m.plain()];\n", 'a.ts', (k) => DICT[k], { ref: null })!.code).toContain('[m.plain, ("Plain text")]');
 });
 
+test('code without semicolons: a statement that starts with a message stays a statement of its own', () => {
+  // (each line after `b` would continue `b`'s statement if it started with `(`: a call of `b`, a template tag)
+  const code = "import { m } from '@tiaforge-ui/sinter/messages'\nconst b = (...a) => log(['called', ...a])\nlet v = b\nm.plain()\nv = b\nm.hello`t`\nv = b\nm.plain\nv = b\nm.hello({ name: 1 }).length\nfunction f() {\n  v = b\n  m.plural({ count: 1 })\n  return v\n}\nf()\nif (v) m.plain()\nelse m.hello()\nexport const cases = [() => v]\n";
+  const x = inlineTexts(code, 'asi.ts', (k) => DICT[k], { before: () => 'log("before")' })!;
+  expect(x.code).not.toMatch(/\n\(/);
+  const s = state();
+  s.locale = s.base = 'de'; s.locales = ['de']; s.dicts = { de: { ...DICT } };
+  s.format = (e, p) => `formatted ${JSON.stringify(e)} ${JSON.stringify(p)}`;
+  const strip = (c: string) => c.replace(/^import \{ m \} from '@tiaforge-ui\/sinter\/messages'\n/m, '');
+  const as = (c: string, withM: boolean) => {
+    const out: unknown[] = [];
+    const log = (v: unknown) => { out.push(v); return v; };
+    // eslint-disable-next-line @typescript-eslint/no-implied-eval
+    new Function('m', 'log', `${strip(c).replace(/^export /gm, '')}\nreturn cases;`)(withM ? runtimeM : new Proxy({}, { get: (_, k) => (runtimeM as any)[k] }), log);
+    return out;
+  };
+  // (the rewritten module logs its `before` once more: the formatter's registration, which the messages module does as it loads)
+  expect(as(x.code, false).filter((v) => v !== 'before')).toEqual(as(code, true));
+});
+
+test('`String` imported is the module\'s own: nothing is written in', () => {
+  for (const imp of ["import { String } from './s';", "import String from './s';", "import * as String from './s';", "import { S as String } from './s';"]) {
+    expect(inlineTexts(`import { m } from '@tiaforge-ui/sinter/messages';\n${imp}\nexport const a = m.hello({ name: x });\n`, 'a.ts', (k) => DICT[k])).toBeNull();
+  }
+  // a type of that name is no value
+  expect(inlineTexts("import { m } from '@tiaforge-ui/sinter/messages';\nimport type { String } from './s';\nexport const a = m.hello({ name: x });\n", 'a.ts', (k) => DICT[k])).not.toBeNull();
+});
+
 test('TypeScript: casts, non-null assertions, types and namespaces', () => {
   const code = `import { m } from '@tiaforge-ui/sinter/messages';\ntype T = ReturnType<typeof m.plain>;\nexport const a = (m.plain as () => string)();\nexport const b = m.hello!({ name: 'n' as string });\nexport namespace N { export const c: string = m.plain(); }\nexport enum E { D = m.plain().length }\n`;
   const x = inlineTexts(code, 'a.ts', (k) => DICT[k])!;
