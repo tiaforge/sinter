@@ -685,9 +685,16 @@ editor, `sinter lsp` checks a component through the pages that use it, and goes 
 ## Ids
 
 A literal `id` in a component used more than once on a page would be on the page more than once:
-that is a build error. Compute it from a prop (`data-sn-attr="{ id: 'edit-' + item.id }"`). A literal
-`id` in markup that renders more than once (a `data-sn-for` row, a fill of a slot placed more than
-once), in a page or a component, is a warning (`SN532`).
+that is a build error (`SN209`). Compute it from a prop (`data-sn-attr="{ id: 'edit-' + item.id }"`).
+The same id written in two places is an error too: in two components, in a component and the page,
+in two fills, or on two component tags. A literal `id` in markup that renders more than once (a
+`data-sn-for` row, a fill of a slot placed more than once), in a page or a component, is a warning
+(`SN532`).
+
+Uses that are never on the page together don't count against each other: the branches of one if
+chain (`data-sn-if`, `data-sn-else`), the candidates of `<sn-component use>`, and a list's empty
+state beside its rows. A twin in each branch keeps its id, and with it the focus and a running
+action when the branch swaps.
 
 ## Head components
 
