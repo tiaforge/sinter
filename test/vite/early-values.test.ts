@@ -11,12 +11,12 @@ import { createRequire } from 'node:module';
 import { createServer as httpServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { build, createServer, type Plugin } from 'vite';
-import { afterAll, expect, test } from 'vitest';
+import { afterAll, describe, expect, test } from 'vitest';
 import sinter from '../../src/vite.js';
 
 // (jsdom ships no types: what this test uses of it)
 type Dom = { window: Window & typeof globalThis };
-const { JSDOM } = createRequire(import.meta.url)('jsdom') as { JSDOM: new (html: string, options: { url: string; runScripts: 'dangerously'; pretendToBeVisual: boolean; beforeParse(window: Dom['window']): void }) => Dom };
+const { JSDOM } = createRequire(import.meta.url)('jsdom') as { JSDOM: new (html: string | Uint8Array, options: { url: string; runScripts: 'dangerously'; pretendToBeVisual: boolean; beforeParse(window: Dom['window']): void }) => Dom };
 
 const src = resolve(__dirname, '../../src');
 const alias = [{ find: /^@tiaforge-ui\/sinter\/runtime$/, replacement: `${src}/runtime-entry.ts` }, { find: /^@tiaforge-ui\/sinter\/(?:runtime\/)?([\w-]+)$/, replacement: `${src}/$1.ts` }, { find: /^@tiaforge-ui\/sinter$/, replacement: `${src}/index.ts` }];
@@ -49,16 +49,16 @@ async function site(name: string, options: Parameters<typeof sinter>[0] = {}) {
  * DOMContentLoaded. The scripts' code is written into their tags, as jsdom runs an inline classic script when the parser
  * reaches it, with only what is before it parsed (an external one it would run after the whole parse).
  */
-async function firstPaint(out: string, html: string, stored: Record<string, string>) {
+async function firstPaint(out: string, html: string, stored: Record<string, string>, bytes = false) {
   const inlined = html.replace(/<script src="(\/assets\/[^"]+)"><\/script>/g, (_, src: string) => `<script>${readFileSync(join(out, src), 'utf8').replace(/<\/script/gi, '<\\/script')}</script>`);
   expect(inlined).not.toBe(html);
-  return parsed(inlined, stored);
+  return parsed(inlined, stored, bytes);
 }
 
 /** a page whose classic scripts are written into their tags, parsed by jsdom with the stored values given: the document at DOMContentLoaded */
-async function parsed(inlined: string, stored: Record<string, string>) {
+async function parsed(inlined: string, stored: Record<string, string>, bytes = false) {
   const errors: string[] = [];
-  const dom = new JSDOM(inlined, {
+  const dom = new JSDOM(bytes ? Buffer.from(inlined) : inlined, {
     url: 'http://localhost/', runScripts: 'dangerously', pretendToBeVisual: true,
     beforeParse(window) {
       for (const [k, v] of Object.entries(stored)) window.localStorage.setItem(k, v);
@@ -256,3 +256,45 @@ test('a page with no early file: no head scripts, and nothing left of the compil
   expect(html).not.toMatch(/<script src="[^"]*-head-/);
   expect(html).toMatch(/<script type="module"/);
 }, 120000);
+
+// Nothing sinter writes comes before the head's charset declaration, wherever it stands (review round 3 of the branch):
+// a browser looks for it in the page's first 1,024 bytes only, and a page served without a charset in its
+// Content-Type is decoded by what it finds there. A stylesheet or a script of the page's own before it keeps the head
+// scripts after them; otherwise the values and the head scripts stand where they did.
+describe('the charset declaration stays first', () => {
+  const at = (html: string, re: RegExp) => html.search(re);
+  const charsetAt = (html: string) => at(html, /<meta (charset|http-equiv)=/i);
+  test.each([
+    ['first', '<meta charset="utf-8"><title>x</title>'],
+    ['after the page\'s own stylesheet', '<link rel="stylesheet" href="https://cdn.example/hand.css"><meta charset="utf-8"><title>x</title>'],
+    ['after a title and a script of the page\'s own (`http-equiv`)', '<title>x</title><script>window.x = 1;</script><meta http-equiv="Content-Type" content="text/html; charset=utf-8">'],
+  ])('%s: the value and the head scripts after it', async (what, head) => {
+    const { html } = await page(`charset-${what.replace(/\W+/g, '-')}`, PAGE.replace('<meta charset="utf-8"><title>t</title>', head));
+    const p = places(html);
+    expect(charsetAt(html)).toBeGreaterThan(-1);
+    expect(p.value).toBeGreaterThan(charsetAt(html));
+    expect(at(html, /<link rel="preconnect"|<link rel="preload"/) < 0 || at(html, /<link rel="preconnect"|<link rel="preload"/) > charsetAt(html)).toBe(true);
+    expect(p.value).toBeLessThan(p.shared);
+    expect(p.own).toBeLessThan(p.module);
+    // (charset first: as before, the value right after it and the head scripts before the title's stylesheets)
+    if (what === 'first') expect(html.slice(charsetAt(html), p.value)).toBe('<meta charset="utf-8">');
+  }, 120000);
+
+  test('no charset declaration: the value and the head scripts first in the head', async () => {
+    const { html } = await page('charset-none', PAGE.replace('<meta charset="utf-8">', ''));
+    const p = places(html);
+    expect(charsetAt(html)).toBe(-1);
+    expect(p.value).toBe(html.indexOf('<head>') + '<head>'.length);
+    expect(p.value).toBeLessThan(p.shared);
+    expect(p.own).toBeLessThan(p.module);
+  }, 120000);
+
+  test('a long non-ASCII value, the page\'s own stylesheet first: decoded from the bytes, without a charset header, as written', async () => {
+    const long = 'é'.repeat(1500);
+    const { out, html } = await page('charset-bytes', PAGE.replace('<meta charset="utf-8">', '<link rel="stylesheet" href="https://cdn.example/hand.css"><meta charset="utf-8">'), {}, [], `export const titled = (s: string): string => ${JSON.stringify(long)} + s;\n`);
+    const stored = await firstPaint(out, html, { 'sn:pinned': 'true' }, true);
+    expect(stored.errors).toEqual([]);
+    expect(stored.document.querySelector('h1')?.textContent).toBe(long + 'hello world');
+    expect(Buffer.byteLength(html.slice(0, charsetAt(html)))).toBeLessThan(1024);
+  }, 120000);
+});

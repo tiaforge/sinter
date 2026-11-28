@@ -9752,10 +9752,15 @@ class Compiler {
 
   /** the values `placeFolded` put first in the head, for the early script: it stands after them (`injectScript`, src/vite.ts) */
   private readonly earlyValues = new WeakSet<P5Element>();
-  /** where the head's leading `<meta>`s end, and the values the early script reads after them (`placeFolded`) */
+  /**
+   * Where the head's leading `<meta>`s end, and the values the early script reads after them (`placeFolded`). Never
+   * before the head's charset declaration (`<meta charset>`, `<meta http-equiv="content-type">`), wherever it stands: a
+   * browser looks for it in the page's first 1,024 bytes only, which a value before it could fill.
+   */
   private headStart(head: P5Element): number {
-    let at = 0;
-    for (let i = 0; i < head.childNodes.length; i++) { const n = head.childNodes[i]!; if (isElement(n) && n.tagName !== 'meta' && !this.earlyValues.has(n)) break; if (isElement(n)) at = i + 1; }
+    const charset = head.childNodes.findIndex((n) => isElement(n) && n.tagName === 'meta' && (attr(n, 'charset') !== undefined || (attr(n, 'http-equiv') ?? '').toLowerCase() === 'content-type'));
+    let at = charset + 1;
+    for (let i = at; i < head.childNodes.length; i++) { const n = head.childNodes[i]!; if (isElement(n) && n.tagName !== 'meta' && !this.earlyValues.has(n)) break; if (isElement(n)) at = i + 1; }
     return at;
   }
 
@@ -14357,9 +14362,11 @@ class Compiler {
     head.childNodes.push(script as never);
     // builds: where the Vite plugin writes the head scripts (`headMark`), before the first of the head's own elements
     // that is a stylesheet, a module preload or a script (a classic script waits for the stylesheets before it, and the
-    // page module waits for the early script); the values the early script reads are no such script (`placeFolded`)
+    // page module waits for the early script); the values the early script reads are no such script (`placeFolded`).
+    // Not before the charset declaration (`headStart`), even where a stylesheet or script of the page's own is
     if (this.opts.headMark) {
-      const first = head.childNodes.findIndex((n) => isElement(n) && (n.tagName === 'script' ? !this.earlyValues.has(n) : n.tagName === 'link' && /^(stylesheet|modulepreload)/i.test(attr(n, 'rel') ?? '')));
+      const start = this.headStart(head);
+      const first = head.childNodes.findIndex((n, i) => i >= start && isElement(n) && (n.tagName === 'script' ? !this.earlyValues.has(n) : n.tagName === 'link' && /^(stylesheet|modulepreload)/i.test(attr(n, 'rel') ?? '')));
       const mark = parse5.parseFragment(`<!--${this.opts.headMark}-->`).childNodes[0]!;
       mark.parentNode = head;
       head.childNodes.splice(first, 0, mark as never);

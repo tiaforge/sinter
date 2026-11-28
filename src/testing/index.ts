@@ -555,8 +555,9 @@ async function parse(early: () => void) {
     for (const k of kids) {
       if (k != head) { await put(k, top); continue; }
       const inner = [...head.childNodes];
-      let at = 0;
-      for (let i = 0; i < inner.length; i++) { const n = inner[i]!; if (n.nodeType == 1 && n.nodeName != 'META' && !value(n)) break; if (n.nodeType == 1) at = i + 1; }
+      // (after the charset declaration, wherever it stands: compile.ts `headStart`)
+      let at = inner.findIndex((n) => n.nodeName == 'META' && ((n as Element).hasAttribute('charset') || (n as Element).getAttribute('http-equiv')?.toLowerCase() == 'content-type')) + 1;
+      for (let i = at; i < inner.length; i++) { const n = inner[i]!; if (n.nodeType == 1 && n.nodeName != 'META' && !value(n)) break; if (n.nodeType == 1) at = i + 1; }
       for (const c of inner) c.remove();
       // the head so far, parsed before any script ran (no observer has seen it)
       top.appendChild(head);
