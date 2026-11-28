@@ -944,24 +944,9 @@ test('a computed list renders a change to its items in place: forEach, an index,
 });
 
 // The rows of a computed list read their item without a dependency, so the list's evaluation is what renders them
-// again: every row it keeps, also one whose item is the object it was. Three pages on which "the same item object at
+// again: every row it keeps, also one whose item is the object it was. Two pages on which "the same item object at
 // the same place, so the row is as it was" is wrong: a rule that skips such rows (an open item of
 // docs/proposals/redesign-notes/runtime-size-speed.md, section 4, item 2) has to pass these.
-
-test('a computed list of state fields renders the array a checkbox group changed in place', async () => {
-  // the group adds its value to the array it has (models.ts) and marks the field: the mark looks like a new value, the
-  // row's item is the array it was
-  const { root, flush } = await render(`<div data-sn-state="{ picked: ['a'], other: ['x'] }">
-    <template data-sn-for="col in [picked, other]"><i data-sn-text="col.join(',')"></i></template>
-    <input type="checkbox" value="b" data-sn-model="picked"></div>`);
-  const box = root.querySelector('input') as HTMLInputElement, texts = () => [...root.querySelectorAll('i')].map((e) => e.textContent);
-  box.click();
-  await flush();
-  expect(texts()).toEqual(['a,b', 'x']);
-  box.click();
-  await flush();
-  expect(texts()).toEqual(['a', 'x']);
-});
 
 test('a computed list renders what its helper returns now, also when the helper hands back the objects it returned before', async () => {
   // such a helper breaks the rule (a helper is pure: nothing changed elsewhere, no state kept between calls,
@@ -991,6 +976,24 @@ test('an inner row with the same item renders what it reads of its outer item, a
   root.querySelector('button')!.click();
   await flush();
   expect(texts()).toEqual(['za', 'zb']);
+});
+
+test('a computed list of state fields shows the array a checkbox group gives its field, and the other row as it was', async () => {
+  // a tick assigns the field a new array (models.ts): the list's row for it is another item, the row of the field
+  // nothing wrote keeps its item. (While the group changed its array in place, until 2026-11-28, this page was right
+  // only because a computed list renders the rows it keeps: the mark was the field's, the row's item the same array.)
+  const { root, flush } = await render(`<div data-sn-state="{ picked: ['a'], other: ['x'] }">
+    <template data-sn-for="col in [picked, other]"><i data-sn-text="col.join(',')"></i></template>
+    <input type="checkbox" value="b" data-sn-model="picked"></div>`);
+  const box = root.querySelector('input') as HTMLInputElement, rows = () => [...root.querySelectorAll('i')];
+  const kept = rows()[1];
+  box.click();
+  await flush();
+  expect(rows().map((e) => e.textContent)).toEqual(['a,b', 'x']);
+  box.click();
+  await flush();
+  expect(rows().map((e) => e.textContent)).toEqual(['a', 'x']);
+  expect(rows()[1]).toBe(kept);
 });
 
 test('marked outer elements update inner rows that read them', async () => {

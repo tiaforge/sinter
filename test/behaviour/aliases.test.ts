@@ -150,3 +150,75 @@ test('a component that shows a prop updates after the parent writes through an a
   await click(r, '#b');
   expect(text(r, 'i')).toBe('90');
 });
+
+// A checkbox group's tick is an assignment of its field (a new array), which is what the compiler marks for a model.
+// Until 2026-11-28 the group changed the array in place: another name for the same array had the new values in the
+// state while the page showed the old ones there, and the dev write check reported every tick (warning 36).
+describe('a checkbox group gives its field a new array', () => {
+  const w36 = (r: Awaited<ReturnType<typeof render>>) => r.warnings().filter((w) => w.code == 36).map((w) => w.message);
+  const tick = async (r: Awaited<ReturnType<typeof render>>) => { r.root.querySelector<HTMLInputElement>('input')!.click(); await r.settle(); };
+  /** the page after every scope was marked whole: what a fresh evaluation of everything shows */
+  const fresh = async (r: Awaited<ReturnType<typeof render>>) => { r.state(r.root.querySelector('div')!).update(() => {}); await r.settle(); return text(r, 'i'); };
+
+  test('one checkbox, one reader: the reader follows, the array is another one, the write check is silent', async () => {
+    const r = await render(`<div data-sn-state="{ picked: ['a'] }">
+      <input type="checkbox" value="b" data-sn-model="picked"><i data-sn-text="picked.join('+')"></i></div>`, { strict: false });
+    const state = r.state<{ picked: string[] }>(r.root.querySelector('div')!), before = state.get().picked;
+    await tick(r);
+    expect(text(r, 'i')).toBe('a+b');
+    expect(state.get().picked).not.toBe(before);
+    expect(before).toEqual(['a']);
+    expect(w36(r)).toEqual([]);
+  });
+
+  test('what reads the field follows (an element, the length, a list over it); another name for the array keeps the array it held', async () => {
+    const r = await render(`<div data-sn-state="{ picked: ['a'], al: null, box: null }">
+      <input type="checkbox" value="b" data-sn-model="picked">
+      <i data-sn-text="picked[1] ?? '-'"></i><i data-sn-text="picked.length"></i>
+      <template data-sn-for="p in picked"><b data-sn-text="p"></b></template>
+      <i data-sn-text="al ? al.join('+') : '-'"></i><i data-sn-text="box ? box.it.length : '-'"></i>
+      <button data-sn-on-click="al = picked; box = { it: picked }"></button></div>`, { strict: false });
+    await click(r, 'button');
+    await tick(r);
+    expect(text(r, 'i')).toBe('b,2,a,1');
+    expect(text(r, 'b')).toBe('a,b');
+    // the state says what the page shows: `al` and `box.it` are the array from before the tick
+    expect(r.state(r.root.querySelector('div')!).get()).toEqual({ picked: ['a', 'b'], al: ['a'], box: { it: ['a'] } });
+    expect(await fresh(r)).toBe('b,2,a,1');
+    expect(w36(r)).toEqual([]);
+  });
+
+  test('unticking: the field loses the value, another name for the array keeps it', async () => {
+    const r = await render(`<div data-sn-state="{ picked: ['a', 'b'], al: null }">
+      <input type="checkbox" value="b" data-sn-model="picked">
+      <i data-sn-text="al ? al.join('+') : '-'"></i><i data-sn-text="picked.join('+')"></i>
+      <button data-sn-on-click="al = picked"></button></div>`, { strict: false });
+    await click(r, 'button');
+    await tick(r);
+    expect(text(r, 'i')).toBe('a+b,a');
+    expect(r.state(r.root.querySelector('div')!).get()).toEqual({ picked: ['a'], al: ['a', 'b'] });
+    expect(await fresh(r)).toBe('a+b,a');
+    expect(w36(r)).toEqual([]);
+  });
+
+  test('a group on a row\'s field: the row and another name for the row follow, another name for the old array keeps it', async () => {
+    const r = await render(`<div data-sn-state="{ rows: [{ tags: ['a'] }], sel: null, al: null }">
+      <template data-sn-for="x in rows"><input type="checkbox" value="b" data-sn-model="x.tags"><i data-sn-text="x.tags.join('+')"></i></template>
+      <i data-sn-text="sel ? sel.tags.join('+') : '-'"></i><i data-sn-text="al ? al.join('+') : '-'"></i>
+      <button data-sn-on-click="sel = rows[0]; al = rows[0].tags"></button></div>`, { strict: false });
+    await click(r, 'button');
+    await tick(r);
+    expect(text(r, 'i')).toBe('a+b,a+b,a');
+    expect(await fresh(r)).toBe('a+b,a+b,a');
+    expect(w36(r)).toEqual([]);
+  });
+
+  test('a frozen array in the field (a helper\'s constant, a memoized result): the tick still takes', async () => {
+    const r = await render(`<div data-sn-state="{ picked: ['a'] }">
+      <input type="checkbox" value="b" data-sn-model="picked"><i data-sn-text="picked.join('+')"></i>
+      <button data-sn-on-click="picked = preset()"></button></div>`, { strict: false, helpers: { preset: () => Object.freeze(['a']) } });
+    await click(r, 'button');
+    await tick(r);
+    expect(text(r, 'i')).toBe('a+b');
+  });
+});

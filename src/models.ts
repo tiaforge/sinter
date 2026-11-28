@@ -32,10 +32,11 @@ const feature: Feature = {
           if (k != 'checkbox') return el.value;
           const cur = evaluate(rb);
           if (!Array.isArray(cur)) return el.checked;
+          // a group: the field gets a new array with or without this value, as the model's write says (an assignment
+          // of the field, which is all the compiler marks). Changed in place, what holds the same array under another
+          // name (`al = picked`) kept showing what it had: no mark reached it
           const i = cur.map(String).indexOf(el.value);
-          if (el.checked && i < 0) cur.push(el.value);
-          if (!el.checked && i >= 0) cur.splice(i, 1);
-          return cur;
+          return el.checked == i >= 0 ? cur : el.checked ? [...cur, el.value] : cur.filter((_, j) => j != i);
         },
         bound(rb) { if (rb.el.localName == 'select') selects.set(rb, null); },
         forget(rb) { selects.delete(rb); },

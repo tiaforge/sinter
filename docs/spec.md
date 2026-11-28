@@ -393,7 +393,7 @@ On a control with `data-sn-model`, the model owns its state: `data-sn-attr` bind
 | --- | --- |
 | text-like `<input>`, `<textarea>`, `<select>` | string |
 | `type="number"`, `type="range"` | number; empty → `null` |
-| `type="checkbox"` | boolean; if the model value is an array, the checkbox's `value` is added to or removed from it |
+| `type="checkbox"` | boolean; if the model value is an array (a group), the field gets a new array with the checkbox's `value` added or removed, as `tags = [...tags, v]` in a handler would (changed 2026-11-28: the array was changed in place, and state that held the same array under another name, `al = tags`, went on showing what it had). State that held the old array keeps it |
 | `type="radio"` | the checked radio's `value`; radios with one `name` share one model |
 | `<select multiple>` | array of selected values |
 | `type="date"`, `"time"`, `"datetime-local"` | string as the control gives it (ISO format) |

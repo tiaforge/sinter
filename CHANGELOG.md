@@ -79,6 +79,13 @@ How to write an entry (from 0.21.0 on; older sections keep their own form):
 
 ### Fixed
 
+- A checkbox group (`<input type="checkbox" value="…" data-sn-model="tags">` over an array) gives its field a new
+  array at each tick, as `tags = [...tags, v]` in a handler would. It changed the array in place and marked only the
+  field, so state that held the same array under another name (`al = tags`, `form = { tags }`) had the new values
+  while the page went on showing the old ones there until something else rendered it (dev builds: warning 36), and a
+  tick on a frozen array (a `memo()` result assigned to the field) threw. State that holds the old array now keeps
+  it: bind the model to the field you read (`data-sn-model="form.tags"`) rather than to a second name for its array
+  ([docs/spec.md](docs/spec.md#data-sn-model-by-control)).
 - A component's `:scope` (and `&`) matches its root only. It also matched each top element of the slot content the component passes into another component's slots (marked `data-sn-s="<name>"`), so `:scope { display: contents }` took their boxes, and `:scope > x` reached their children. That content still gets the component's other rules (`.x`, `p`), as before. The compiled selector is `:scope:where([data-sn-c="<name>"])`, with the same specificity. A rule that styled that slot content through `:scope` names it by its class instead ([docs/components.md](docs/components.md#styles)).
 - `SN530` no longer reports an image whose height is a percentage of a box with a fixed height when an `@supports` rule may change that box's `display` and every display it may take gives the percentage the same basis (such as `inline-grid` or `inline-block`); the image counts as sized, as it did without the `@supports` rule. See [SN530](docs/diagnostics.md#sn530-unsized-late-image).
 - A page with `data-sn-transition` that navigates while a cross-document view transition runs no longer leaves an uncaught `Transition was aborted because of invalid state` in Chromium: the transition's `ready` and `updateCallbackDone` rejections are handled as `finished` already was ([docs/navigation.md](docs/navigation.md#page-transitions)).
