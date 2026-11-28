@@ -338,10 +338,12 @@ export async function prepare(s: SwapState, i: Intent, signal?: AbortSignal): Pr
   try {
     const urls = [...doc.querySelectorAll('script[type=module][src]')].filter(trusted).map((x) => new URL(x.getAttribute('src')!, final).href);
     // a helper module the page shares with its early file, which a swap does not run: the page module waits for the
-    // module's own copy, so it loads beside it (docs/first-paint.md#own-copies); the page module reports a failure
+    // module's own copy, so it loads beside it (docs/first-paint.md#own-copies); the page module reports a failure.
+    // Fetched, not run (a module preload): the page module runs it after its dictionary file, which a message the
+    // module calls as it runs reads (docs/messages.md#the-pages-dictionary)
     if (SHARED) for (const l of doc.querySelectorAll('link[data-sn-shared][href]')) {
       const u = new URL(l.getAttribute('href')!, final);
-      if (u.origin == location.origin) import(/* @vite-ignore */ u.href).catch(() => {});
+      if (u.origin == location.origin) document.head.append(Object.assign(document.createElement('link'), { rel: 'modulepreload', href: u.href }, nonce ? { nonce } : {}));
     }
     await Promise.all(urls.map((u) => import(/* @vite-ignore */ u)));
     const pages = (globalThis as unknown as Record<symbol, Record<string, PageModule> | undefined>)[PAGES] ?? {};

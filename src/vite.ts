@@ -896,6 +896,11 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   const pageNs = new Map<string, NonNullable<Parameters<typeof compile>[1]['contentNs']>>();
   /** a content namespace's ids each app module calls through the namespace's `module` (`m.inbox.title()`), by module */
   const moduleNs = new Map<string, Map<string, string[]>>();
+  /**
+   * a module's key in `moduleNs`: its file, but a shared helper module's own copy (`OWN`, docs/first-paint.md#own-copies)
+   * apart from the file's stub, which has the file's id and calls nothing (the copy's chunk is what calls the messages)
+   */
+  const nsKey = (id: string) => (id.endsWith(OWN) ? id.slice(0, -OWN.length).replace(/\?.*$/, '') + OWN : id.replace(/\?.*$/, ''));
   const collectNs = async (ctx: { error(m: string): never; resolve(source: string, importer?: string): Promise<{ id: string } | null> }, code: string, id: string) => {
     if (!content?.namespaces.size || id.includes('/node_modules/') || sinterFile(id) || !/\.[cm]?[jt]sx?(\?|$)/.test(id)) return;
     const file = id.replace(/\?.*$/, ''), by = new Map<string, string[]>();
@@ -939,7 +944,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       if (unknown.length) ctx.error(`sinter: ${id}: no entry ${unknown.map((k) => `\`${d.name}.${k}\``).join(', ')} in the namespace \`${d.name}\``);
       if (r.keys.length) by.set(d.name, r.keys);
     }
-    if (by.size) moduleNs.set(file, by); else moduleNs.delete(file);
+    if (by.size) moduleNs.set(nsKey(id), by); else moduleNs.delete(nsKey(id));
     return withFormatter(code, by);
   };
   /**
@@ -2148,7 +2153,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         const c = chunks[todo.pop()!];
         if (!c || seen.has(c.fileName)) continue;
         seen.add(c.fileName);
-        for (const id of c.moduleIds) for (const k of moduleNs.get(id)?.get(ns) ?? []) keys.add(k);
+        for (const id of c.moduleIds) for (const k of moduleNs.get(nsKey(id))?.get(ns) ?? []) keys.add(k);
         todo.push(...c.imports, ...c.dynamicImports);
       }
       const json = JSON.stringify(packed(at[ns]!.format ?? '', Object.fromEntries([...keys].sort().map((k) => [k, at[ns]!.entries[k] ?? null])))).replace(/</g, '\\u003c');
@@ -2350,7 +2355,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
           const c = bundle[todo.pop()!];
           if (!c || c.type !== 'chunk' || seen.has(c.fileName)) continue;
           seen.add(c.fileName);
-          for (const id of c.moduleIds) for (const [ns, keys] of moduleNs.get(id) ?? []) for (const k of keys) add(ns, k);
+          for (const id of c.moduleIds) for (const [ns, keys] of moduleNs.get(nsKey(id)) ?? []) for (const k of keys) add(ns, k);
           todo.push(...c.imports, ...c.dynamicImports);
         }
         if (!want.size) continue;
