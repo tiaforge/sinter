@@ -104,6 +104,10 @@ How to write an entry (from 0.21.0 on; older sections keep their own form):
 
 ### Performance
 
+- The shared head script (`sinter-head-*.js`) holds less on sites that use less: no reader of embedded data where no
+  page has embedded data, and the guard of computed keys only where an early binding has one (`names[tab]`).
+  RealWorld's head script 3,140 → 2,981 B gzip, the dashboard example's 2,074 → 1,833 B. Nothing to do.
+
 - Early files are smaller where a page has closed menus, toolbars and error messages: a `data-sn-if` without a
   `data-sn-else` that reads only state fields and is false over their initial values is no longer in the early file
   (it would render nothing), and its markup moves from the `<head>` to the end of the `<body>`; a model that is not

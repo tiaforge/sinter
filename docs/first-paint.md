@@ -81,7 +81,9 @@ the first paint:
   that use it so
 
 Each page gets two small classic scripts first in the head, before the stylesheets: one shared by
-every page (so it is cached across pages) and one with the page's own bindings. Nothing hides the
+every page (so it is cached across pages) and one with the page's own bindings. The shared one holds only the
+parts of the early runtime the site's pages use (no reader of embedded data on a site without any, no request
+machinery on a site without early requests). Nothing hides the
 page while they run. They render each element as the browser parses it, before it can be painted,
 so there is no flash in Chromium, Firefox or Safari. Attributes and classes are written as soon as
 the element exists; its content once the parser has closed it.

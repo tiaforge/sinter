@@ -7,6 +7,7 @@
 // one chunk, `runtime/security` and `url`, and hold copies of the rest), so what they
 // share goes through a global: `start` (early file) and `rendered` (page module, from the core) meet there.
 import { config, signInTarget } from './runtime/config.js';
+import { EMBEDDED } from './runtime/early-flags.js';
 import type { Env } from './runtime/env.js';
 import { meeting, prefetched, setPrefetched, type EarlyApi, type Prefetched } from './runtime/handoff.js';
 import { schemesOf, STYLE_BAD, urlAllowed } from './runtime/security.js';
@@ -263,7 +264,8 @@ function scope(o: ReturnType<EarlyPage>, req: EarlyRequests | null): any {
       const l = k == '$locale' ? o.locale?.() : null;
       if (l) return l.get();
       // the resources whose data is embedded in the page: read from it (the head is parsed before any binding)
-      if (k == '$r' && o.ir.emb) return (emb ??= embedded(o.ir.emb));
+      // (`EMBEDDED`: off in the head script of a site none of whose pages has embedded data, which then holds no reader)
+      if (EMBEDDED && k == '$r' && o.ir.emb) return (emb ??= embedded(o.ir.emb));
       // the URL, as the page module reads it (a page with early requests reads it there, once for both)
       if (k == '$url' && !req) return (url ??= more(location.href, readUrl(location.href, o.ir.path)));
       // the clock is for requests only: no early binding reads it

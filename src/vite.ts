@@ -274,6 +274,8 @@ const runtimeNames = (code: string) => /import \{([^}]*)\} from '@tiaforge-ui\/s
  * bundled into the early files of the pages that do, and the shared head script, which every page loads, holds none of it.
  */
 const PAGE_OWN = new Set(['$so', 'away', 'awayVia', 'lists', 'withParams', 'toPage', '$hq', '$href', 'cr', 'fonts']);
+/** every part of the early runtime a build may turn off (src/runtime/early-flags.ts), which a page's compile names when its early file uses it */
+const EARLY_PARTS = ['EMBEDDED'];
 /** the page's image rules (a CSS module the page module imports) */
 const IMG_CSS = `${PREFIX}img-css/`;
 /** builds: a page's reserved-space rules (docs/first-paint.md#reserved-space), imported by its module */
@@ -407,6 +409,13 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     if (resolve(a) === resolve(b)) return true;
     try { return realpathSync(a) === realpathSync(b); } catch { return false; }
   };
+  /**
+   * the early runtime's flags module (src/runtime/early-flags.ts), as the early files' build resolves it, and the build's
+   * own: the parts the pages' early files use (`earlyUsed`, by page), every other part off
+   */
+  const EARLY_FLAGS = (() => { for (const f of ['./runtime/early-flags.js', './runtime/early-flags.ts']) try { return realpathSync(fileURLToPath(new URL(f, import.meta.url))); } catch { /* the other */ } return null; })();
+  const earlyUsed = new Map<string, string[]>();
+  const earlyFlags = () => { const on = new Set([...earlyPages.keys()].flatMap((rel) => earlyUsed.get(rel) ?? EARLY_PARTS)); return EARLY_PARTS.map((p) => `export const ${p} = ${on.has(p)};`).join('\n') + '\n'; };
   type EarlyJob = { code: string; keys: Set<string>; rt: string[] | null; runtimeId: string | null; map?: SourceMap; own: string[] };
   /** the nested build's config for an early script; its entry plugin reads what it builds from `job` (a session swaps it) */
   const earlyConfig = (job: EarlyJob, rolldown: boolean): InlineConfig => {
@@ -428,7 +437,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
               const res = await this.resolve(id, importer, { ...o, skipSelf: true });
               return res && job.runtimeId && res.id === job.runtimeId ? RT_ID : null;
             },
-            load: (id) => (id === entryId ? (job.map ? { code: job.code, map: job.map } : job.code) : id === RT_ID ? runtimeStub(job.rt!, job.own) : null),
+            load: (id) => (!dev && id === EARLY_FLAGS ? earlyFlags() : id === entryId ? (job.map ? { code: job.code, map: job.map } : job.code) : id === RT_ID ? runtimeStub(job.rt!, job.own) : null),
             transform(src, id) {
               // a content namespace the early modules call through its module: its ids (`ns \0 id`), written into the page,
               // and the formatter for one that is not plain text (`withFormatter`)
@@ -2361,7 +2370,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         }
         for (const w of out.remoteWidths ?? []) remoteWidths.add(w);
         // the page's early file from this compile (with the stylesheets), which wrote the page: its ids are the page's
-        if (!dev && firstPaint) { if (out.early) earlyPages.set(rel, out.early); else earlyPages.delete(rel); }
+        if (!dev && firstPaint) { if (out.early) { earlyPages.set(rel, out.early); if (out.earlyRuntime) earlyUsed.set(rel, out.earlyRuntime); else earlyUsed.delete(rel); } else earlyPages.delete(rel); }
         if (!dev) for (const o of out.unlistedOrigins ?? []) unlisted.add(o);
         // the build says which paginated lists hold no space before their data, and why
         if (!dev) for (const u of out.waits ?? []) resolved?.logger.info(`sinter: ${relOf(u.file)}:${u.line}: what follows <${u.what}> stays hidden while this list's first rows load: its width follows its content (${u.widths}), so they would move it; data-sn-wait="off" on it keeps it shown (docs/first-paint.md#a-box-whose-width-follows-the-list)`);
