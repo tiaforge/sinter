@@ -298,3 +298,22 @@ describe('the charset declaration stays first', () => {
     expect(Buffer.byteLength(html.slice(0, charsetAt(html)))).toBeLessThan(1024);
   }, 120000);
 });
+
+// The review's case (round 3): a plugin that removes comments (an HTML minifier that keeps sinter's anchors and no
+// other comment) removes the head scripts' place. No order of plugins helps: every `transformIndexHtml` of another
+// plugin runs before sinter's last HTML step. The build stops, and says to keep the comment.
+describe('a plugin that removes the head scripts\' comment fails the build, and says what to keep', () => {
+  const strip = (html: string) => html.replace(/<!--(?!sn( \d+)?-->|\/sn-->)[\s\S]*?-->/g, '');
+  test.each([
+    ['listed after sinter', (s: Plugin[]) => [...s, { name: 'strip', transformIndexHtml: strip }]],
+    ['listed after sinter, order post', (s: Plugin[]) => [...s, { name: 'strip', transformIndexHtml: { order: 'post' as const, handler: strip } }]],
+    ['listed before sinter', (s: Plugin[]) => [{ name: 'strip', transformIndexHtml: strip }, ...s]],
+  ] as Array<[string, (s: Plugin[]) => Plugin[]]>)('%s', async (how, plugins) => {
+    const root = join(tmp, `strip-${how.replace(/\W+/g, '-')}`), out = join(root, 'dist');
+    mkdirSync(join(root, 'src'), { recursive: true });
+    writeFileSync(join(root, 'src/sinter.helpers.ts'), HELPERS);
+    writeFileSync(join(root, 'index.html'), PAGE);
+    const built = build({ root, logLevel: 'silent', resolve: { alias }, plugins: plugins(sinter() as unknown as Plugin[]), build: { outDir: out, emptyOutDir: true } });
+    await expect(built).rejects.toThrow(/index\.html: the comment `<!--sn-head-…-->` that marks where the head scripts go is gone from the page's head .*Keep that comment.*it never reaches the output/s);
+  }, 120000);
+});

@@ -2556,7 +2556,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         // head scripts make the page's states as they start, and read each value from the head parsed so far. The
         // compiler says where (`headMark`, `injectScript`): the plugin searches no markup, whose text (embedded data)
         // may hold anything
-        if (at < 0) throw new Error(`sinter: ${rel}: the place of the head scripts is gone from the page (the comment \`${mark}\` the compiler wrote in its head): a plugin that runs before sinter's last HTML step removed it`);
+        if (at < 0) throw new Error(`sinter: ${rel}: the comment \`<!--sn-head-…-->\` that marks where the head scripts go is gone from the page's head (\`${mark}\` here): another plugin's HTML step removed it. Keep that comment (an HTML minifier: let it keep comments that start with \`sn-head-\`); sinter replaces it with the head scripts, so it never reaches the output (docs/minify.md)`);
         return html.slice(0, at) + tags.join('\n  ') + '\n  ' + html.slice(at);
       },
     },
