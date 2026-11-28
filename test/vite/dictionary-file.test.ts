@@ -57,10 +57,11 @@ const FILES: Record<string, string> = {
   'small.html': page(`<body data-sn-state="{ n: 0 }"><button id="more" data-sn-on-click="n = n + 1">more</button><p id="s" data-sn-text="'clicked ' + n"></p></body>`),
 };
 
-async function site(name: string, files: Record<string, string> = {}, options: Parameters<typeof sinter>[0] = {}, sourcemap: boolean | 'inline' = false, extra: Plugin[] = []) {
+async function site(name: string, files: Record<string, string> = {}, options: Parameters<typeof sinter>[0] = {}, sourcemap: boolean | 'inline' = false, extra: Plugin[] = [], logs?: string[]) {
   const root = join(tmp, name), out = join(root, 'dist');
   for (const [f, text] of Object.entries({ ...FILES, ...files })) { mkdirSync(dirname(join(root, f)), { recursive: true }); writeFileSync(join(root, f), text); }
-  await build({ root, logLevel: 'silent', resolve: { alias }, plugins: [sinter({ localePrefix: true, swap: true, site: 'https://example.com', ...options }), ...extra], build: { outDir: out, emptyOutDir: true, sourcemap, rollupOptions: { input: ['index.html', 'b.html', 'small.html'].map((f) => join(root, f)) } } });
+  const logger = logs && { info: (x: string) => void logs.push(x), warn: (x: string) => void logs.push(x), warnOnce: (x: string) => void logs.push(x), error: (x: string) => void logs.push(x), clearScreen() {}, hasErrorLogged: () => false, hasWarned: false };
+  await build({ root, logLevel: logs ? 'info' : 'silent', ...(logger ? { customLogger: logger } : {}), resolve: { alias }, plugins: [sinter({ localePrefix: true, swap: true, site: 'https://example.com', ...options }), ...extra], build: { outDir: out, emptyOutDir: true, sourcemap, rollupOptions: { input: ['index.html', 'b.html', 'small.html'].map((f) => join(root, f)) } } });
   const read = (f: string) => readFileSync(join(out, f), 'utf8');
   const assets = readdirSync(join(out, 'assets'));
   /** a page's parts: its HTML, the entries its head keeps, its entry chunk, the dictionary file that chunk imports first */
@@ -181,6 +182,16 @@ describe('the build', () => {
     // (the file is still there, for the page module's graph; the second page's head scripts do not have that module)
     expect(en.dict).toMatch(/^en-m-/);
     expect(odd.of('en/b/index.html').inline).toBeNull();
+  }, 120_000);
+
+  test('a head script whose module has another binding named `m` (`catch (m)`): the page keeps its whole dictionary, and the build says why', async () => {
+    // (the rewrite does not follow scopes: such a module is left as written, and what its early script reads is not known)
+    const logs: string[] = [];
+    const bound = await site('bound', { 'src/sinter.helpers.ts': HELPERS.replace('export const early = (): string => m.early_label();', "export const early = (): string => { try { return m.early_label(); } catch (m) { return ''; } };") }, {}, false, [], logs);
+    expect(bound.of('en/index.html').inline).toEqual(expect.arrayContaining([fill(0), fill(N - 1), 'early_label', 'top']));
+    expect(logs.join('\n')).toMatch(/en\/index\.html: the page keeps its whole dictionary in its head, since its early script reaches the messages in a way the build does not read: src\/sinter\.helpers\.ts:\d+:\d+: `m` other than as `m\.key` \(another binding of the name/);
+    // (a page whose head scripts read it as written says nothing)
+    expect(logs.join('\n')).not.toMatch(/b\/index\.html: the page keeps its whole dictionary/);
   }, 120_000);
 
   test('without `localePrefix` (one language), the HTML left as written, source maps and compile hints on: the same, in the base language', async () => {

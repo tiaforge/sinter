@@ -89,13 +89,14 @@ How to write an entry (from 0.21.0 on; older sections keep their own form):
 - A page without an early script links the same stylesheet copy as the pages that defer their fonts, plus the fonts
   file as a plain stylesheet before it, instead of the original stylesheet: every page caches one stylesheet, and the
   fitted fallback fonts apply on that page too ([docs/first-paint.md](docs/first-paint.md#fonts-after-the-load)).
-- A use of the built-in messages that the build cannot read is now a build error, `SN350`, which says what to write
-  instead, where it used to build and show the message's key at run time: `export { m }` or a re-export of
-  `@tiaforge-ui/sinter/messages`, `import * as` of it, `t(key)` and the module's other exports that read entries
-  (`getLocale`, `install` and the types are fine), `import()` or `require()` of it (TypeScript's
-  `import x = require(…)` too), the module under another spelling
-  (a path to its file, an alias), and a message in a decorator. The errors that were there (`m[key]`, `m` passed on)
-  have the code too. To fix: `import { m } from '@tiaforge-ui/sinter/messages'` in each module that calls a message,
+- A way to the built-in messages that the build cannot read, and that the module's import and export statements
+  decide, is now a build error, `SN350`, which says what to write instead, where it used to build and show the
+  message's key at run time: `import * as` or a default import of `@tiaforge-ui/sinter/messages`, an import of `t`
+  or `state` (they read entries by a key the build does not see; `getLocale`, `install`, the types and any other name
+  are fine), `m` exported (`export { m }`, `export default m`) or re-exported (`export { m } from`, `export *`),
+  `import()` or `require()` of it (TypeScript's `import x = require(…)` too), and the module under another spelling
+  (a path to its file, an alias). The errors that were there (`m[key]`, `m` passed on) have the code too, and are
+  no wider than before. To fix: `import { m } from '@tiaforge-ui/sinter/messages'` in each module that calls a message,
   and call each by name; for a choice at run time, a map of `() => m.key()` functions
   ([docs/messages.md](docs/messages.md)). The dev server does not report the new ones.
 

@@ -55,67 +55,115 @@ export function moduleKeys(code: string, id: string, from: string = MESSAGES_MOD
 }
 
 /**
- * Whether the entries a module can read of a namespace are the keys `moduleKeys` found for it (`keys`), and no more.
- * `moduleKeys` reads the uses its walker reaches and reports the ones it does not accept; this asks the other way
- * round, of every node of the syntax tree whatever its type (TypeScript's `namespace` and `enum` bodies, parameter
- * properties, decorators, an `export { m }`, which that walker does not enter): each occurrence of a name the module
- * imports from the namespace's module `from` must be `name.key` with a key among `keys` (or stand where a name is no
- * reference: an import specifier, a property's name, inside a type), and the module must reach `from` in no other way: no other
- * export of it (`t`, `install`), no namespace or default import, no re-export, no `import()` or `require()` of it.
- * False for anything else, and for a module that cannot be parsed. Used where a wrong yes would lose a text (the
- * entries a page's head keeps, src/vite.ts); a wrong no only keeps more.
+ * The messages module's own value exports that read entries by a key the build does not see (src/messages.ts): `t(key)`,
+ * and `state()`, whose `dicts` hold every entry. Any other name it exports reads none (`getLocale`, `install`, the
+ * types), and a name not listed here is allowed: an import of it is no way to an entry.
  */
-export function keysOnly(code: string, id: string, from: string = MESSAGES_MODULE, exported = 'm', keys: string[] = moduleKeys(code, id, from, exported, true).keys): boolean {
-  return otherReach(code, id, from, exported, keys) === null;
-}
+export const READS_BY_KEY = ['t', 'state'];
 
-/** how a module reaches a namespace other than by `m.key` (`keysOnly`): where, and in which way; null for none */
-export interface OtherReach { pos: number; how: 'parse' | 'import' | 'reexport' | 'dynamic' | 'reference' | 'export' | 'unseen'; name: string }
-/** `keysOnly`'s reading, with the first use it does not accept; `allow`: other exports of `from` that read no entry */
-export function otherReach(code: string, id: string, from: string = MESSAGES_MODULE, exported = 'm', keys: string[] = moduleKeys(code, id, from, exported, true).keys, allow: string[] = []): OtherReach | null {
+/** a way a module reaches the messages module that its statements decide (`statementReach`): where, which, the name */
+export interface Reach { pos: number; how: 'namespace' | 'default' | 'import' | 'reexport' | 'export' | 'dynamic'; name: string }
+
+const textOfNode = (n: any): unknown => (n?.type === 'Literal' ? n.value : n?.type === 'TemplateLiteral' && n.expressions.length === 0 ? n.quasis[0]?.value.cooked : undefined);
+const nameOf = (n: any): string => (n?.type === 'Identifier' ? n.name : String(n?.value));
+
+/**
+ * SN350's reading: the ways a module reaches the namespace's module `from` that are decided exactly by its import and
+ * export statements and by where the module is named, with no reading of what its identifiers refer to. A namespace or
+ * default import; a named import of an export in `reads`; `export { m }` (or `export default m`) of the import, and
+ * `export … from` / `export *` of the module when it passes on `exported` or an export in `reads`; `import()`,
+ * `require()` and TypeScript's `import x = require()` of it. Types (`import type`, `{ type X }`) are never a way. Null for
+ * none, and for a module that does not parse (its transform reports that).
+ */
+export function statementReach(code: string, id: string, from: string = MESSAGES_MODULE, exported = 'm', reads: readonly string[] = READS_BY_KEY): Reach | null {
   if (!code.includes(from)) return null;
   let ast: ReturnType<typeof parseModule>;
-  try { ast = parseModule(code, id.replace(/\?.*$/, '')); } catch { return { pos: 0, how: 'parse', name: '' }; }
-  const names = new Set<string>(), known = new Set(keys);
-  const text = (n: any): unknown => (n?.type === 'Literal' ? n.value : n?.type === 'TemplateLiteral' && n.expressions.length === 0 ? n.quasis[0]?.value.cooked : undefined);
+  try { ast = parseModule(code, id.replace(/\?.*$/, '')); } catch { return null; }
+  const passes = new Set([exported, ...reads]), locals = new Set<string>();
   for (const st of ast.body as any[]) {
-    if (st.type !== 'ImportDeclaration' || text(st.source) !== from || st.importKind === 'type') continue;
-    for (const s of st.specifiers) {
-      const name = s.type === 'ImportSpecifier' ? (s.imported.type === 'Identifier' ? s.imported.name : s.imported.value) : null;
-      if (s.importKind === 'type' || (name !== null && name !== exported && allow.includes(name))) continue;
-      if (name !== exported) return { pos: s.start, how: 'import', name: name ?? (s.type === 'ImportNamespaceSpecifier' ? '*' : 'default') };
-      names.add(s.local.name);
+    if (st.type !== 'ImportDeclaration' || textOfNode(st.source) !== from || st.importKind === 'type') continue;
+    for (const sp of st.specifiers) {
+      if (sp.type === 'ImportNamespaceSpecifier') return { pos: sp.start, how: 'namespace', name: sp.local.name };
+      if (sp.type === 'ImportDefaultSpecifier') return { pos: sp.start, how: 'default', name: sp.local.name };
+      if (sp.importKind === 'type') continue;
+      const name = nameOf(sp.imported);
+      if (name === exported) locals.add(sp.local.name);
+      else if (reads.includes(name)) return { pos: sp.start, how: 'import', name };
     }
   }
-  let out: OtherReach | null = null;
+  for (const st of ast.body as any[]) {
+    if (st.type === 'ExportAllDeclaration' && textOfNode(st.source) === from && st.exportKind !== 'type') return { pos: st.start, how: 'reexport', name: '*' };
+    if (st.type === 'ExportNamedDeclaration' && st.exportKind !== 'type') for (const sp of st.specifiers ?? []) {
+      if (sp.exportKind === 'type') continue;
+      const local = nameOf(sp.local);
+      if (st.source ? textOfNode(st.source) === from && passes.has(local) : locals.has(local)) return { pos: sp.start, how: st.source ? 'reexport' : 'export', name: local };
+    }
+    if (st.type === 'ExportDefaultDeclaration' && st.declaration?.type === 'Identifier' && locals.has(st.declaration.name)) return { pos: st.declaration.start, how: 'export', name: st.declaration.name };
+  }
+  let out: Reach | null = null;
+  const visit = (n: any) => {
+    if (out || !n || typeof n.type !== 'string') return;
+    if ((n.type === 'ImportExpression' && textOfNode(n.source) === from) || (n.type === 'TSExternalModuleReference' && textOfNode(n.expression) === from)
+      || (n.type === 'CallExpression' && n.callee?.type === 'Identifier' && n.callee.name === 'require' && textOfNode(n.arguments[0]) === from)) { out = { pos: n.start, how: 'dynamic', name: '' }; return; }
+    for (const k of Object.keys(n)) {
+      if (k === 'type' || k === 'start' || k === 'end' || k === 'loc' || k === 'range') continue;
+      const v = n[k];
+      if (Array.isArray(v)) for (const c of v) visit(c); else if (v && typeof v === 'object') visit(v);
+    }
+  };
+  visit(ast);
+  return out;
+}
+
+/**
+ * Whether the entries a module can read of a namespace are the keys `moduleKeys` found for it (`keys`), and no more, so
+ * that its uses may be rewritten (`inlineTexts`) and the page may keep only those keys for it (src/vite.ts). A yes needs
+ * no way `statementReach` finds, and each occurrence of the name the module imports `exported` under to be `name.key`
+ * with a key among `keys`, wherever it stands in the syntax tree (TypeScript's bodies, decorators, …), except where a name
+ * is no reference: a property's own name, an enum member's, a label, the outer name of `export { x as m }`, a type.
+ * Anything else is a no, among it another binding of the name (a parameter, `catch (m)`): the rewrite does not follow
+ * scopes. A wrong yes would lose a text; a no only keeps more in the page. `keysWhy` says why not.
+ */
+export function keysOnly(code: string, id: string, from: string = MESSAGES_MODULE, exported = 'm', keys: string[] = moduleKeys(code, id, from, exported, true).keys): boolean {
+  return keysWhy(code, id, from, exported, keys) === null;
+}
+
+/** why `keysOnly` says no, as `file:line:col: what`; null for a yes */
+export function keysWhy(code: string, id: string, from: string = MESSAGES_MODULE, exported = 'm', keys: string[] = moduleKeys(code, id, from, exported, true).keys): string | null {
+  if (!code.includes(from)) return null;
+  let ast: ReturnType<typeof parseModule>;
+  try { ast = parseModule(code, id.replace(/\?.*$/, '')); } catch { return `${id}: the module does not parse`; }
+  const at = (pos: number) => { const { line, col } = lineCol(code, pos); return `${id}:${line}:${col}`; };
+  const r = statementReach(code, id, from, exported);
+  if (r) return `${at(r.pos)}: ${r.how === 'dynamic' ? '`import()` or `require()` of the module' : r.how === 'namespace' ? '`import * as`' : r.how === 'default' ? 'a default import' : `\`${r.name}\` ${r.how === 'import' ? 'imported' : 'passed on'}`}`;
+  const names = new Set<string>(), known = new Set(keys);
+  for (const st of ast.body as any[]) {
+    if (st.type !== 'ImportDeclaration' || textOfNode(st.source) !== from || st.importKind === 'type') continue;
+    for (const sp of st.specifiers) if (sp.type === 'ImportSpecifier' && sp.importKind !== 'type' && nameOf(sp.imported) === exported) names.add(sp.local.name);
+  }
+  let out: string | null = null;
   const visit = (n: any, up: any[]) => {
     if (out || !n || typeof n.type !== 'string') return;
     const p = up[up.length - 1];
     // (an ambient declaration has no code)
     if (n.declare === true) return;
-    switch (n.type) {
-      case 'ImportDeclaration': case 'TSInterfaceDeclaration': case 'TSTypeAliasDeclaration': return;
-      case 'ExportNamedDeclaration': case 'ExportAllDeclaration': if (text(n.source) === from && n.exportKind !== 'type') { out = { pos: n.start, how: 'reexport', name: '' }; return; } break;
-      case 'ImportExpression': if (text(n.source) === from) { out = { pos: n.start, how: 'dynamic', name: '' }; return; } break;
-      // (TypeScript's `import x = require('…')`)
-      case 'TSExternalModuleReference': if (text(n.expression) === from) { out = { pos: n.start, how: 'dynamic', name: '' }; return; } break;
-      case 'CallExpression': if (n.callee?.type === 'Identifier' && n.callee.name === 'require' && text(n.arguments[0]) === from) { out = { pos: n.start, how: 'dynamic', name: '' }; return; } break;
-      case 'Identifier': case 'JSXIdentifier': {
-        if (!names.has(n.name)) return;
-        // where a name is no reference: a property's own name
-        if (p && !p.computed && ((p.type === 'MemberExpression' && p.property === n) || (/^(Property|MethodDefinition|PropertyDefinition)$/.test(p.type) && p.key === n && !p.shorthand && p.value !== n))) return;
-        // `name.key`, and a nested id's whole chain (as `moduleKeys` reads it)
-        if (p?.type !== 'MemberExpression' || p.object !== n || p.computed || p.property.type !== 'Identifier') { out = { pos: n.start, how: p?.type === 'ExportSpecifier' ? 'export' : 'reference', name: n.name }; return; }
-        let key = p.property.name, at = p;
-        for (let i = up.length - 2; i >= 0; i--) {
-          const q = up[i];
-          if (q.type !== 'MemberExpression' || q.object !== at || q.computed || q.property.type !== 'Identifier') break;
-          key += '.' + q.property.name;
-          at = q;
-        }
-        if (!known.has(key)) out = { pos: n.start, how: 'unseen', name: `${n.name}.${key}` };
-        return;
+    if (n.type === 'ImportDeclaration' || n.type === 'TSInterfaceDeclaration' || n.type === 'TSTypeAliasDeclaration' || ((n.type === 'ExportNamedDeclaration' || n.type === 'ExportAllDeclaration') && n.source)) return;
+    if (n.type === 'Identifier' || n.type === 'JSXIdentifier') {
+      if (!names.has(n.name)) return;
+      // where a name is no reference: a property's own name, an enum member's, a label, `export { x as m }`'s outer name
+      if (p && !p.computed && ((p.type === 'MemberExpression' && p.property === n) || (/^(Property|MethodDefinition|PropertyDefinition)$/.test(p.type) && p.key === n && !p.shorthand && p.value !== n))) return;
+      if (p && ((p.type === 'TSEnumMember' && p.id === n) || (/^(LabeledStatement|BreakStatement|ContinueStatement)$/.test(p.type) && p.label === n) || (p.type === 'ExportSpecifier' && p.exported === n && p.local !== n))) return;
+      // `name.key`, and a nested id's whole chain (as `moduleKeys` reads it)
+      if (p?.type !== 'MemberExpression' || p.object !== n || p.computed || p.property.type !== 'Identifier') { out = `${at(n.start)}: \`${n.name}\` other than as \`${n.name}.key\` (another binding of the name, or a use the build does not read)`; return; }
+      let key = p.property.name, w = p;
+      for (let i = up.length - 2; i >= 0; i--) {
+        const q = up[i];
+        if (q.type !== 'MemberExpression' || q.object !== w || q.computed || q.property.type !== 'Identifier') break;
+        key += '.' + q.property.name;
+        w = q;
       }
+      if (!known.has(key)) out = `${at(n.start)}: \`${n.name}.${key}\` where the build does not read it (a decorator)`;
+      return;
     }
     up.push(n);
     for (const k of Object.keys(n)) {

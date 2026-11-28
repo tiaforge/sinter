@@ -44,9 +44,10 @@ part for a project that had the built-in messages (`sinter({ messages })`, remov
 - **App code**: `import { m } from '@tiaforge-ui/sinter/messages'` and `m.inbox.title()`, typed by the generated
   `sinter.namespaces.d.ts` next to the content module (rewritten on every build and dev load, so you can git-ignore
   it). Only `m.key` is allowed, `m` imported under that specifier: `m[key]`, passing or aliasing `m`, `export { m }`
-  or a re-export of the module, `import * as`, `t(key)`, `import()` of it, and the module under another spelling (a
-  path, an alias) are build errors ([`SN350`](diagnostics.md#sn350-messages-by-name)), since the page would lack those
-  texts. For a dynamic choice use a map of `() => m.key()` functions. The build gives each page the messages its modules call, in its language, a plain
+  or a re-export that passes `m` on, `import * as` or a default import, `t(key)` and `state()`, `import()` of the
+  module, and the module under another spelling (a path, an alias) are build errors
+  ([`SN350`](diagnostics.md#sn350-messages-by-name)), since the page would lack those texts. For a dynamic choice use a
+  map of `() => m.key()` functions. The build gives each page the messages its modules call, in its language, a plain
   message as its text ([the page's dictionary](#the-pages-dictionary)). A page whose modules call no message ships
   none of this module, and a module brings the formatter only when it calls a plural or a formatted placeholder.
 - Your helpers module must not also export a namespace `m`: one name calls one namespace.
@@ -110,9 +111,11 @@ Left to the page's dictionary, which then keeps those entries in the page as bef
 - the shared head script, which every page runs, when the pages are in more than one language (one language, or a
   single build without `localePrefix`: it has the texts too).
 
-If a module in the early script reaches the messages another way than `m.key` (a package the build does not read;
-in app code that is [`SN350`](diagnostics.md#sn350-messages-by-name)), the page keeps its whole dictionary in the
-page as well. Nothing to configure.
+If a module in the early script reaches the messages another way than `m.key` (a package the build does not read, a
+module with another binding named `m`, such as a parameter or `catch (m)`, which the rewrite cannot tell from the
+import), the page keeps its whole dictionary in the page as well, and the build says so, naming the module and the
+place: `sinter: en/index.html: the page keeps its whole dictionary in its head, since its early script reaches the
+messages in a way the build does not read: src/lib/time.ts:12:20: …`. Rename the binding to keep the saving.
 
 ## Another library
 

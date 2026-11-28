@@ -16,7 +16,7 @@ import { applyStrict, CODES, compile, describedPrefetch, moduleWith, pageHead, C
 import { sinterFile } from './own-files.js';
 import { buildInput, checkOptionsOf, compileOptionsOf, htmlInputs, lazyOf, lazyReachOf, project, retiredExport, retiredOptions, staticPages, strictOf, type PluginApi, type ProjectOptions } from './project.js';
 import { CHUNK_MARK, chainText, componentOfHtml, isComponentScript, LAZY, lazyPackage, type LazyScan, lineCol, loaderModule, mentions, parseLazyId, reachLazy, rewriteLazy, scanLazy, stubModule } from './lazy-build.js';
-import { inlineTexts, keysOnly, MESSAGES_MODULE, moduleKeys, otherReach, sourcesOf } from './i18n-build.js';
+import { inlineTexts, keysWhy, MESSAGES_MODULE, moduleKeys, READS_BY_KEY, sourcesOf, statementReach } from './i18n-build.js';
 import { HOLD_SCRIPT } from './paint-build.js';
 import { shareOpaque, shapesOn } from './early-opaque.js';
 import { earlyImports, OWN, registration, SHARED_MARKS, sharedKey, sharedMark, stubModule as sharedStub, topLevelAwait } from './shared-build.js';
@@ -288,7 +288,7 @@ const EARLY_PARTS = ['EMBEDDED'];
  */
 const DICT_FILE_MIN = 1024;
 /** marks in an early build's key set (beside `ns \0 key`): a module read through `m.key` alone, and a build that is not */
-const KEYS_CLEAN = '\0clean\0', KEYS_INEXACT = '\0inexact';
+const KEYS_CLEAN = '\0clean\0', KEYS_INEXACT = '\0inexact', KEYS_WHY = '\0why\0';
 /** the page's image rules (a CSS module the page module imports) */
 const IMG_CSS = `${PREFIX}img-css/`;
 /** builds: a page's reserved-space rules (docs/first-paint.md#reserved-space), imported by its module */
@@ -463,7 +463,8 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
               // (`transform` below; a module it does not scan at all: a package's, sinter's own): what this script may read
               // of the page's dictionary is then not known, and the page keeps it whole in its head (`KEYS_INEXACT`)
               const reached = (res && nsFiles.has(res.id.replace(/[?#].*$/, ''))) || [...nsFiles.values()].includes(id);
-              if (reached && importer && !job.keys.has(KEYS_CLEAN + importer.replace(/[?#].*$/, ''))) job.keys.add(KEYS_INEXACT);
+              const imp = importer?.replace(/[?#].*$/, '');
+              if (reached && imp && !job.keys.has(KEYS_CLEAN + imp)) { job.keys.add(KEYS_INEXACT); job.keys.add(KEYS_WHY + (uncleanWhy.get(imp) ?? `${relative(root, imp)}: a module the build does not read (a package's, sinter's own)`)); }
               return job.rt && res && job.runtimeId && res.id === job.runtimeId ? RT_ID : null;
             },
             load: (id) => (id === REF_ID ? { code: 'export const r = (f) => f;\n', moduleSideEffects: false } : !dev && id === EARLY_FLAGS ? earlyFlags() : id === entryId ? (job.map ? { code: job.code, map: job.map } : job.code) : id === RT_ID ? runtimeStub(job.rt!, job.own) : null),
@@ -495,7 +496,8 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
                   for (const k of ks) job.keys.add(`${d.name}\0${k}`);
                   if (ks.length && !late) by.set(d.name, ks);
                   // (its keys are all it can read of the namespace: `resolveId` above asks, for each importer of the module)
-                  if (r.errors.length || !keysOnly(src, id, d.module, d.name, r.keys)) clean = false;
+                  const why = r.errors[0] ?? keysWhy(src, id, d.module, d.name, r.keys);
+                  if (why) { clean = false; uncleanWhy.set(id.replace(/[?#].*$/, ''), why.replace(root + '/', '')); }
                 }
                 // and it names a namespace's module by the namespace's own specifier only (the one `moduleKeys` and
                 // `keysOnly` look for): any other spelling that resolves to it would be read by neither
@@ -503,7 +505,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
                 if (clean && nsFiles.size) for (const source of sourcesOf(src, id) ?? (clean = false, [])) {
                   if (own.has(source)) continue;
                   const at = await this.resolve(source, id);
-                  if (at && nsFiles.has(at.id.replace(/[?#].*$/, ''))) { clean = false; break; }
+                  if (at && nsFiles.has(at.id.replace(/[?#].*$/, ''))) { clean = false; uncleanWhy.set(id.replace(/[?#].*$/, ''), `${relative(root, id.replace(/[?#].*$/, ''))}: \`${source}\`, the module under another name`); break; }
                 }
                 if (clean) job.keys.add(KEYS_CLEAN + id.replace(/[?#].*$/, ''));
                 fmt = withFormatter(code, by) ?? (code !== src ? { code, map: null } : undefined);
@@ -733,6 +735,8 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
    * (`renderChunk`, which writes the import of it first in the chunk): its name, its text, and the entries it holds
    */
   const dictFiles = new Map<string, { fileName: string; source: string; ns: string; keys: Set<string> }>();
+  /** builds: why an early module was not read as reaching the messages by its keys alone (`keysWhy`), by file */
+  const uncleanWhy = new Map<string, string>();
   /** builds: the content namespaces' modules as the build resolves them, each with the specifier app code imports it by */
   const nsFiles = new Map<string, string>();
   let images: Images | null = null;
@@ -924,18 +928,18 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       if (!d.module) continue;
       const r = moduleKeys(code, id, d.module, d.name, true);
       if (r.errors.length) ctx.error(`sinter: ${r.errors.map((e) => `SN350 ${e}`).join('\n')}`);
-      // SN350: the ways to the module the walk above does not see (an export of `m`, a re-export, a namespace import, …)
-      const o = dev ? null : otherReach(code, id, d.module, d.name, r.keys, ['getLocale', 'install']);
+      // SN350: the ways to the module its statements decide (`statementReach`: a namespace or default import, an export of
+      // `m`, a re-export passing it on, a named import of an export that reads entries by key, `import()`)
+      const o = dev ? null : statementReach(code, id, d.module, d.name, d.module === MESSAGES_MODULE ? READS_BY_KEY : []);
       if (o) {
         const { line, col } = lineCol(code, o.pos), at = `${file}:${line}:${col}`, mod = `'${d.module}'`;
         const say: Record<typeof o.how, string> = {
-          parse: `the module does not parse, so the build cannot read which messages it calls`,
-          import: o.name === '*' ? `\`import * as …\` of ${mod}: import \`{ ${d.name} }\` and call each message by name (\`${d.name}.key()\`)` : o.name === 'default' ? `a default import of ${mod}, which has none: \`import { ${d.name} } from ${mod}\`` : `\`${o.name}\` from ${mod} reads the messages by a key the build does not see: import \`{ ${d.name} }\` and call each by name (\`${d.name}.key()\`)`,
-          reexport: `a re-export of ${mod} passes the messages on: import \`{ ${d.name} }\` from ${mod} in each module that calls one`,
+          namespace: `\`import * as ${o.name}\` of ${mod}: import \`{ ${d.name} }\` and call each message by name (\`${d.name}.key()\`)`,
+          default: `a default import of ${mod}, which has none: \`import { ${d.name} } from ${mod}\``,
+          import: `\`${o.name}\` from ${mod} reads the messages by a key the build does not see: import \`{ ${d.name} }\` and call each by name (\`${d.name}.key()\`)`,
+          reexport: `a re-export of ${mod} passes ${o.name === '*' ? 'the messages' : `\`${o.name}\``} on: import \`{ ${d.name} }\` from ${mod} in each module that calls one`,
           dynamic: `\`import()\` or \`require()\` of ${mod}: import \`{ ${d.name} }\` from it statically`,
-          reference: `\`${o.name}\` is used other than as \`${o.name}.key\`; call messages by name, e.g. \`${o.name}.nav_mail()\``,
-          export: `\`export { ${o.name} }\` passes the messages on: a build reads which messages a module calls from its own \`${d.name}.key()\` calls; import \`{ ${d.name} }\` from ${mod} where they are called`,
-          unseen: `\`${o.name}\` stands where the build does not read it (a decorator): call it in a function or a value the class uses instead`,
+          export: `\`${o.name}\` exported passes the messages on: a build reads which messages a module calls from its own \`${d.name}.key()\` calls; import \`{ ${d.name} }\` from ${mod} where they are called`,
         };
         ctx.error(`sinter: SN350 ${at}: ${say[o.how]}`);
       }
@@ -2054,6 +2058,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       earlyFiles.clear();
       pageMessages.clear();
       dictFiles.clear();
+      uncleanWhy.clear();
       nsResolved = null;
       described.clear(); entriesDescribed.clear(); axisListsKept = null; axisIndexKept = null;
       lateParts.clear(); latePages.clear(); lateSettled.clear(); lateReady = null; auditedDescriptions.clear();
@@ -2370,6 +2375,8 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
         const headCode = (sharedHead?.code ?? '') + '\n' + (earlyFiles.get(rel)?.code ?? '');
         const named = (k: string) => k.split('.').every((p) => !/^[A-Za-z0-9_$]+$/.test(p) || new RegExp(`(?<![\\w$])${p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\w$])`).test(headCode));
         const inHead = (ns: string, k: string) => !file || ns !== file.ns || !file.keys.has(k) || early.has(KEYS_INEXACT) || (early.has(`${ns}\0${k}`) && named(k));
+        // (said, since it costs the page its saving: which module, and why)
+        if (file && early.has(KEYS_INEXACT) && infoShown()) resolved?.logger.info(`sinter: ${rel}: the page keeps its whole dictionary in its head, since its early script reaches the messages in a way the build does not read: ${[...early].filter((x) => x.startsWith(KEYS_WHY)).map((x) => x.slice(KEYS_WHY.length)).join('; ')}`);
         const tags = [...want].map(([ns, keys]) => `<script type="application/json" data-sn-ns="${attr(ns)}"${lang ? ` lang="${attr(lang)}"` : ''}>${JSON.stringify(packed(at[ns]?.format ?? '', Object.fromEntries([...keys].sort().filter((k) => inHead(ns, k)).map((k) => [k, at[ns]?.entries[k] ?? null])))).replace(/</g, '\\u003c')}</script>`);
         pageMessages.set(rel, tags.join(''));
       }

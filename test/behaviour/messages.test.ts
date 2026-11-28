@@ -3,7 +3,7 @@
 import { expect, test } from 'vitest';
 import { firstPaint, render } from '@tiaforge-ui/sinter/testing';
 import { m } from '../../src/messages.js';
-import { keysOnly, moduleKeys } from '../../src/i18n-build.js';
+import { keysOnly, keysWhy, moduleKeys } from '../../src/i18n-build.js';
 
 const messages = {
   en: { title: 'People', hello: 'Hello {name}', only_en: 'Only in English' },
@@ -171,6 +171,17 @@ test('keysOnly: a module reads the messages through the keys `moduleKeys` found,
   no("export const a = async () => (await import('@tiaforge-ui/sinter/messages')).m.title();\n");
   no("export const a = async () => (await import(`@tiaforge-ui/sinter/messages`)).t('x');\n");
   no("const { m } = require('@tiaforge-ui/sinter/messages');\nexport const a = () => m.title();\n", '/a.cjs');
+  // what is no use of the messages, decided where the name stands: a type imported without `type`, a type re-exported,
+  // an enum member, a label, the outer name of `export { x as m }`, an export that reads no entry
+  yes("import { m, Messages } from '@tiaforge-ui/sinter/messages';\nexport const all: Messages | null = null;\nexport const a = () => m.title();\n");
+  yes(M + "export { type Messages, getLocale } from '@tiaforge-ui/sinter/messages';\nexport const a = () => m.title();\n");
+  yes(M + 'export enum Unit { s, m, h }\nexport const a = () => m.title() + Unit.m;\n');
+  yes(M + 'export const a = () => { m: for (;;) { if (Math.random()) break m; else continue m; } return m.title(); };\n');
+  yes(M + 'const metres = 1;\nexport { metres as m };\nexport const a = () => m.title();\n');
+  // another binding of the name: no, since the rewrite does not follow scopes (and `keysWhy` says so)
+  no(M + "export const a = () => { try { return [1].map((x, m) => x).join() + m.title(); } catch (m) { return ''; } };\n");
+  expect(keysWhy(M + "export const a = () => { try { return m.title(); } catch (m) { return ''; } };\n", '/a.ts')).toBe('/a.ts:2:59: `m` other than as `m.key` (another binding of the name, or a use the build does not read)');
+  expect(keysWhy(M + 'export const a = () => m.title();\n', '/a.ts')).toBeNull();
   // a module that cannot be parsed
   no(M + 'export const a = (;\n');
 });
