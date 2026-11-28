@@ -154,8 +154,9 @@ test('keysOnly: a module reads the messages through the keys `moduleKeys` found,
   no(M + 'export { m as messages };\n');
   no(M + 'export default m;\n');
   no(M + 'namespace N { export const all = () => Object.keys(m); }\nexport const a = N.all;\n');
-  no(M + 'namespace N { export const t = () => m.hidden(); }\nexport const a = N.t;\n');
-  no(M + 'enum E { A = m.hidden().length }\nexport const a = E.A;\n');
+  // (a `namespace` body and an `enum`'s initializers are read: their keys are `moduleKeys`')
+  yes(M + 'namespace N { export const t = () => m.hidden(); }\nexport const a = N.t;\n');
+  yes(M + 'enum E { A = m.hidden().length }\nexport const a = E.A;\n');
   no(M + 'export class C { constructor(private readonly all = m) {} }\n');
   no(M + 'export const a = { m };\n');
   no(M + 'export const a = typeof m;\n');

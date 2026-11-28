@@ -72,6 +72,7 @@ export const CODES = {
   SN347: 'session',
   SN348: 'removed-option',
   SN349: 'component-location',
+  SN350: 'messages-by-name',
   SN401: 'parse-error',
   SN501: 'unused-resource',
   SN502: 'non-reactive-value',

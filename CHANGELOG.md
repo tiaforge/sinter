@@ -89,8 +89,20 @@ How to write an entry (from 0.21.0 on; older sections keep their own form):
 - A page without an early script links the same stylesheet copy as the pages that defer their fonts, plus the fonts
   file as a plain stylesheet before it, instead of the original stylesheet: every page caches one stylesheet, and the
   fitted fallback fonts apply on that page too ([docs/first-paint.md](docs/first-paint.md#fonts-after-the-load)).
+- A use of the built-in messages that the build cannot read is now a build error, `SN350`, which says what to write
+  instead, where it used to build and show the message's key at run time: `export { m }` or a re-export of
+  `@tiaforge-ui/sinter/messages`, `import * as` of it, `t(key)` and the module's other exports that read entries
+  (`getLocale`, `install` and the types are fine), `import()` or `require()` of it, the module under another spelling
+  (a path to its file, an alias), and a message in a decorator. The errors that were there (`m[key]`, `m` passed on)
+  have the code too. To fix: `import { m } from '@tiaforge-ui/sinter/messages'` in each module that calls a message,
+  and call each by name; for a choice at run time, a map of `() => m.key()` functions
+  ([docs/messages.md](docs/messages.md)). The dev server does not report the new ones.
 
 ### Fixed
+
+- A message called in a TypeScript `namespace` body, an `enum`'s initializer or a constructor's parameter property
+  (`constructor(private label = m.save())`) has its text: the build did not read those places, so the page lacked the
+  entry and showed its key.
 
 - Embedded data in the head (`<script type="application/json" data-sn-resource>`) whose JSON holds the text
   `</head>` is no longer cut there: the compiler took the first `</head>` of the page's text for the end of the head,

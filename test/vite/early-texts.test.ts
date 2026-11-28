@@ -153,13 +153,18 @@ describe('the build', () => {
 
 describe.skipIf(!chromium)('in Chromium, on the built site', () => {
   let browser: Browser, server: Awaited<ReturnType<typeof serve>>, spelled: Site, spellServer: Awaited<ReturnType<typeof serve>>;
-  // a helper module that imports the messages module under another spelling as well (its file's path), which neither
-  // the keys' reading nor the texts' sees: the page keeps its whole dictionary, and the first paint has the text
-  const SPELLED = `${HELPERS}export * as refs from './lib/refs.ts';\nimport { m as m2 } from ${JSON.stringify(`${src}/messages.ts`)};\nexport const spelled = (): string => m2.plain();\n`;
+  // a package that imports the messages module under another spelling (its file's path), which neither the keys'
+  // reading nor the texts' sees (in app code that is SN350): the page keeps its whole dictionary, and the first paint
+  // has the text
+  const SPELLED = `${HELPERS}export * as refs from './lib/refs.ts';\nexport { spelled } from 'spelled-lib';\nexport const keep = (): string => m.plain();\n`;
   beforeAll(async () => {
     for (const k of ['HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy', 'ALL_PROXY', 'all_proxy']) delete process.env[k];
     server = await serve(main.out);
-    spelled = await site('spelled', { 'src/sinter.helpers.ts': SPELLED, 'index.html': shows("probe(n) + '|' + spelled()", "probe(n) + '|' + spelled()") });
+    spelled = await site('spelled', {
+      'src/sinter.helpers.ts': SPELLED,
+      'node_modules/spelled-lib/package.json': JSON.stringify({ name: 'spelled-lib', type: 'module', main: 'index.js' }),
+      'node_modules/spelled-lib/index.js': `import { m } from ${JSON.stringify(`${src}/messages.ts`)};\nexport const spelled = () => m.plain();\n`,
+      'index.html': shows("probe(n) + '|' + spelled()", "probe(n) + '|' + spelled()") });
     spellServer = await serve(spelled.out);
     browser = await chromium!.launch();
   }, 120_000);

@@ -166,9 +166,14 @@ describe('the build', () => {
     expect(again.of('en/index.html').dict).toBe(main.of('en/index.html').dict);
   }, 120_000);
 
-  test('a head script that reaches the messages in a way the build does not read (`t(key)`): the page keeps its whole dictionary', async () => {
-    const helpers = HELPERS.replace("import { m } from '@tiaforge-ui/sinter/messages';", "import { m, t } from '@tiaforge-ui/sinter/messages';").replace('m.early_label()', "t('early_' + 'label')");
-    const odd = await site('odd', { 'src/sinter.helpers.ts': helpers + 'export const keep = (): string => m.early_label();\n' });
+  test('a head script that reaches the messages in a way the build does not read (a package\'s `t(key)`): the page keeps its whole dictionary', async () => {
+    // (in app code that is SN350; a package's modules are not read)
+    const helpers = HELPERS.replace('export const early = (): string => m.early_label();', "export { early } from 'early-lib';");
+    const odd = await site('odd', {
+      'src/sinter.helpers.ts': helpers + 'export const keep = (): string => m.early_label();\n',
+      'node_modules/early-lib/package.json': JSON.stringify({ name: 'early-lib', type: 'module', main: 'index.js' }),
+      'node_modules/early-lib/index.js': "import { t } from '@tiaforge-ui/sinter/messages';\nexport const early = () => t('early_' + 'label');\n",
+    });
     // (and it works: the head script finds the entry it names in its own way)
     expect(odd.of('en/index.html').html).toContain('"early_label":"Shown early"');
     const en = odd.of('en/index.html');

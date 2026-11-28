@@ -66,35 +66,44 @@ export function moduleKeys(code: string, id: string, from: string = MESSAGES_MOD
  * entries a page's head keeps, src/vite.ts); a wrong no only keeps more.
  */
 export function keysOnly(code: string, id: string, from: string = MESSAGES_MODULE, exported = 'm', keys: string[] = moduleKeys(code, id, from, exported, true).keys): boolean {
-  if (!code.includes(from)) return true;
+  return otherReach(code, id, from, exported, keys) === null;
+}
+
+/** how a module reaches a namespace other than by `m.key` (`keysOnly`): where, and in which way; null for none */
+export interface OtherReach { pos: number; how: 'parse' | 'import' | 'reexport' | 'dynamic' | 'reference' | 'export' | 'unseen'; name: string }
+/** `keysOnly`'s reading, with the first use it does not accept; `allow`: other exports of `from` that read no entry */
+export function otherReach(code: string, id: string, from: string = MESSAGES_MODULE, exported = 'm', keys: string[] = moduleKeys(code, id, from, exported, true).keys, allow: string[] = []): OtherReach | null {
+  if (!code.includes(from)) return null;
   let ast: ReturnType<typeof parseModule>;
-  try { ast = parseModule(code, id.replace(/\?.*$/, '')); } catch { return false; }
+  try { ast = parseModule(code, id.replace(/\?.*$/, '')); } catch { return { pos: 0, how: 'parse', name: '' }; }
   const names = new Set<string>(), known = new Set(keys);
   const text = (n: any): unknown => (n?.type === 'Literal' ? n.value : n?.type === 'TemplateLiteral' && n.expressions.length === 0 ? n.quasis[0]?.value.cooked : undefined);
   for (const st of ast.body as any[]) {
-    if (st.type !== 'ImportDeclaration' || text(st.source) !== from) continue;
+    if (st.type !== 'ImportDeclaration' || text(st.source) !== from || st.importKind === 'type') continue;
     for (const s of st.specifiers) {
-      if (s.type !== 'ImportSpecifier' || (s.imported.type === 'Identifier' ? s.imported.name : s.imported.value) !== exported) return false;
+      const name = s.type === 'ImportSpecifier' ? (s.imported.type === 'Identifier' ? s.imported.name : s.imported.value) : null;
+      if (s.importKind === 'type' || (name !== null && name !== exported && allow.includes(name))) continue;
+      if (name !== exported) return { pos: s.start, how: 'import', name: name ?? (s.type === 'ImportNamespaceSpecifier' ? '*' : 'default') };
       names.add(s.local.name);
     }
   }
-  let ok = true;
+  let out: OtherReach | null = null;
   const visit = (n: any, up: any[]) => {
-    if (!ok || !n || typeof n.type !== 'string') return;
+    if (out || !n || typeof n.type !== 'string') return;
     const p = up[up.length - 1];
     // (an ambient declaration has no code)
     if (n.declare === true) return;
     switch (n.type) {
       case 'ImportDeclaration': case 'TSInterfaceDeclaration': case 'TSTypeAliasDeclaration': return;
-      case 'ExportNamedDeclaration': case 'ExportAllDeclaration': if (text(n.source) === from) ok = false; break;
-      case 'ImportExpression': if (text(n.source) === from) ok = false; break;
-      case 'CallExpression': if (n.callee?.type === 'Identifier' && n.callee.name === 'require' && text(n.arguments[0]) === from) ok = false; break;
+      case 'ExportNamedDeclaration': case 'ExportAllDeclaration': if (text(n.source) === from && n.exportKind !== 'type') { out = { pos: n.start, how: 'reexport', name: '' }; return; } break;
+      case 'ImportExpression': if (text(n.source) === from) { out = { pos: n.start, how: 'dynamic', name: '' }; return; } break;
+      case 'CallExpression': if (n.callee?.type === 'Identifier' && n.callee.name === 'require' && text(n.arguments[0]) === from) { out = { pos: n.start, how: 'dynamic', name: '' }; return; } break;
       case 'Identifier': case 'JSXIdentifier': {
         if (!names.has(n.name)) return;
         // where a name is no reference: a property's own name
         if (p && !p.computed && ((p.type === 'MemberExpression' && p.property === n) || (/^(Property|MethodDefinition|PropertyDefinition)$/.test(p.type) && p.key === n && !p.shorthand && p.value !== n))) return;
         // `name.key`, and a nested id's whole chain (as `moduleKeys` reads it)
-        if (p?.type !== 'MemberExpression' || p.object !== n || p.computed || p.property.type !== 'Identifier') { ok = false; return; }
+        if (p?.type !== 'MemberExpression' || p.object !== n || p.computed || p.property.type !== 'Identifier') { out = { pos: n.start, how: p?.type === 'ExportSpecifier' ? 'export' : 'reference', name: n.name }; return; }
         let key = p.property.name, at = p;
         for (let i = up.length - 2; i >= 0; i--) {
           const q = up[i];
@@ -102,7 +111,7 @@ export function keysOnly(code: string, id: string, from: string = MESSAGES_MODUL
           key += '.' + q.property.name;
           at = q;
         }
-        if (!known.has(key)) ok = false;
+        if (!known.has(key)) out = { pos: n.start, how: 'unseen', name: `${n.name}.${key}` };
         return;
       }
     }
@@ -117,7 +126,7 @@ export function keysOnly(code: string, id: string, from: string = MESSAGES_MODUL
     up.pop();
   };
   visit(ast, []);
-  return ok;
+  return out;
 }
 
 /** a text as a JavaScript string literal, valid wherever it stands (`</script`, U+2028 and U+2029 escaped too) */
@@ -303,11 +312,19 @@ export function sourcesOf(code: string, id: string): string[] | null {
   return [...out];
 }
 
-/** acorn-walk's walker, with TypeScript's nodes: expressions inside casts are walked, types skipped */
+/**
+ * acorn-walk's walker, with TypeScript's nodes: expressions inside casts are walked, types skipped; the code of a
+ * `namespace` body, an `enum`'s initializers, a constructor's parameter properties and `export =` too
+ */
 const tsBase = new Proxy(base as Record<string, unknown>, {
   get(t, k: string) {
     if (k in t) return t[k];
-    if (/^TS(As|Satisfies|NonNull)Expression$|^TSTypeAssertion$|^TSInstantiationExpression$/.test(k)) return (n: any, st: unknown, c: (n: unknown, st: unknown) => void) => c(n.expression, st);
+    if (/^TS(As|Satisfies|NonNull)Expression$|^TSTypeAssertion$|^TSInstantiationExpression$|^TSExportAssignment$/.test(k)) return (n: any, st: unknown, c: (n: unknown, st: unknown) => void) => c(n.expression, st);
+    type C = (n: unknown, st: unknown, how?: string) => void;
+    if (k === 'TSModuleDeclaration') return (n: any, st: unknown, c: C) => { if (!n.declare && n.body) c(n.body, st); };
+    if (k === 'TSModuleBlock') return (n: any, st: unknown, c: C) => { for (const s of n.body) c(s, st, 'Statement'); };
+    if (k === 'TSEnumDeclaration') return (n: any, st: unknown, c: C) => { if (!n.declare) for (const x of n.members ?? n.body?.members ?? []) if (x.initializer) c(x.initializer, st, 'Expression'); };
+    if (k === 'TSParameterProperty') return (n: any, st: unknown, c: C) => c(n.parameter, st, 'Pattern');
     return () => {};
   },
 });

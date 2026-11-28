@@ -16,7 +16,7 @@ import { applyStrict, CODES, compile, describedPrefetch, moduleWith, pageHead, C
 import { sinterFile } from './own-files.js';
 import { buildInput, checkOptionsOf, compileOptionsOf, htmlInputs, lazyOf, lazyReachOf, project, retiredExport, retiredOptions, staticPages, strictOf, type PluginApi, type ProjectOptions } from './project.js';
 import { CHUNK_MARK, chainText, componentOfHtml, isComponentScript, LAZY, lazyPackage, type LazyScan, lineCol, loaderModule, mentions, parseLazyId, reachLazy, rewriteLazy, scanLazy, stubModule } from './lazy-build.js';
-import { inlineTexts, keysOnly, MESSAGES_MODULE, moduleKeys, sourcesOf } from './i18n-build.js';
+import { inlineTexts, keysOnly, MESSAGES_MODULE, moduleKeys, otherReach, sourcesOf } from './i18n-build.js';
 import { HOLD_SCRIPT } from './paint-build.js';
 import { shareOpaque, shapesOn } from './early-opaque.js';
 import { earlyImports, OWN, registration, SHARED_MARKS, sharedKey, sharedMark, stubModule as sharedStub, topLevelAwait } from './shared-build.js';
@@ -896,13 +896,44 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
   const pageNs = new Map<string, NonNullable<Parameters<typeof compile>[1]['contentNs']>>();
   /** a content namespace's ids each app module calls through the namespace's `module` (`m.inbox.title()`), by module */
   const moduleNs = new Map<string, Map<string, string[]>>();
-  const collectNs = (ctx: { error(m: string): never }, code: string, id: string) => {
+  const collectNs = async (ctx: { error(m: string): never; resolve(source: string, importer?: string): Promise<{ id: string } | null> }, code: string, id: string) => {
     if (!content?.namespaces.size || id.includes('/node_modules/') || sinterFile(id) || !/\.[cm]?[jt]sx?(\?|$)/.test(id)) return;
     const file = id.replace(/\?.*$/, ''), by = new Map<string, string[]>();
+    // SN350: a module that imports a namespace's module under another spelling (its file's path, an alias), which none
+    // of the readings below would see
+    const own = new Set([...content.namespaces.values()].map((d) => d.module).filter(Boolean));
+    if (!dev && own.size) {
+      const files = await (nsResolved ??= (async () => {
+        const out = new Map<string, string>();
+        for (const s of own) { const at = await ctx.resolve(s!, resolve(root, 'index.html')); if (at) out.set(at.id.replace(/[?#].*$/, ''), s!); }
+        return out;
+      })());
+      for (const source of sourcesOf(code, id) ?? []) {
+        if (own.has(source)) continue;
+        const at = await ctx.resolve(source, file).catch(() => null);
+        const spec = at && files.get(at.id.replace(/[?#].*$/, ''));
+        if (spec) { const { line, col } = lineCol(code, code.indexOf(source)); ctx.error(`sinter: SN350 ${file}:${line}:${col}: \`${source}\` is \`${spec}\` under another name: import it as \`'${spec}'\`, so the build reads which messages this module calls (\`import { m } from '${spec}'\`)`); }
+      }
+    }
     for (const d of content.namespaces.values()) {
       if (!d.module) continue;
       const r = moduleKeys(code, id, d.module, d.name, true);
-      if (r.errors.length) ctx.error(`sinter: ${r.errors.join('\n')}`);
+      if (r.errors.length) ctx.error(`sinter: ${r.errors.map((e) => `SN350 ${e}`).join('\n')}`);
+      // SN350: the ways to the module the walk above does not see (an export of `m`, a re-export, a namespace import, …)
+      const o = dev ? null : otherReach(code, id, d.module, d.name, r.keys, ['getLocale', 'install']);
+      if (o) {
+        const { line, col } = lineCol(code, o.pos), at = `${file}:${line}:${col}`, mod = `'${d.module}'`;
+        const say: Record<typeof o.how, string> = {
+          parse: `the module does not parse, so the build cannot read which messages it calls`,
+          import: o.name === '*' ? `\`import * as …\` of ${mod}: import \`{ ${d.name} }\` and call each message by name (\`${d.name}.key()\`)` : o.name === 'default' ? `a default import of ${mod}, which has none: \`import { ${d.name} } from ${mod}\`` : `\`${o.name}\` from ${mod} reads the messages by a key the build does not see: import \`{ ${d.name} }\` and call each by name (\`${d.name}.key()\`)`,
+          reexport: `a re-export of ${mod} passes the messages on: import \`{ ${d.name} }\` from ${mod} in each module that calls one`,
+          dynamic: `\`import()\` or \`require()\` of ${mod}: import \`{ ${d.name} }\` from it statically`,
+          reference: `\`${o.name}\` is used other than as \`${o.name}.key\`; call messages by name, e.g. \`${o.name}.nav_mail()\``,
+          export: `\`export { ${o.name} }\` passes the messages on: a build reads which messages a module calls from its own \`${d.name}.key()\` calls; import \`{ ${d.name} }\` from ${mod} where they are called`,
+          unseen: `\`${o.name}\` stands where the build does not read it (a decorator): call it in a function or a value the class uses instead`,
+        };
+        ctx.error(`sinter: SN350 ${at}: ${say[o.how]}`);
+      }
       const known = new Set(helpersOf(proj().helpers).namespaces[d.name]?.members ?? []);
       const unknown = r.keys.filter((k) => !known.has(k));
       if (unknown.length) ctx.error(`sinter: ${id}: no entry ${unknown.map((k) => `\`${d.name}.${k}\``).join(', ')} in the namespace \`${d.name}\``);
@@ -928,6 +959,8 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
     return lines.length ? { code: `${code}\n${lines.join('\n')}\n`, map: null } : undefined;
   };
   const collect = collectNs;
+  /** builds: the content namespaces' modules as app code resolves them (SN350), each with its specifier */
+  let nsResolved: Promise<Map<string, string>> | null = null;
 
   /** dev: the folders `file:` globs list; a file added or removed there that the glob matches reloads the pages */
   const globs = new Map<string, { dir: string; match: RegExp }>();
@@ -2016,6 +2049,7 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       earlyFiles.clear();
       pageMessages.clear();
       dictFiles.clear();
+      nsResolved = null;
       described.clear(); entriesDescribed.clear(); axisListsKept = null; axisIndexKept = null;
       lateParts.clear(); latePages.clear(); lateSettled.clear(); lateReady = null; auditedDescriptions.clear();
       pagesCache = null;
@@ -2337,11 +2371,11 @@ export default function sinter(options: SinterOptions = {}): SinterPlugins {
       heads();
     },
 
-    transform(code, id) {
+    async transform(code, id) {
       // the app's own modules: a renamed export of the main entry fails naming the new one
       if (!id.includes('/node_modules/') && !sinterFile(id) && /\.[cm]?[jt]sx?(\?|$)/.test(id)) { const gone = retiredExport(code); if (gone) this.error(`${relative(root, id.replace(/[?#].*$/, ''))}: ${gone}`); }
       // (an app module that calls a message that is not plain text gets the formatter: `withFormatter`)
-      const f = collect(this, code, id);
+      const f = await collect(this, code, id);
       return lazyTransform(this, f?.code ?? code, id) ?? f ?? null;
     },
 
