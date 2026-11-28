@@ -43,7 +43,8 @@ export interface ProjectOptions {
   expansionLimit?: number;
   /**
    * SN548: a warning at each alias whose value the compiler cannot follow, which makes the writes of the handlers it
-   * reaches everything (docs/diagnostics.md#sn548-untraceable-writes). Off by default.
+   * reaches everything, and at each helper call whose result, held in state, makes handlers mark state they do not
+   * write (docs/diagnostics.md#sn548-untraceable-writes). Off by default.
    */
   explainWrites?: boolean;
   /**

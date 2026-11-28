@@ -175,7 +175,7 @@ export interface PageInfo {
    * Aliases (docs/spec.md, Aliases): the object at path `t` may be the one at `s` (null: one the compiler
    * cannot trace), from every handler and state initializer of the page; `*` stands for any key or row
    */
-  aliases?: Array<{ t: string[]; s: string[] | null; why?: string; at?: AliasSite }>;
+  aliases?: Array<{ t: string[]; s: string[] | null; why?: string; call?: string; at?: AliasSite }>;
   /** the events the page's `emit()`s send, by name (`*`: one named by a value) */
   emitted: Set<string>;
   /** written paths that change the object at the path (a method, `Object.assign`), not the field holding it */
@@ -261,9 +261,14 @@ export interface ObjectEntry {
 export interface Piece {
   sub: string[];
   src: string[] | null;
-  /** with no `src`: what the compiler could not follow, for SN548 (`` `reduce(…)` is the result of `reduce()` ``) */
+  /**
+   * for SN548. With no `src`: what the compiler could not follow (`` `reduce(…)` is the result of `reduce()` ``); with
+   * one that a helper's result reached (`**`): the helper call (`pick(ys, 0)`)
+   */
   why?: string;
 }
+/** A piece's note on its alias record: why it is untraceable, or the helper call it came through. */
+export const aliasNote = (p: Piece): { why?: string; call?: string } => (!p.why ? {} : p.src ? { call: p.why } : { why: p.why });
 
 export interface ExprResult {
   ok: boolean;
@@ -506,7 +511,7 @@ type Locals = Map<string, LocalInfo>;
 
 interface Edit { start: number; end: number; text: string }
 
-/** Where an alias the compiler cannot trace was made (SN548): the expression, and its place in the markup. */
+/** Where an alias the compiler cannot trace, or one through a helper's result, was made (SN548): the expression, and its place in the markup. */
 export interface AliasSite { text: string; file: string; line: number; col: number }
 
 /** The root and static segments of a member chain. */
@@ -873,7 +878,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
     const union = (...xs: Node[]) => xs.flatMap((x) => classify(x, locals));
     // a helper's result holds fresh values, or objects found in its arguments, at any depth (docs/spec.md, Aliases)
     const helperResult = (args: Node[]): Piece[] => args.flatMap((a) => (a.type === 'SpreadElement' ? contentsOf(classify(a.argument as Node, locals)) : a.type === 'ArrowFunctionExpression' ? returned(a, opaque('a callback\'s argument', a)) : classify(a, locals))
-      .map((p) => ({ sub: ['**'], src: p.src && [...p.src, '**'], ...(p.why ? { why: p.why } : {}) })));
+      .map((p) => ({ sub: ['**'], src: p.src && [...p.src, '**'], ...(p.src ? { why: src.slice(e.start, e.end).replace(/\s+/g, ' ').slice(0, 80) } : p.why ? { why: p.why } : {}) })));
     /** what a callback returns, its first parameter standing for an element of `recv`, the second for its index */
     const returned = (fn: Node | undefined, recv: Piece[]): Piece[] => {
       if (!fn || fn.type !== 'ArrowFunctionExpression' || fn.body.type === 'BlockStatement') return opaque('what a callback with a block body returns', fn ?? e);
@@ -1046,7 +1051,7 @@ export function analyze(src: string, scope: Scope, page: PageInfo, opts: ExprOpt
   function alias(t: string[] | null, ps: Piece[]) {
     if (!t || !ps.length) return;
     const list = (page.aliases ??= []);
-    for (const p of ps) list.push({ t: wild([...t, ...p.sub]), s: p.src && wild(p.src), ...(!p.src && p.why ? { why: p.why } : {}) });
+    for (const p of ps) list.push({ t: wild([...t, ...p.sub]), s: p.src && wild(p.src), ...aliasNote(p) });
   }
   const mutation = (w: string) => { (page.mutated ??= new Set()).add(w); return w; };
 

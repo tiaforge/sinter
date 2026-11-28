@@ -53,6 +53,14 @@ How to write an entry (from 0.21.0 on; older sections keep their own form):
   writes therefore mark every state scope and resource and re-render everything that reads state. Off by default, and
   a warning in strict mode too; nothing changes in what is marked
   ([docs/diagnostics.md](docs/diagnostics.md#sn548-untraceable-writes)).
+- `explainWrites` also reports state that holds a helper's result (`draft = newDraft(item, today)`, or
+  `draft = $event.detail` of an `emit('new', newDraft(item, today))`): a helper's result may hold objects found in its
+  arguments, so every write inside `draft` (each keystroke of a `data-sn-model="draft.title"`) also marks the state the
+  helper was given, and everything that reads it renders again. One `SN548` for each such call, with the handlers it
+  adds to and the fields they mark only because of it; storing a copy (`draft = structuredClone(…)`) makes those
+  handlers' writes exact. In one app's event form, typing five characters evaluated 2,420 bindings for no
+  change; with the three copies the warnings point at, 35
+  ([docs/diagnostics.md](docs/diagnostics.md#sn548-untraceable-writes)).
 - Dev builds check that every write marked what it changed: when part of the state changed and no path marked since
   reaches it (a custom element or a library changed an object of the page it was handed, or sinter missed an alias),
   runtime warning 36 names the path, what was marked and the handlers that ran, where before the page showed the old
