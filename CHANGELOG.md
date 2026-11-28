@@ -46,6 +46,13 @@ How to write an entry (from 0.21.0 on; older sections keep their own form):
 
 ### Added
 
+- A dev build warns when an app helper is called again and again with the same arguments while the page renders and
+  the repeats cost time (runtime warning 38): a `data-sn-let` or a prop is its expression at every read, so a helper
+  in a let that 42 rows read through several bindings runs hundreds of times a render. The message names the helper,
+  its calls and repeats, the milliseconds the repeats took, the let it is read through with its place, and the fix:
+  `memo()` on the helper, or on the expensive function it calls when its arguments are not ones `memo()` keys
+  ([docs/expressions.md](docs/expressions.md#memoized-helpers)). Once a helper; nothing in a production build.
+
 - An app can install an unreleased sinter from a git commit: `npm install github:tiaforge/sinter#<commit>` builds the package (`dist/`) as it installs, through a `prepare` script. `npm ci` in a checkout builds it too.
 - `data-sn-optimistic` sees `$event`, as `data-sn-body`, `data-sn-confirm`, `then` and `catch` do (it was SN201). An action on a component's tag triggered by the component's event (`data-sn-put="/api/tasks/order" data-sn-trigger="move"`) reads `$event.detail` in its optimistic change as in its body, typed by `data-sn-emits`, so a page needs no state and hidden `run()` target to carry it. `data-sn-when` goes on a component's tag with the action, as the other action attributes do (it was SN102) ([docs/actions.md](docs/actions.md#optimistic-updates)).
 - `closePopover()` and `closePopover('id')` in handlers: hide the `popover` around the element, or the one with that
@@ -58,6 +65,14 @@ How to write an entry (from 0.21.0 on; older sections keep their own form):
   (`compose = $event.detail`, `sel = items.reduce(…)`), what it holds and the handlers it reaches, whose
   writes therefore mark every state scope and resource and re-render everything that reads state. Off by default, and
   a warning in strict mode too; nothing changes in what is marked
+  ([docs/diagnostics.md](docs/diagnostics.md#sn548-untraceable-writes)).
+- `explainWrites` also reports state that holds a helper's result (`draft = newDraft(item, today)`, or
+  `draft = $event.detail` of an `emit('new', newDraft(item, today))`): a helper's result may hold objects found in its
+  arguments, so every write inside `draft` (each keystroke of a `data-sn-model="draft.title"`) also marks the state the
+  helper was given, and everything that reads it renders again. One `SN548` for each such call, with the handlers it
+  adds to and the fields they mark only because of it; storing a copy (`draft = structuredClone(…)`) makes those
+  handlers' writes exact. In one app's event form, typing five characters evaluated 2,420 bindings for no
+  change; with the three copies the warnings point at, 35
   ([docs/diagnostics.md](docs/diagnostics.md#sn548-untraceable-writes)).
 - Dev builds check that every write marked what it changed: when part of the state changed and no path marked since
   reaches it (a custom element or a library changed an object of the page it was handed, or sinter missed an alias),
@@ -77,6 +92,20 @@ How to write an entry (from 0.21.0 on; older sections keep their own form):
 
 ### Fixed
 
+- A checkbox group (`<input type="checkbox" value="…" data-sn-model="tags">` over an array) gives its field a new
+  array at each tick, as `tags = [...tags, v]` in a handler would. It changed the array in place and marked only the
+  field, so state that held the same array under another name (`al = tags`, `form = { tags }`) had the new values
+  while the page went on showing the old ones there until something else rendered it (dev builds: warning 36), and a
+  tick on a frozen array (a `memo()` result assigned to the field) threw. State that holds the old array now keeps
+  it: bind the model to the field you read (`data-sn-model="form.tags"`) rather than to a second name for its array
+  ([docs/spec.md](docs/spec.md#data-sn-model-by-control)).
+- A row binding that compares the row with a value outside it (`data-sn-class="{ on: row.id === selected }"`,
+  `selected: month === i + 1` on a `<select>`'s options) kept its old value when only the outside value changed, on a
+  page where a closed `<dialog>` has bindings waiting: the selected row or option stayed where it was until the list
+  itself changed. It follows the value again. Nothing to do.
+- A `<dialog popover>` opened as a popover (`showPopover()`, a `popovertarget` button) renders its bindings: a dialog
+  shown that way has no `open` attribute, so sinter took it as closed and its content, which waits while a dialog is
+  closed, never rendered. Opened with `showModal()` or `show()` it worked, and still does. Nothing to do.
 - `SN209` no longer reports a component with an `id` in its markup whose uses are in different branches of one if chain (`data-sn-if`, `data-sn-else`), or in a list's empty state beside its rows: those uses are never on the page together. The message counts the copies of the id the page can show at once ([docs/components.md](docs/components.md#ids)).
 - A component's `:scope` (and `&`) matches its root only. It also matched each top element of the slot content the component passes into another component's slots (marked `data-sn-s="<name>"`), so `:scope { display: contents }` took their boxes, and `:scope > x` reached their children. That content still gets the component's other rules (`.x`, `p`), as before. The compiled selector is `:scope:where([data-sn-c="<name>"])`, with the same specificity. A rule that styled that slot content through `:scope` names it by its class instead ([docs/components.md](docs/components.md#styles)).
 - `SN530` no longer reports an image whose height is a percentage of a box with a fixed height when an `@supports` rule may change that box's `display` and every display it may take gives the percentage the same basis (such as `inline-grid` or `inline-block`); the image counts as sized, as it did without the `@supports` rule. See [SN530](docs/diagnostics.md#sn530-unsized-late-image).

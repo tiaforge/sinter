@@ -9,7 +9,7 @@ import type { App, Feature, ModelInner } from './runtime/app.js';
 const feature: Feature = {
   name: 'models',
   install(app: App) {
-    app.ext.models = ({ evaluate, deferred }: ModelInner) => {
+    app.ext.models = ({ evaluate, deferred, waits }: ModelInner) => {
       /** each bound select, with the model's value its sync last wrote, its options then and which were selected */
       const selects = new Map<any, { v: string; all: HTMLOptionElement[]; on: boolean[] } | null>();
       const write = (rb: any, v: any) => {
@@ -32,16 +32,17 @@ const feature: Feature = {
           if (k != 'checkbox') return el.value;
           const cur = evaluate(rb);
           if (!Array.isArray(cur)) return el.checked;
+          // a group: the field gets a new array with or without this value, as the model's write says (an assignment
+          // of the field, which is all the compiler marks). Changed in place, what holds the same array under another
+          // name (`al = picked`) kept showing what it had: no mark reached it
           const i = cur.map(String).indexOf(el.value);
-          if (el.checked && i < 0) cur.push(el.value);
-          if (!el.checked && i >= 0) cur.splice(i, 1);
-          return cur;
+          return el.checked == i >= 0 ? cur : el.checked ? [...cur, el.value] : cur.filter((_, j) => j != i);
         },
         bound(rb) { if (rb.el.localName == 'select') selects.set(rb, null); },
         forget(rb) { selects.delete(rb); },
         sync() {
           for (const [rb, last] of selects) {
-            if (rb.c && rb.el.closest('dialog:not([open])')) { deferred.add(rb); continue; }
+            if (rb.c && waits(rb.el)) { deferred.add(rb); continue; }
             const el = rb.el as HTMLSelectElement, v = evaluate(rb), all = [...el.options];
             const key = JSON.stringify(Array.isArray(v) ? v.map(String) : '' + (v ?? ''));
             // the model and the options as sync left them, the selection not: the user's pick, whose `input`

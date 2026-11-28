@@ -1,5 +1,6 @@
 // SN548 (`sinter({ explainWrites: true })`): each alias whose value the compiler cannot follow, where it was made, what
-// it holds and the handlers whose writes it makes everything. It reports; it changes nothing that is marked.
+// it holds and the handlers whose writes it makes everything; and each helper call whose result, held in state, adds other
+// state to the writes of the handlers inside it. It reports; it changes nothing that is marked.
 import { describe, expect, test } from 'vitest';
 import { compileParts } from '../../src/compiler/index.js';
 import { strictPromotes } from '../../src/compiler/diagnostics.js';
@@ -76,5 +77,46 @@ describe('SN548 names what blocked the proof', () => {
     expect(run(PAGE.replace(/<x-hold[^>]*><\/x-hold>/, ''), files, { unknown: null, risky: new Map([['pick', '`pick` is made with a detail the build cannot follow (src/lib/pick.ts:3:1)']]) }).join('\n'))
       .toContain('`$event` of `pick` may be any object: `pick` is made with a detail the build cannot follow (src/lib/pick.ts:3:1)');
     expect(run(PAGE.replace(/<x-hold[^>]*><\/x-hold>/, ''), files).join('\n')).toContain('`ys.reduce((a, y) => y, null)` is the result of `reduce()`');
+  });
+});
+
+describe('SN548 for a helper\'s result', () => {
+  const DRAFT = (store: string) => `<main data-sn-state="{ ys: [{ n: 1 }], k: { v: 0 }, draft: null }"><b data-sn-text="ys[0].n + k.v + (draft ? draft.n : 0)"></b>
+  <button data-sn-on-click="${store}"></button>
+  <button data-sn-on-click="draft.n = 5"></button>
+  <input data-sn-model="draft.t"></main>`;
+
+  test('names the state, the call and its place once, with the handlers it adds to and the fields they also mark', () => {
+    const ds = sn548(DRAFT('draft = pick(ys, k)'));
+    expect(ds).toHaveLength(1);
+    const d = ds[0]!;
+    expect(d).toMatchObject({ severity: 'warning', file: '/p/index.html', line: 2 });
+    expect(d.message).toContain('`draft` comes from `pick(ys, k)`, whose result may hold objects found in its arguments');
+    expect(d.message).toContain('so the writes of 2 handlers inside it also mark 2 fields they do not write (`k`, `ys`), and what reads them renders again: `data-sn-on-click` (index.html:3), `data-sn-model` (index.html:4).');
+    expect(d.message).toContain('It was made by `draft = pick(ys, k)`');
+    expect(d.hint).toContain('structuredClone');
+  });
+
+  test('changes no write list, and is off by default', () => {
+    expect(writes(compile(DRAFT('draft = pick(ys, k)'), true))).toEqual(writes(compile(DRAFT('draft = pick(ys, k)'))));
+    expect(compile(DRAFT('draft = pick(ys, k)')).diagnostics.filter((d) => d.code === 'SN548')).toEqual([]);
+  });
+
+  test('a copy of the result, a helper given what is surely a primitive, and a result that adds no other field have none', () => {
+    expect(sn548(DRAFT('draft = structuredClone(pick(ys, k))'))).toEqual([]);
+    expect(sn548(DRAFT('draft = pick(String(ys.length), Number(k.v))'))).toEqual([]);
+    // what the helper was given is the state itself: its writes mark nothing else
+    expect(sn548(DRAFT('draft = pick(draft)'))).toEqual([]);
+  });
+
+  test('through an event\'s detail: at the `emit()`, for the handlers inside the state that takes it', () => {
+    const ds = compileParts(`<main data-sn-state="{ ys: [{ n: 1 }], draft: null }" data-sn-on-new="draft = $event.detail"><b data-sn-text="ys[0].n + (draft ? draft.n : 0)"></b>
+  <button data-sn-on-click="emit('new', pick(ys))"></button>
+  <button data-sn-on-click="draft.n = 5"></button></main>`, { file: '/p/index.html', root: '/p', dev: false, helpers, explainWrites: true, eventSenders: () => ({ unknown: null, risky: new Map<string, string>() }), readFile: () => { throw new Error('none'); } })
+      .diagnostics.filter((d) => d.code === 'SN548');
+    expect(ds).toHaveLength(1);
+    expect(ds[0]).toMatchObject({ line: 2 });
+    expect(ds[0]!.message).toContain('the detail of `new` comes from `pick(ys)`, whose result may hold objects found in its arguments, so the writes of a handler inside the state that takes it also mark a field it does not write (`ys`), and what reads it renders again: `data-sn-on-click` (index.html:3).');
+    expect(ds[0]!.hint).toContain('or of `$event.detail` where the state takes it');
   });
 });
