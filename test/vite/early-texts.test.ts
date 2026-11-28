@@ -214,10 +214,6 @@ describe.skipIf(!chromium)('in Chromium, on the built site', () => {
       await live.waitForFunction(() => !!document.getElementById('late')?.textContent);
       const later = await live.evaluate(() => document.getElementById('late')!.textContent);
       expect(early).toBe(later);
-      // the entries only the dictionary file has (on count/ and refs/ the head script started the messages module first)
-      await live.click('#fill');
-      await live.waitForFunction(() => !!document.getElementById('all')?.textContent);
-      expect((await live.evaluate(() => document.getElementById('all')!.textContent))!.split('|').every((t) => /^Text (number|Nummer) \d+ /.test(t))).toBe(true);
       expect(early).toContain(path.startsWith('en') ? 'Hello Ada!' : 'Hallo Ada!');
       expect(early).toContain('</script>');
       expect(early).toContain(' ');
@@ -225,6 +221,10 @@ describe.skipIf(!chromium)('in Chromium, on the built site', () => {
       if (path.includes('count')) expect(early).toContain(path.startsWith('en') ? '1 thing' : '1 Ding');
       if (path.includes('refs')) expect(early).toContain(path.startsWith('en') ? 'function Referenced 0' : 'function Verwiesen 0');
       expect(await live.evaluate(() => document.getElementById('e')!.textContent)).toBe(early);
+      // the entries only the dictionary file has (on count/ and refs/ the head script started the messages module first)
+      await live.click('#fill');
+      await live.waitForFunction(() => !!document.getElementById('all')?.textContent);
+      expect((await live.evaluate(() => document.getElementById('all')!.textContent))!.split('|').every((t) => /^Text (number|Nummer) \d+ /.test(t))).toBe(true);
       expect(errors).toEqual([]);
       await context.close();
     }, 60_000);
