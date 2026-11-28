@@ -92,6 +92,9 @@ How to write an entry (from 0.21.0 on; older sections keep their own form):
 
 ### Fixed
 
+- A helper that returns `undefined` at build time for a state field the browser still reads no longer fails the
+  compile (`Cannot read properties of undefined (reading 'replace')`, while writing the value as embedded data): JSON
+  has no `undefined`, so the field is not embedded and the browser computes it, as any value the build cannot embed.
 - A `data-sn-if` over `$build` and state that a handler, a model or an action writes is no longer decided from the
   state's initial value: `!$build && open` was decided false at build and its branch never shipped, so setting `open`
   showed nothing; `$build && open` with `open: true` was written into the page for good. `$build` is true only where

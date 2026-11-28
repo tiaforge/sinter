@@ -9723,7 +9723,8 @@ class Compiler {
     for (const f of this.foldedFields) {
       const st = this.stateInits.find((x) => x.sid === f.sid), x = st?.fields.find((y) => y.key === f.key);
       const node = [...this.roots, ...this.templates.flatMap((t) => t.nodes)].find((n) => n.sid === f.sid && n.state !== undefined);
-      if (!x || !node || !x.code.startsWith('($) => (')) continue;
+      // (`undefined` has no JSON: the field stays the browser's to compute, as any value the build cannot embed)
+      if (!x || !node || !x.code.startsWith('($) => (') || f.value === undefined) continue;
       const body = x.code.slice('($) => ('.length, -1), init = this.fns[node.state!]!;
       // the field's expression, once in the state's initializer: replaced by the read of its value
       if (init.split(body).length !== 2) continue;

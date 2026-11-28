@@ -137,6 +137,22 @@ describe('a folded value the browser still reads is written once, as embedded da
     expect(out.early ?? '').not.toContain('titled');
   });
 
+  test('a helper that returns `undefined` for a field the browser still reads: not embedded (JSON has no such value), the browser calls it', async () => {
+    const html = `<!doctype html><html><head></head><body><main data-sn-state="{ open: false, title: pick('x') }">
+      <button id="t" data-sn-on-click="open = !open"></button><h1 data-sn-text="open ? String(title) : '…'"></h1></main></body></html>`;
+    const pick = (s: string): string | undefined => (s === 'y' ? s : undefined);
+    for (const dev of [true, false]) {
+      const out = build(html, { pick: [pick, yes] }, { early: { module: null }, dev });
+      expect(errors(out)).toEqual([]);
+      expect(out.html).not.toMatch(/<script type="application\/json" data-sn="\d+">/);
+      expect(out.module).toContain('pick');
+    }
+    const r = await render(html, { helpers: { pick } });
+    r.root.querySelector<HTMLElement>('#t')!.click();
+    await r.flush();
+    expect(r.root.querySelector('h1')!.textContent).toBe('undefined');
+  });
+
   test('a value the early file reads stays in the head; one only the page module reads is at the end of the body', async () => {
     // `title` shows when the stored `open` is true (the early file names it); `sub` only after a click
     const html = `<!doctype html><html><head></head><body><main data-sn-state="{ open: false, last: '', title: titled('hello world'), sub: titled('later on') }">
