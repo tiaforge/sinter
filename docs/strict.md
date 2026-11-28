@@ -82,4 +82,6 @@ expect(r.warnings().map((w) => w.message)).toContain('sinter: duplicate key in `
 ```
 
 `warnings()` lists the runtime's warnings and errors since `render()`, in or out of strict mode:
-`{ code, message, error, environment }`.
+`{ code, message, error, environment }`. A warning that depends on the environment (the HTTP version of a stream,
+a font's loading, the machine's speed for warning 38, a helper called again and again with the same arguments) is
+listed with `environment: true` and never fails a strict test.

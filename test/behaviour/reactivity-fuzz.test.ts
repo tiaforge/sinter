@@ -7,7 +7,7 @@
 // prop setter fires an event in the middle of a flush, `<sn-sync>` upserts, refetches and a dropped stream, an
 // optimistic action, actions whose then and catch read lets, a component's own let and a persisted scope, a plain
 // object of primitives changed in place and replaced by an equal copy, the locale, with reads of lets stored into
-// state between all of them; the buttons are clicked in a random order, with and without a flush between. Four
+// state between all of them; the buttons are clicked in a random order, with and without a flush between. Five
 // oracles:
 // - memo(): the same page with every helper wrapped in memo() gives the same page, state and stored reads, by
 //   structure (a memoized result is a frozen copy);
@@ -15,7 +15,20 @@
 //   marks too little shows here, lets or not);
 // - the dev module's write check (warning 36): every concrete path of the state that a step changed is reached by a
 //   path it marked, whether a binding shows it or not;
-// - the first paint: on a third of the seeds the memoized page is the early script's first paint taken over.
+// - the first paint: on a third of the seeds the memoized page is the early script's first paint taken over;
+// - the computed lists' rows: what they show is what the test computes from the state itself (`listsWant`). The rows
+//   of a computed list read their item without a dependency, so only the list's evaluation renders them again: a
+//   runtime that keeps such a row as it is leaves it stale, and marking the scope whole (the second oracle) goes
+//   through the same evaluation, so it can miss what this one sees.
+// Computed lists (rows that render again when their list is evaluated again, `TemplateDef.dv`): a filter over state objects
+// that reads a scalar, a helper that returns its argument itself or a part of it, a helper that returns new group
+// objects holding the same items with inner rows that read the group and the item, and a list of state fields
+// (`col in [picked, other]`), one of them the model of a checkbox group; written by a scalar the list reads (alone, so
+// that nothing of the flush is inside a value the list reads), an item in place (through the list, an alias, an inner
+// row's own handler), both in one handler, the fields' arrays in place and replaced, and the group's ticks (each
+// assigns its field a new array: while it changed the array in place, the write check failed 51 of 150 seeds). One
+// shape is not among them, and rendering.test.ts has it by hand: a helper that hands back an object it returned before
+// with other contents (helpers are pure, docs/expressions.md).
 // Writes through aliases (`sel = y; sel.n += 10`; docs/spec.md, Aliases): direct, inside another object, in another
 // list, a helper's element, one from reduce() the compiler cannot follow, and writes through the list they alias; and
 // aliases made through a let, a loop variable over a computed list, a callback's parameter and a component event's detail.
@@ -54,6 +67,10 @@ const HELPERS = {
   at: (xs: unknown[], i: number) => xs[i],
   // a list of objects: memo() calls through, every time
   big: (ys: Array<{ n: number }>) => ys.filter((y) => y.n > 1).length,
+  // computed lists (lists of objects: memo() calls through): new group objects that hold the same items, their label
+  // from a scalar; and the list itself, or a part of it
+  groups: (ys: Array<{ n: number }>, lo: number) => [{ k: 'odd', label: 'o' + lo, items: ys.filter((y) => y.n % 2) }, { k: 'even', label: 'e' + lo, items: ys.filter((y) => !(y.n % 2)) }].filter((g) => g.items.length),
+  over: (ys: Array<{ n: number }>, lo: number) => (lo ? ys.filter((y) => y.n > lo) : ys),
   // the locale is an argument, as a memoized function's must be
   tr: { word: (n: number, l: string) => (l === 'de' ? 'zwei' : 'two') + n },
 };
@@ -126,6 +143,17 @@ const ALIAS = ['sel && (sel.n = sel.n + 10)', 'box && (box.it.n = box.it.n + 3)'
   "$el.parentElement.querySelector('.sf')?.click()", "$el.parentElement.querySelector('.sfw')?.click()",
   "$el.parentElement.querySelector('.sk')?.click()", "$el.parentElement.querySelector('.skw')?.click()"];
 
+/**
+ * What the computed lists' own handler does: the scalar their expressions read, an item in place (through the list, an
+ * alias), both in one handler, and the arrays that are the items of `col in [picked, other]`, in place and replaced
+ */
+const LIST_OPS = ['lo = lo + 1', 'lo = 0', 'lo = lo ? 0 : 2',
+  'ys.length && (ys[0].n = ys[0].n + 1)', 'ys.forEach((y) => (y.n = y.n + 1))', 'ys.length > 1 && (ys[ys.length - 1].n = ys[ys.length - 1].n + 3)',
+  'sel = ys.length ? ys[0] : null; sel && (sel.n = sel.n + 3)', 'sel && (sel.n = sel.n + 1)',
+  'sel && (sel.n = sel.n + 1); lo = lo + 1', 'lo = lo ? 0 : 1; ys.length && (ys[ys.length - 1].n = ys[ys.length - 1].n + 2)', 'lo = lo + 1; ys = [...ys].reverse()',
+  "other.push('y' + other.length)", 'other = other.slice(1)', "picked = [...picked, 'd']", 'picked.length > 1 && picked.pop()', "picked = picked.filter((p) => p != 'd')",
+  "other.push('z'); lo = lo + 1"];
+
 const ISLAND = 'x-pinger';
 if (!customElements.get(ISLAND)) {
   customElements.define(ISLAND, class extends HTMLElement {
@@ -172,7 +200,11 @@ function page(r: () => number) {
   const rowOps: string[] = [];
   for (let i = 0, n = 2 + Math.floor(r() * (2 * DEPTH + 1)); i < n; i++) rowOps.push(r() < 0.45 ? `r${reads++} = ${pick(ROW_READS)}` : pick(ROW_OPS));
   const rowHandler = rowOps.join('; ');
-  const state = `{ a: 1, xs: [1, 2], o: { items: [1] }, ks: [{ id: 1, n: 1 }, { id: 2, n: 2 }, { id: 3, n: 3 }], go: 0, pk: null, th: null, ct: null, q: { w: 2, h: 3 }, ys: [{ n: 1 }, { n: 2 }, { n: 3 }], gs: ['a', 'b', 'a'], sel: null, box: null, arr: [], h: null, u: null, k2: 0, cw: null, cp: null, ${Array.from({ length: reads }, (_, i) => `r${i}: null`).join(', ')} }`;
+  // the computed lists' handler (drawn last: the handlers above are what they were before it existed)
+  const listOps: string[] = [];
+  for (let i = 0, n = 1 + Math.floor(r() * (2 * DEPTH + 2)); i < n; i++) listOps.push(pick(LIST_OPS));
+  const listHandler = listOps.join('; ');
+  const state = `{ a: 1, xs: [1, 2], o: { items: [1] }, ks: [{ id: 1, n: 1 }, { id: 2, n: 2 }, { id: 3, n: 3 }], go: 0, pk: null, th: null, ct: null, q: { w: 2, h: 3 }, ys: [{ n: 1 }, { n: 2 }, { n: 3 }], gs: ['a', 'b', 'a'], sel: null, box: null, arr: [], h: null, u: null, k2: 0, cw: null, cp: null, lo: 0, picked: ['a'], other: ['x'], ${Array.from({ length: reads }, (_, i) => `r${i}: null`).join(', ')} }`;
   const html = `<sn-resource name="todos" src="/api/todos" key="id"></sn-resource>
 <sn-resource name="pg" src="/api/pg" select="items" total="total" key="id" paginate="{ numbered: true, size: 2 }"></sn-resource>
 <sn-resource name="ev" for="t in todos" src="/api/ev?id={t.id}" key="id"></sn-resource>
@@ -199,9 +231,16 @@ function page(r: () => number) {
   <c-e data-sn-with="{ ys }" data-sn-on-pick="sel = $event.detail"></c-e>
   <c-sf data-sn-with="{ item: ys.length ? ys[0] : null }"></c-sf><c-sk data-sn-with="{ item: ys.length ? ys[0] : null }"></c-sk>
   <template data-sn-for="t in todos" data-sn-key="t.id"><button class="opt" data-sn-patch="/api/t" data-sn-body="{ id: t.id }" data-sn-optimistic="merge(t, { n: 50 })"></button></template>
+  <ol><template data-sn-for="z in ys.filter((y) => y.n > lo)"><li class="cf" data-sn-text="z.n + ':' + lo"></li></template></ol>
+  <ol><template data-sn-for="(z, i) in over(ys, lo)"><li class="co" data-sn-text="i + ':' + z.n"></li></template></ol>
+  <template data-sn-for="g in groups(ys, lo)" data-sn-key="g.k"><div class="grp"><b class="gh" data-sn-text="g.k + '/' + g.label + '/' + g.items.length"></b><template data-sn-for="z in g.items"><i class="gi" data-sn-text="g.label + ':' + z.n"></i><button class="gzb" data-sn-on-click="u = z; u.n = u.n + 1"></button></template></div></template>
+  <ol><template data-sn-for="col in [picked, other]"><li class="col" data-sn-text="col.join(',')"></li></template></ol>
+  <input type="checkbox" class="cb" value="b" data-sn-model="picked"><input type="checkbox" class="cb" value="c" data-sn-model="picked">
   ${handlers.map((h, i) => `<button id="h${i}" data-sn-on-click="${h}"></button>`).join('\n  ')}
+  <button id="h4" data-sn-on-click="${listHandler}"></button>
+  <button id="lo" data-sn-on-click="lo = (lo + 1) % 4"></button>
 </main>`;
-  return { html, handlers: [...handlers, rowHandler] };
+  return { html, handlers: [...handlers, rowHandler, listHandler] };
 }
 /** the components; `c-l` has a let of its own over a helper */
 const COMPONENTS = {
@@ -230,11 +269,28 @@ function memoryStorage(): Storage {
   return { get length() { return m.size; }, clear: () => m.clear(), getItem: (k) => m.get(k) ?? null, key: (i) => [...m.keys()][i] ?? null, removeItem: (k) => { m.delete(k); }, setItem: (k, v) => { m.set(k, String(v)); } };
 }
 
+/** what the computed lists' rows show */
+function listsShown(main: Element) {
+  const text = (sel: string, by = ',') => [...main.querySelectorAll(sel)].map((x) => x.textContent).join(by);
+  return [text('li.cf'), text('li.co'), text('b.gh'), text('i.gi'), text('li.col', '|')].join(' | ');
+}
+/** what they must show: the same expressions over the state, computed here */
+function listsWant(s: { ys: Array<{ n: number }>; lo: number; picked: string[]; other: string[] }) {
+  const gs = HELPERS.groups(s.ys, s.lo);
+  return [
+    s.ys.filter((y) => y.n > s.lo).map((z) => z.n + ':' + s.lo).join(','),
+    HELPERS.over(s.ys, s.lo).map((z, i) => i + ':' + z.n).join(','),
+    gs.map((g) => g.k + '/' + g.label + '/' + g.items.length).join(','),
+    gs.flatMap((g) => g.items.map((z) => g.label + ':' + z.n)).join(','),
+    [s.picked, s.other].map((col) => col.join(',')).join('|'),
+  ].join(' | ');
+}
+
 /** what the user sees, the state the handlers stored, and what was persisted */
 function seen(v: Awaited<ReturnType<typeof render>>, storage: Storage) {
   const main = v.root.querySelector('main')!, sec = main.querySelector('section')!;
   const text = (sel: string) => [...main.querySelectorAll(sel)].map((x) => x.textContent).join(',');
-  return `${text('i.sfc')} ${text('i.skc')} | ${text('p.v')} | ${text('p.f')} | ${text('p.al')} | ${text('ul li')} | ${text('li.y span')} | ${text('li.g span')} | ${text('li.k')} | ${text('b.cv')} | ${text('b.cl')} | ${text('b.ps')} | ${JSON.stringify(v.state(main).get())} | ${JSON.stringify(v.state(sec).get())} | ${storage.getItem('sn:fz')}`;
+  return `${listsShown(main)} || ${text('i.sfc')} ${text('i.skc')} | ${text('p.v')} | ${text('p.f')} | ${text('p.al')} | ${text('ul li')} | ${text('li.y span')} | ${text('li.g span')} | ${text('li.k')} | ${text('b.cv')} | ${text('b.cl')} | ${text('b.ps')} | ${JSON.stringify(v.state(main).get())} | ${JSON.stringify(v.state(sec).get())} | ${storage.getItem('sn:fz')}`;
 }
 
 const SEEDS = Number(process.env.SN_FUZZ_SEEDS ?? 150);
@@ -253,6 +309,12 @@ test('random handlers: the page with memoized helpers agrees with the plain one,
       // b: a handler (0-2), the optimistic action (3), the action that succeeds (4) or fails (5), the persisted scope's (6),
       // a row's own handler (7, the row `row`), a row of strings' own (9, the row `row`); msg: an upsert (0-2), a refetch (3), the stream dropped and reconnected (4)
       const steps = Array.from({ length: 3 + Math.floor(sr() * (3 * DEPTH + 1)) }, () => ({ b: Math.floor(sr() * 10), row: Math.floor(sr() * 3), flush: sr() < 0.6, msg: sr() < 0.3 ? Math.floor(sr() * 5) : -1 }));
+      // the computed lists' part of the script, from a generator of its own (the steps above are what they were before it
+      // existed): with a step, before or after its click, the lists' handler (0-2), the scalar alone (3, 4: nothing of the
+      // step is inside a value the lists read, unless the step's own handler writes there), an inner row's own handler
+      // (5, the row `row`) or a checkbox of the group (6, 7)
+      const cr = rng(seed * 104729 + 13);
+      const extra = steps.map(() => ({ x: cr() < 0.6 ? Math.floor(cr() * 8) : -1, row: Math.floor(cr() * 3), first: cr() < 0.5 }));
       const early = seed % 3 === 0;
       const stale: string[] = [];
       const run = async (memoized: boolean) => {
@@ -272,6 +334,9 @@ test('random handlers: the page with memoized helpers agrees with the plain one,
         let checked = 0;
         const fresh = async () => {
           // the second truth: the dev module found no change that no mark reached (warning 36)
+          // the computed lists' rows against the state itself
+          const shown = listsShown(main), want = listsWant(v.state(main).get() as Parameters<typeof listsWant>[0]);
+          if (shown !== want) stale.push(`${memoized ? 'memoized' : 'plain'} page, after step ${out.length - 1}: a computed list's rows are not what the state gives\n    shown ${shown}\n    state ${want}`);
           const missed = v.warnings().filter((w) => w.code == 36);
           if (missed.length > checked) { stale.push(`${memoized ? 'memoized' : 'plain'} page, after step ${out.length - 1}: ${missed[checked]!.message}`); checked = missed.length; }
           const was = seen(v, blank);
@@ -280,12 +345,21 @@ test('random handlers: the page with memoized helpers agrees with the plain one,
           const now = seen(v, blank);
           if (now !== was) stale.push(`${memoized ? 'memoized' : 'plain'} page, after step ${out.length - 1}: a binding missed a change\n    shown ${was}\n    fresh ${now}`);
         };
-        for (const s of steps) {
+        const more = (e: { x: number; row: number }) => {
+          if (e.x === 3 || e.x === 4) main.querySelector<HTMLElement>('#lo')?.click();
+          else if (e.x === 5) main.querySelectorAll<HTMLElement>('.gzb')[e.row]?.click();
+          else if (e.x === 6 || e.x === 7) main.querySelectorAll<HTMLElement>('.cb')[e.x - 6]?.click();
+          else if (e.x >= 0) main.querySelector<HTMLElement>('#h4')?.click();
+        };
+        for (const [k, s] of steps.entries()) {
+          const e = extra[k]!;
+          if (e.first) more(e);
           if (s.msg === 4) { stream.drop(); await v.settle(); }
           else if (s.msg >= 0 && stream.connected) s.msg === 3 ? stream.emit('re', null) : stream.emit('upd', { id: 1 + s.msg, n: 10 * (s.msg + 1) });
           if (s.b === 7) main.querySelectorAll<HTMLElement>('.yb')[s.row]?.click();
           else if (s.b === 9) main.querySelectorAll<HTMLElement>('.gb')[s.row]?.click();
           else main.querySelector<HTMLElement>(['#h0', '#h1', '#h2', '.opt', '#ok', '#bad', '#pp', '', '#h3', '#h3'][s.b]!)?.click();
+          if (!e.first) more(e);
           if (s.flush) { await v.settle(); out.push(seen(v, storage)); await fresh(); }
         }
         await v.settle();
@@ -296,8 +370,8 @@ test('random handlers: the page with memoized helpers agrees with the plain one,
       try {
         const got = await run(true), want = await run(false);
         const at = got.out.findIndex((x, i) => x !== want.out[i]);
-        if (at >= 0) failures.push(`seed ${seed} depth ${DEPTH}${early ? ' (early takeover)' : ''}: step ${at} of ${JSON.stringify(steps)}\n  handlers ${JSON.stringify(got.handlers)}\n  memoized ${got.out[at]}\n  plain    ${want.out[at]}`);
-        if (stale.length) failures.push(`seed ${seed} depth ${DEPTH}${early ? ' (early takeover)' : ''} of ${JSON.stringify(steps)}\n  handlers ${JSON.stringify(got.handlers)}\n  ${stale[0]}`);
+        if (at >= 0) failures.push(`seed ${seed} depth ${DEPTH}${early ? ' (early takeover)' : ''}: step ${at} of ${JSON.stringify(steps)} with ${JSON.stringify(extra)}\n  handlers ${JSON.stringify(got.handlers)}\n  memoized ${got.out[at]}\n  plain    ${want.out[at]}`);
+        if (stale.length) failures.push(`seed ${seed} depth ${DEPTH}${early ? ' (early takeover)' : ''} of ${JSON.stringify(steps)} with ${JSON.stringify(extra)}\n  handlers ${JSON.stringify(got.handlers)}\n  ${stale[0]}`);
       } catch (e) {
         failures.push(`seed ${seed}: ${(e as Error).message.split('\n').slice(0, 3).join(' ')}`);
       }

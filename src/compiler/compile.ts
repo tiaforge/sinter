@@ -22,7 +22,7 @@ import * as parse5 from 'parse5';
 import { freeRefs, parseExpression, parseProgram } from './parse.js';
 import type { DefaultTreeAdapterMap } from 'parse5';
 import { type Code, type Diagnostic, didYouMean, distance, severityOf, suggest } from './diagnostics.js';
-import { type AliasSite, analyze, applyEdits, elementPieces, foldsInto, nsLocal, refNames, STORE_FNS, throughField, wild, type SlotScope, type ComponentScope, type ExprOptions, type ExprResult, type LetEntry, type LoopEntry, type PageInfo, type Read, type ResourceInfo, type Scope } from './expr.js';
+import { type AliasSite, aliasNote, analyze, applyEdits, HELPER_MARK, elementPieces, foldsInto, nsLocal, refNames, STORE_FNS, throughField, wild, type SlotScope, type ComponentScope, type ExprOptions, type ExprResult, type LetEntry, type LoopEntry, type PageInfo, type Read, type ResourceInfo, type Scope } from './expr.js';
 import { callerAttribute, COMPONENT_NAME, componentPaths, DOM_EVENTS, inlineScriptLang, inlineScriptPath, inlineScripts, type InlineScript, isArrayType, LIBRARY_LAYER, rootCss, scopeCss, SLOT_TYPE, typeMembers, withoutSlots, type Member } from './components.js';
 import type { Node } from 'acorn';
 import type * as acorn from 'acorn';
@@ -2648,7 +2648,8 @@ class Compiler {
     // and in an app that sets no locale itself, the locale of `$locale` and the formatters (`pageLocale`)
     { const h = doc.childNodes.find((n): n is P5Element => isElement(n) && n.tagName === 'html'); this.pageLang = (h && attr(h, 'lang')) || undefined; this.htmlLocale = h && !this.tagBindsLang ? literalLang(h) : undefined; }
     this.checkHead();
-    const twice = this.componentIds();
+    const co = this.coexistingIds(doc);
+    const twice = this.componentIds(co);
     for (const { el, why } of this.repeatedIds) {
       const site = this.siteKey(el);
       if (site && twice.has(site)) continue;
@@ -2656,6 +2657,7 @@ class Compiler {
       this.report(el, 'id', 'SN532', `\`id="${attr(el, 'id')}"\` is in markup that renders more than once (${why}): the page would have that id more than once`, 0,
         `compute it from the row: \`data-sn-attr="{ id: '${attr(el, 'id')}-' + item.id }"\`, or move the element out of the repeated markup`);
     }
+    this.duplicateIds(co, twice);
     // the second pass: bindings the first found constant for good, written before the layout and the images read the markup
     if (this.opts.constants?.size) this.prefold(doc);
     const sheets = this.opts.styles ?? this.opts.images?.styles;
@@ -3050,6 +3052,7 @@ class Compiler {
     this.fileJson(early);
     // builds: the last pass over the tables, after every pass that leaves a template or a function unused
     if (!this.opts.dev) this.compactTables(ir, early);
+    else this.repeatCalls();
     return {
       ...(this.jsonOut.size ? { json: this.jsonOut } : {}),
       ...(this.lateDiags.length ? { lateDiagnostics: this.lateDiags } : {}),
@@ -4451,7 +4454,7 @@ class Compiler {
         } else {
           el.attrs.push({ name: a.name, value: a.value });
           // the caller's, on this use only: not an id of the component's markup (`componentIds`)
-          if (a.name === 'id') this.tagIds.add(el);
+          if (a.name === 'id') this.tagIds.set(el, host);
         }
       }
     }
@@ -5239,14 +5242,83 @@ class Compiler {
     return (u.shape ? landingOf(u.shape) : [u.root]).filter((e) => !this.slotOf.has(e) || this.useOf.get(e) === u);
   }
 
-  /** elements whose `id` a component's tag gave them (its use's own) */
-  private readonly tagIds = new WeakSet<P5Element>();
+  /** elements whose `id` a component's tag gave them (its use's own), and that tag */
+  private readonly tagIds = new WeakMap<P5Element, P5Element>();
+
+  /** where an element's `id` was written: on the component tag that gave it (the outermost, when one passed it on), or on the element */
+  private idSite(el: P5Element): P5Element {
+    for (let t = this.tagIds.get(el); t; t = this.tagIds.get(t)) el = t;
+    return el;
+  }
 
   /** literal ids in repeated markup, reported after `componentIds` (which may report the same element as SN209) */
   private readonly repeatedIds: Array<{ el: P5Element; why: string }> = [];
 
+  /**
+   * The literal ids of the expanded page, each with the elements that can have it at the same time: the branches of
+   * an if chain, a choice's candidates and a list's empty state beside its rows are alternatives (the most any one
+   * of them has), everything else adds up. A `data-sn-for` row counts once (its rows are SN532's). A `<template>`
+   * that is not sinter's is not looked into.
+   */
+  coexistingIds(n: P5Parent): Map<string, P5Element[]> {
+    const out = new Map<string, P5Element[]>();
+    const add = (to: Map<string, P5Element[]>, from: Map<string, P5Element[]>) => { for (const [k, v] of from) to.set(k, [...(to.get(k) ?? []), ...v]); };
+    const most = (alts: Array<Map<string, P5Element[]>>) => {
+      const m = new Map<string, P5Element[]>();
+      for (const a of alts) for (const [k, v] of a) if (v.length > (m.get(k)?.length ?? 0)) m.set(k, v);
+      return m;
+    };
+    const one = (el: P5Element) => {
+      const m = new Map<string, P5Element[]>();
+      const id = attr(el, 'id');
+      if (id !== undefined && id !== '') m.set(id, [el]);
+      add(m, this.coexistingIds(el));
+      if (el.tagName === 'template' && el.attrs.some((a) => a.name.startsWith('data-sn-'))) add(m, this.coexistingIds((el as P5Template).content));
+      return m;
+    };
+    const els = n.childNodes.filter(isElement);
+    const isElse = (e: P5Element | undefined) => !!e && e.tagName === 'template' && attr(e, 'data-sn-else') !== undefined;
+    for (let i = 0; i < els.length; i++) {
+      const el = els[i]!;
+      const group = this.choices.get(el)?.group;
+      const alts = [one(el)];
+      // a choice's candidates (the clones of one `<sn-component use>`), then its else
+      if (group) while (i + 1 < els.length && this.choices.get(els[i + 1]!)?.group === group) alts.push(one(els[++i]!));
+      // an if's else-ifs and else, a list's empty state, a choice's else
+      if (group || (el.tagName === 'template' && (attr(el, 'data-sn-if') !== undefined || attr(el, 'data-sn-for') !== undefined))) {
+        while (isElse(els[i + 1])) {
+          alts.push(one(els[++i]!));
+          if (attr(els[i]!, 'data-sn-if') === undefined) break;
+        }
+      }
+      add(out, alts.length > 1 ? most(alts) : alts[0]!);
+    }
+    return out;
+  }
+
+  /**
+   * A literal `id` on more than one element the page can show at once (SN209): from two places in the markup (two
+   * components, a component and the page, two fills). One place rendered more than once is `componentIds`' or SN532's.
+   */
+  duplicateIds(co: Map<string, P5Element[]>, reported: Set<string>) {
+    const repeated = new Set(this.repeatedIds.map(({ el }) => this.siteKey(el)));
+    const where = (e: P5Element) => {
+      const line = e.sourceCodeLocation?.startLine;
+      return `\`<${e.tagName}>\` at ${basename(this.origins.get(e)?.file ?? this.opts.file)}${line ? `:${line}` : ''}`;
+    };
+    for (const [id, all] of co) {
+      const els = all.map((e) => this.idSite(e));
+      const sites = [...new Set(els.map((e) => this.siteKey(e)))];
+      if (sites.length < 2 || sites.some((s) => s === null || reported.has(s) || repeated.has(s))) continue;
+      const first = els[0]!, el = els.find((e) => this.siteKey(e) !== this.siteKey(first))!;
+      this.report(el, 'id', 'SN209', `\`id="${id}"\` is also the id of ${where(first)}: the page would have that id ${els.length} times`, 0,
+        'give each element its own id (and update the `for`, `aria-*` and `run()` references to it)');
+      reported.add(this.siteKey(el)!);
+    }
+  }
+
   /** A literal `id` in the markup of a component used more than once would be on the page more than once. */
-  componentIds(): Set<string> {
+  componentIds(co: Map<string, P5Element[]>): Set<string> {
     const out = new Set<string>();
     for (const [name, list] of this.uses) {
       if (list.length < 2 || list[0]!.head) continue;
@@ -5254,14 +5326,19 @@ class Compiler {
       const find = (n: P5Parent): P5Element | null => {
         for (const c of n.childNodes) {
           if (!isElement(c) || this.slotOf.get(c)) continue;
-          if (attr(c, 'id') !== undefined && this.origins.get(c)?.file === u.file && !this.tagIds.has(c)) return c;
+          // (an id on the tag of an inner component, written in this markup, is this markup's too)
+          if (attr(c, 'id') !== undefined && this.origins.get(this.idSite(c))?.file === u.file && this.idSite(c) !== u.host) return c;
           const x = find(c) ?? (c.tagName === 'template' ? find((c as P5Template).content) : null);
           if (x) return x;
         }
         return null;
       };
-      const el = attr(u.root, 'id') !== undefined && this.origins.get(u.root)?.file === u.file && !this.tagIds.has(u.root) ? u.root : find(u.root);
-      if (el) this.report(el, 'id', 'SN209', `\`<${name}>\` is used ${list.length} times on this page, and its markup has \`id="${attr(el, 'id')}"\`: the page would have that id ${list.length} times`, 0,
+      const found = attr(u.root, 'id') !== undefined && this.origins.get(u.root)?.file === u.file && !this.tagIds.has(u.root) ? u.root : find(u.root);
+      // (uses in an if's branches, or a choice's candidates, are never on the page together)
+      const site = found && this.siteKey(this.idSite(found));
+      const times = found ? (co.get(attr(found, 'id')!) ?? []).filter((e) => e === found || (site !== null && this.siteKey(this.idSite(e)) === site)).length : 0;
+      const el = times > 1 ? found : null;
+      if (el) this.report(el, 'id', 'SN209', `\`<${name}>\` is used ${list.length} times on this page, and its markup has \`id="${attr(el, 'id')}"\`: the page would have that id ${times} times`, 0,
         'compute the id from a prop: `data-sn-attr="{ id: \'edit-\' + item.id }"`, or use the component once');
       if (el && this.siteKey(el)) out.add(this.siteKey(el)!);
     }
@@ -5443,7 +5520,7 @@ class Compiler {
       // a field initialized with one of the page's objects (a prop, a resource's item) is an alias of it
       for (const e of r.entries!) {
         const a0 = this.page.aliases?.length ?? 0;
-        for (const p of e.pieces ?? []) (this.page.aliases ??= []).push({ t: wild([`$s${sid}`, e.key, ...p.sub]), s: p.src && wild(p.src), ...(!p.src && p.why ? { why: p.why } : {}) });
+        for (const p of e.pieces ?? []) (this.page.aliases ??= []).push({ t: wild([`$s${sid}`, e.key, ...p.sub]), s: p.src && wild(p.src), ...aliasNote(p) });
         this.aliasSites(a0, el, 'data-sn-state', attr(el, 'data-sn-state') ?? '', e.offset);
         if (!e.prim) (this.page.objectFields ??= new Set()).add(`$s${sid}.${e.key}`);
       }
@@ -7193,6 +7270,31 @@ class Compiler {
     return o;
   }
 
+  /** `file:line:col` of a place in the markup, as the dev build's messages give it */
+  placeOf(site: Site | null | undefined): string | null {
+    const o = site && this.origins.get(site.el);
+    if (!site || !o || !site.el.sourceCodeLocation) return null;
+    const { line, col } = this.lineCol(o.src, this.valueOffset(site.el, site.attr) + site.shift);
+    return `${o.file}:${line}:${col}`;
+  }
+
+  /**
+   * A dev build: each marked helper call of the page module's functions (`HELPER_MARK`, expr.ts) goes through the dev
+   * module's count of repeated calls, `$.$hv(helper, name, where)(…)` (dev.ts, warning 38); `where` is the let it is
+   * read through, else the place of the expression. A mark that is no longer before a call (the call was folded) is
+   * left as the comment it is.
+   */
+  repeatCalls() {
+    this.fns.forEach((code, i) => {
+      if (!code.includes('/*h')) return;
+      const next = code.replace(/\/\*h(?::([^*]*))?\*\/([A-Za-z_$][\w$]*)(?=\()/g, (_, where: string | undefined, f: string) =>
+        `$.$hv(${f}, ${JSON.stringify(f.replace(/\${1,2}(?=.)/g, '.'))}, ${JSON.stringify(where ?? this.placeOf(this.fnAt[i]) ?? '')})`);
+      // (a function is found by its code, `sourcesOf`: by the code it has now)
+      if (this.fnIndex.get(code) === i) { this.fnIndex.delete(code); this.fnIndex.set(next, i); }
+      this.fns[i] = next;
+    });
+  }
+
   devAt(o: { at?: Record<number, string> }, fs: Array<number | null | undefined>) {
     if (!this.opts.dev) return;
     const at: Record<number, string> = {};
@@ -7255,7 +7357,9 @@ class Compiler {
     for (const a of r.assigns ?? []) this.addSources(`@${a.path}`, a.src);
     for (const e of r.emits ?? []) this.page.emitted.add(e);
     // what an `emit()` passes is the detail its event's handlers read (`@evn:<event>`), wherever on the page they are
-    for (const e of r.emitPieces ?? []) for (const p of e.pieces) (this.page.aliases ??= []).push({ t: wild([`@evn:${e.event}`, ...p.sub]), s: p.src && wild(p.src), ...(!p.src && p.why ? { why: p.why } : {}) });
+    const a1 = this.page.aliases?.length ?? 0;
+    for (const e of r.emitPieces ?? []) for (const p of e.pieces) (this.page.aliases ??= []).push({ t: wild([`@evn:${e.event}`, ...p.sub]), s: p.src && wild(p.src), ...aliasNote(p) });
+    this.aliasSites(a1, el, attrName, src, shift, true);
     if (scope.component?.id !== undefined) for (const e of r.emitted ?? []) this.addSources(`@ev:${scope.component.id}:${e.event}`, e.src);
     for (const c of r.srcRefs ?? []) this.srcCalls.push({ el, attr: attrName, shift, ...c });
     this.at = { el, attr: attrName, shift };
@@ -7452,6 +7556,8 @@ class Compiler {
       const v = p.value as import('acorn').Expression & { start: number; end: number };
       const r = this.expr(el, 'data-sn-let', scope, { mode: 'value', waits: true }, src.slice(v.start, v.end), v.start);
       const waiting = r.ok ? this.lazyLet(r.inner, r.deps) : null;
+      // (a dev build: the helper calls in it say which let they are read through, warning 38)
+      if (r.ok && r.inner.includes(HELPER_MARK)) r.inner = r.inner.split(HELPER_MARK).join(`/*h:\`${name}\` (\`data-sn-let\`, ${this.placeOf({ el, attr: 'data-sn-let', shift: p.key.start }) ?? ''})*/`);
       const entry: LetEntry = { name, code: waiting?.code ?? r.inner, deps: waiting?.deps ?? r.deps, usesEl: r.usesEl, usesIndex: r.usesIndex, resource: r.resource, src: r.itemOf ?? null, list: r.listOf ?? null, text: src.slice(v.start, v.end), ...(r.pieces ? { pieces: r.pieces } : {}) };
       // the resources it can be, for store calls and `$meta[…]` that take it as one: its value as their names
       // (also when the value has an undeclared name: the use reports it as a resource, with the suggestion)
@@ -12764,8 +12870,11 @@ class Compiler {
     const under = (p: string[], x: string[]) => { const k = p.indexOf('**'), q = k < 0 ? p : p.slice(0, k); return q.length <= x.length && q.every((y, i) => seg(y, x[i]!)); };
     const deep = (p: string[]) => { const k = p.indexOf('**'); return k < 0 ? p : p.slice(0, k + 1); };
     this.resourceWrites(list, seg);
-    /** `ws` with what it reaches through aliases; with `causes`, the untraceable aliases that would make it everything (-1: its size), instead */
-    const extend = (ws: string[], causes?: Set<number>): string[] => {
+    /**
+     * `ws` with what it reaches through aliases; with `causes`, the untraceable aliases that would make it everything (-1: its
+     * size), instead; with `roots`, without the aliases through a helper's result (`call`), those that would add to it instead
+     */
+    const extend = (ws: string[], causes?: Set<number>, roots?: Set<number>): string[] => {
       // each path with the alias it came through, which it does not go back through
       const out = new Set(ws), queue: Array<[string, number]> = ws.map((w) => [w, -1]);
       while (queue.length) {
@@ -12774,7 +12883,7 @@ class Compiler {
         // the object the write changes: the one holding the field it assigns, or the one a method changes
         const whole = (mutated.has(w) && end !== '#') || end === '**', O = end === '#' || end === '**' ? W.slice(0, -1) : whole ? W : W.slice(0, -1);
         let via = -1;
-        const add = (p: string[]) => { const k = p.join('.'); if (!out.has(k)) { out.add(k); queue.push([k, via]); } };
+        const add = (p: string[]) => { const k = p.join('.'); if (roots && list[via]!.call) roots.add(via); else if (!out.has(k)) { out.add(k); queue.push([k, via]); } };
         const fromState = W[0] !== '$r', every = fromState ? STATE : ALL;
         const changes = (t: string[], s: string[] | null) => {
           if (fromState && s?.[0] === '$r') return;
@@ -12803,6 +12912,10 @@ class Compiler {
     const done = new WeakSet<PathRef[]>();
     // SN548: for each alias the compiler cannot trace, the handlers whose writes reach it (and so everything)
     const blamed = this.opts.explainWrites ? new Map<number, string[]>() : null;
+    // and for each alias through a helper's result that adds to a handler's writes: those handlers, and the fields added
+    const helped = blamed && new Map<number, { owners: string[]; also: Set<string> }>();
+    /** the state field, resource or page value a written path is in (`$s0.sel`, `$r.rows`, `$now`); none for an event's detail */
+    const field = (p: string) => { const x = p.split('.'); return x[0]![0] === '@' ? '' : /^\$(s\d+|r)$/.test(x[0]!) ? `${x[0]}.${x[1] === '**' ? '*' : x[1]}` : x[0]!; };
     let owner = '';
     const fix = (ws: PathRef[] | undefined) => {
       if (!ws?.length || done.has(ws)) return;
@@ -12813,6 +12926,17 @@ class Compiler {
         for (const i of causes) { const l = blamed.get(i) ?? []; l.push(owner); blamed.set(i, l); }
       }
       const next = extend(strs(ws)).filter((p) => !p.startsWith('@evn:'));
+      if (helped && next.length !== ws.length) {
+        // the list as it would be without the helpers' results (`roots`: those that add to it), against the whole one
+        const roots = new Set<number>(), had = new Set(extend(strs(ws), undefined, roots).map(field));
+        const also = [...new Set(next.map(field))].filter((f) => f && !had.has(f));
+        if (also.length) for (const i of roots) {
+          const h = helped.get(i) ?? { owners: [], also: new Set<string>() };
+          h.owners.push(owner);
+          for (const f of also) h.also.add(f);
+          helped.set(i, h);
+        }
+      }
       if (next.length !== ws.length) ws.splice(0, ws.length, ...next);
     };
     for (const n of [...this.roots, ...this.templates.flatMap((t) => t.nodes)]) for (const b of n.b) { if (blamed) owner = this.ownerOf(b); fix(b.w); }
@@ -12820,6 +12944,7 @@ class Compiler {
     for (const r of this.resources) { if (blamed) owner = `\`<sn-resource name="${r.name}">\``; fix(r.w); }
     for (const x of this.syncs) for (const e of x.events) { if (blamed) owner = `\`<sn-event name="${e.name}">\``; fix(e.w); }
     if (blamed) this.explainWrites(blamed, list);
+    if (helped) this.explainHelpers(helped, list);
   }
 
   /**
@@ -12888,14 +13013,17 @@ class Compiler {
     return f.startsWith(this.opts.root) ? f.slice(this.opts.root.length).replace(/^\//, '') : f;
   }
 
-  /** The untraceable aliases an expression made (from `a0` on), and those of a resource's data: their place, kept with them (a linked definition's aliases keep theirs). */
-  private aliasSites(a0: number, el: P5Element, attrName: string, src: string, shift: number) {
+  /**
+   * The untraceable aliases an expression made (from `a0` on), those of a resource's data and those through a helper's
+   * result (`calls`: only these): their place, kept with them (a linked definition's aliases keep theirs).
+   */
+  private aliasSites(a0: number, el: P5Element, attrName: string, src: string, shift: number, calls = false) {
     const list = this.page.aliases ?? [];
     if (list.length <= a0) return;
     const o = this.origins.get(el) ?? { file: this.opts.file, src: '', chain: [] };
     const { line, col } = el.sourceCodeLocation ? this.lineCol(o.src, this.valueOffset(el, attrName) + shift) : { line: 1, col: 1 };
     const at: AliasSite = { text: src.replace(/\s+/g, ' ').trim(), file: o.file, line, col };
-    for (let i = a0; i < list.length; i++) if ((!list[i]!.s || /^@(dom|evn):/.test(list[i]!.s![0]!) || list[i]!.s![0] === '$r' || list[i]!.t[0]!.startsWith('@evn:')) && !list[i]!.at) list[i]!.at = at;
+    for (let i = a0; i < list.length; i++) if ((list[i]!.call || (!calls && (!list[i]!.s || /^@(dom|evn):/.test(list[i]!.s![0]!) || list[i]!.s![0] === '$r' || list[i]!.t[0]!.startsWith('@evn:')))) && !list[i]!.at) list[i]!.at = at;
   }
 
   /**
@@ -12966,6 +13094,33 @@ class Compiler {
       const at = a?.at;
       this.diagnostics.push({ severity: 'warning', code: 'SN548', message: at ? `${message}. It was made by \`${at.text.length > 80 ? at.text.slice(0, 77) + '…' : at.text}\`` : message, file: at?.file ?? this.opts.file, line: at?.line ?? 1, col: at?.col ?? 1,
         hint: 'give the alias a value the compiler can follow: a state path, a list\'s element, `structuredClone(…)` of the value, or a primitive (`String(…)`, `Number(…)`) (docs/diagnostics.md#sn548-untraceable-writes)' });
+    }
+  }
+
+  /**
+   * SN548 for aliases through a helper's result (`draft = newDraft(item)`: `draft` may hold objects of `item`), once per
+   * helper call and place: the state or event detail that holds the result, the handlers whose writes it adds to (those
+   * inside what holds it), and the fields those writes mark besides what they would without it. It marks nothing itself.
+   */
+  private explainHelpers(helped: Map<number, { owners: string[]; also: Set<string> }>, list: NonNullable<PageInfo['aliases']>) {
+    const name = (f: string) => (f.endsWith('.*') ? 'every field of a state scope' : `\`${f.replace(/^\$s\d+\./, '').replace(/^\$r\./, 'resource ')}\``);
+    // one per call and place: a call's arguments are an alias each
+    const sites = new Map<string, { a: NonNullable<PageInfo['aliases']>[number]; owners: Set<string>; also: Set<string> }>();
+    for (const [i, h] of helped) {
+      const a = list[i]!, k = `${a.at?.file}:${a.at?.line}:${a.at?.col}\0${a.call}\0${a.t[0]}.${a.t[1]}`;
+      const x = sites.get(k) ?? { a, owners: new Set<string>(), also: new Set<string>() };
+      for (const o of h.owners) x.owners.add(o);
+      for (const f of h.also) x.also.add(f);
+      sites.set(k, x);
+    }
+    for (const { a, owners, also } of sites.values()) {
+      const m = /^@evn:(.*)$/.exec(a.t[0]!), holds = m ? `the detail of \`${m[1]}\`` : `\`${a.t.slice(1).filter((x) => x !== '**').join('.').replace(/\{[^}]*\}|~/g, '*')}\``;
+      const n = owners.size, shown = [...owners].slice(0, 3).join(', ') + (n > 3 ? `, and ${n - 3} more` : '');
+      const fs = [...also].map(name).sort(), fields = fs.slice(0, 3).join(', ') + (fs.length > 3 ? `, and ${fs.length - 3} more` : '');
+      const message = `${holds} comes from \`${a.call}\`, whose result may hold objects found in its arguments, so the writes of ${n === 1 ? 'a handler' : `${n} handlers`} inside ${m ? 'the state that takes it' : 'it'} also mark ${fs.length === 1 ? 'a field' : `${fs.length} fields`} ${n === 1 ? 'it does' : 'they do'} not write (${fields}), and what reads ${fs.length === 1 ? 'it' : 'them'} renders again: ${shown}`;
+      const at = a.at;
+      this.diagnostics.push({ severity: 'warning', code: 'SN548', message: at ? `${message}. It was made by \`${at.text.length > 80 ? at.text.slice(0, 77) + '…' : at.text}\`` : message, file: at?.file ?? this.opts.file, line: at?.line ?? 1, col: at?.col ?? 1,
+        hint: `store a copy, which holds none of the page's objects (\`structuredClone(…)\` of the helper's result${m ? ', or of `$event.detail` where the state takes it' : ''}), or give the helper values that are surely primitives (\`String(id)\`, \`Number(n)\`); leave it where the state is meant to hold one of those objects (docs/diagnostics.md#sn548-untraceable-writes)` });
     }
   }
 

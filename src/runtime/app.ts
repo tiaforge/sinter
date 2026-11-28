@@ -250,7 +250,7 @@ export interface App {
      * selection bindings (select.ts): given the renderer's internals, the check for a list whose rows
      * no other change reaches. `free`: the index may be used (no row was reconciled this round, none
      * waits in a closed dialog). 0: no selection's outer side changed; 1: the rows concerned were
-     * rendered; 2: every row renders
+     * rendered; 3: every row renders, the index not used (not 2: `walk` reads that as a change written through a row index)
      */
     select?: (inner: Inner) => (rb: BoundBinding, free: boolean) => number;
     /** nested items (nested.ts): changes an item under a resource's rows, through `fields`; the list `upsert(c.replies, x)` gives */
@@ -338,7 +338,7 @@ export interface App {
 }
 
 /** The renderer's internals the models of controls other than text fields (models.ts) use. */
-export interface ModelInner { evaluate(rb: any): any; deferred: Set<any> }
+export interface ModelInner { evaluate(rb: any): any; deferred: Set<any>; waits(el: Element | null): boolean }
 export interface Models { write(rb: any, v: unknown): void; read(rb: any): unknown; bound(rb: any): void; forget(rb: any): void; sync(): void }
 
 /** The renderer's internals the selection index (select.ts) uses. */
@@ -937,7 +937,8 @@ export function mount(root: Document | Element, o: MountOptions): App {
   instances.set(root, app);
   for (const f of o.features ?? []) f.install(app);
   /** controls other than text fields (models.ts), on pages with such a model */
-  const models = app.ext.models?.({ evaluate, deferred });
+  // (`waits`: only where a binding can wait, so a core without dialogs keeps none of it)
+  const models = app.ext.models?.(F.DIALOG ? { evaluate, deferred, waits } : { evaluate, deferred } as ModelInner);
   /** the selection index (select.ts), on pages with selection bindings */
   const sel = F.LIST || F.BRANCH ? app.ext.select?.({ hit, isSimple, walkSimple, process }) : undefined;
 
@@ -1096,6 +1097,8 @@ export function mount(root: Document | Element, o: MountOptions): App {
       }
       // only a selection's outer side changed: the rows it concerns, through the index; rows that were
       // just reconciled (some re-rendered, the index stale) or wait in a closed dialog render as usual
+      // (the index's 3: it could not be used, so every row renders: not 2, which below is a change written through a
+      // row index, and no path names the rows by their index here)
       if (!r && sel && (r = sel(rb, rb.rr != round && !deferred.size)) == 1) continue;
       rb.sx = undefined;
       // only marked elements changed and the list did not move: visit their rows directly. The first time since the
@@ -1167,10 +1170,14 @@ export function mount(root: Document | Element, o: MountOptions): App {
     return true;
   }
 
-  /** In a closed dialog, or one the current event closes: a binding there waits until it opens. */
+  /**
+   * In a closed dialog, or one the current event closes: a binding there waits until it opens. A `<dialog popover>`
+   * that `showPopover()` (or its `popovertarget` button) opened has no `open` attribute and is open: `:popover-open`
+   * says so (a browser without the pseudo-class throws on the selector: closed by its attribute alone, as before).
+   */
   function waits(el: Element | null): boolean {
     if (!el) return false;
-    if (el.closest('dialog:not([open])')) return true;
+    try { if (el.closest('dialog:not([open],:popover-open)')) return true; } catch { if (el.closest('dialog:not([open])')) return true; }
     for (const d of closing) if (d.contains(el)) return true;
     return false;
   }
@@ -1695,7 +1702,8 @@ export function mount(root: Document | Element, o: MountOptions): App {
     if (!synth) ev ??= e;
     try {
       if (F.DIALOG) {
-        if (e.type == 'toggle' && el.localName == 'dialog' && el.hasAttribute('open') && !closing.has(el)) reveal(el);
+        // (open: by its `open` attribute, or as a popover)
+        if (e.type == 'toggle' && el.localName == 'dialog' && !waits(el)) reveal(el);
         const d = closes(e, el);
         if (d && !closing.has(d)) {
           closing.add(d);

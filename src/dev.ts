@@ -40,6 +40,7 @@ const MESSAGES: Record<number, string> = {
   32: 'the early script requested `%`, and a request middleware changed the request (a header, its credentials): the response is not used, and the page sent it again. Add what the middleware adds in `sinter({ apis })` (`headers`, `credentials`, `token`) instead, or answer it from the middleware with `early="off"` on the resource',
   25: 'font % is preloaded (sinter({ fonts: { preload } })), but the page did not render with it in its first % frames: the preload competes with what the first paint needs, and when the font is slow it can hold the first paint. Preload a face the first view uses, or remove it',
   36: 'a write changed `%`, which nothing it marked reaches (it marked %): what reads it shows the old value until something else renders it. A write sinter cannot see changed one of the page\'s objects (a custom element or a library that changes an object it was handed, a timer), or sinter\'s write analysis missed an alias: report it.%',
+  38: 'helper `%` was called % times while the page rendered, % of them with the same arguments as an earlier call of the same render, and those repeats took % ms.% A `data-sn-let` or a prop is its expression at every read, so every binding and every row that reads it calls the helper again. Keep its results with `memo()` from `@tiaforge-ui/sinter/memo`, in the module that declares it: `export const % = memo(%Impl)` (docs/expressions.md#memoized-helpers). `memo()` keys a call by arguments that are primitives, or plain objects or arrays of primitives, and calls through for any other (an array of objects): if `%` takes one, wrap the expensive function it calls instead.% A memoized result is frozen and shared: nothing may change one in place',
   37: 'helper `%` changed %, which a helper may not do: it changes none of its arguments, and the page does not show what it changed. In the handler, change the state with the method itself (`tasks.sort(cmp)`, `ys[0].n++`), or return a new value from the helper and assign it (`tasks = sorted(tasks)`).%',
   22: "the page's Content-Security-Policy blocked an inline script (%): sinter's Speculation Rules are one, so the next page's HTML is not prefetched. If the policy comes from a response header, add 'inline-speculation-rules' to its script-src (a CSP in a <meta> gets their hash from the build), or set sinter({ prefetch: { html: { delivery: 'header' } } }). See docs/navigation.md",
 };
@@ -67,7 +68,17 @@ export function protocolOf(url: string, base: string, perf: Pick<Performance, 'g
  * HTTP/1.1 stream, a large response, a CSP header, a font's timing, the browser refusing a history
  * write): strict mode reports them but does not fail on them.
  */
-export const ENVIRONMENT_WARNINGS: ReadonlySet<number> = new Set([18, 19, 22, 25, 26]);
+export const ENVIRONMENT_WARNINGS: ReadonlySet<number> = new Set([18, 19, 22, 25, 26, 38]);
+/**
+ * Warning 38's limits and clock (a test sets them): a helper is reported when, over renders less than `gap` milliseconds
+ * apart (a quarter of a second: the renders one click causes, not the next click's), at least `calls` of its calls had
+ * the arguments of an earlier call of the same render, those repeats alone took `ms` milliseconds or more, and `each`
+ * or more a call (5 microseconds: `memo()`'s own lookup takes about one, so it cannot help a cheaper helper).
+ * On Caley's month view (a helper behind a let read by 42 rows) the repeats take 20 to 25 ms a click, 33 microseconds
+ * each; with the helper's expensive part memoized, 2 to 5 ms and under 3 microseconds each; the most any other helper
+ * of its pages reaches in a click is 2.3 ms, most under 1.
+ */
+export const REPEATS = { calls: 20, ms: 5, each: 0.005, gap: 250, now: (): number => performance.now() };
 
 /** One runtime warning, as strict mode's listeners get it (the dev server's relay, `render()` in tests). */
 export interface RuntimeWarning {
@@ -288,6 +299,48 @@ const dev: Feature = {
       }
       return r;
     };
+
+    // a helper called again and again with the same arguments (warning 38): a let or a prop is its expression at every
+    // read, so a helper in one runs for every binding and row that reads it. The dev page module calls an app helper in
+    // a value through `$.$hv(f, name, where)(...args)`. Calls are counted while the page renders (the mount, each flush),
+    // not in handlers. A call is a repeat when each argument is the same value (`Object.is`) as in one of the helper's 8
+    // latest different calls of the same render: exact for what it counts, and enough for a helper read by each row in
+    // turn or by the whole page. The arguments are forgotten when the render ends; the counts and the time of the
+    // repeats add up over the renders that follow each other within `REPEATS.gap` (what one event or one load causes),
+    // and a helper over both limits is reported, once
+    {
+      type Seen = { where: string; lists: unknown[][]; rep: unknown[] | null; deep: number; calls: number; same: number; ms: number };
+      const seen = new Map<string, Seen>(), told = new Set<string>();
+      let open = true, ended = REPEATS.now();
+      app.page.$hv = (f: (...a: unknown[]) => unknown, name: string, where: string) => (...args: unknown[]) => {
+        if (!open || told.has(name)) return f(...args);
+        let h = seen.get(name);
+        if (!h) seen.set(name, (h = { where, lists: [], rep: null, deep: -1, calls: 0, same: 0, ms: 0 }));
+        const t = REPEATS.now(), r = f(...args), dt = REPEATS.now() - t;
+        h.calls++;
+        const was = h.lists.find((l) => l.length == args.length && l.every((x, i) => Object.is(x, args[i])));
+        if (was) { h.same++; h.ms += dt; h.rep = was; }
+        else { if (h.lists.length == 8) h.lists.shift(); h.lists.push(args); }
+        return r;
+      };
+      app.beforeFlush.push(() => { if (REPEATS.now() - ended > REPEATS.gap) seen.clear(); open = true; });
+      app.afterFlush.push(() => {
+        // what `memo()` keys a call by (src/memo.ts): a primitive, or a plain object or array of primitives
+        const flat = (v: unknown) => v === null || !/^(object|function|symbol)$/.test(typeof v);
+        for (const [name, h] of seen) {
+          if (h.rep && h.deep < 0) h.deep = h.rep.findIndex((v) => !flat(v) && !((Array.isArray(v) || Object.getPrototypeOf(v) == Object.prototype) && Object.values(v as object).every(flat)));
+          h.lists = [];
+          h.rep = null;
+          if (h.same < REPEATS.calls || h.ms < REPEATS.ms || h.ms < h.same * REPEATS.each) continue;
+          told.add(name);
+          seen.delete(name);
+          const own = name.split('.').pop();
+          app.warn(38, name, h.calls, h.same, h.ms.toFixed(1), h.where ? ` It is read through ${h.where}.` : '', own, own, own, h.deep < 0 ? '' : ` Here argument ${h.deep + 1} is one.`);
+        }
+        open = false;
+        ended = REPEATS.now();
+      });
+    }
 
     // each concrete path a write changed is reached by a path it marked (warning 36). The state is looked at whenever
     // a flush starts, and what changed since the last look is checked against what was marked since: every writer
