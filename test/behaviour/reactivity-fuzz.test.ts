@@ -5,7 +5,8 @@
 // and no key (value and occurrence) with state and handlers of their own, emit() with listeners that
 // write and that read, a synchronous click on another element (a nested handler, read around), an island whose
 // prop setter fires an event in the middle of a flush, `<sn-sync>` upserts, refetches and a dropped stream, an
-// optimistic action, actions whose then and catch read lets, a component's own let and a persisted scope, a plain
+// optimistic action, actions whose then and catch read lets, an action a handler starts between its writes (`run()`,
+// its body reads lets), a component's own let and a persisted scope, a plain
 // object of primitives changed in place and replaced by an equal copy, the locale, with reads of lets stored into
 // state between all of them; the buttons are clicked in a random order, with and without a flush between. Four
 // oracles:
@@ -15,7 +16,9 @@
 //   marks too little shows here, lets or not);
 // - the dev module's write check (warning 36): every concrete path of the state that a step changed is reached by a
 //   path it marked, whether a binding shows it or not;
-// - the first paint: on a third of the seeds the memoized page is the early script's first paint taken over.
+// - the first paint: on a third of the seeds the memoized page is the early script's first paint taken over;
+// - the let cache (src/lets.ts): the same page compiled without it (`letCache: false`, every let its expression at
+//   every read) gives the same page, state and stored reads.
 // Writes through aliases (`sel = y; sel.n += 10`; docs/spec.md, Aliases): direct, inside another object, in another
 // list, a helper's element, one from reduce() the compiler cannot follow, and writes through the list they alias; and
 // aliases made through a let, a loop variable over a computed list, a callback's parameter and a component event's detail.
@@ -96,6 +99,8 @@ const OPS = [
   // strings with duplicates and no key (value and occurrence): reordered, an equal value inserted and removed
   'gs = [...gs].reverse()', "gs.splice(1, 0, 'a')", "gs.includes('a') && gs.splice(gs.indexOf('a'), 1)", "gs.unshift('b')", "gs = gs.filter((g) => g != 'b')",
   "$locale = 'de'", "$locale = 'en'",
+  // an action started in the middle of a handler: its body reads lets after the writes before it, which are not marked yet
+  "a = a + 1; run('snd')", "xs = [...xs, 6]; run('snd'); a = a + 2",
   // a nested handler (a synchronous click), then a read, a write and a read again in the outer one
   'NEST',
 ];
@@ -172,7 +177,7 @@ function page(r: () => number) {
   const rowOps: string[] = [];
   for (let i = 0, n = 2 + Math.floor(r() * (2 * DEPTH + 1)); i < n; i++) rowOps.push(r() < 0.45 ? `r${reads++} = ${pick(ROW_READS)}` : pick(ROW_OPS));
   const rowHandler = rowOps.join('; ');
-  const state = `{ a: 1, xs: [1, 2], o: { items: [1] }, ks: [{ id: 1, n: 1 }, { id: 2, n: 2 }, { id: 3, n: 3 }], go: 0, pk: null, th: null, ct: null, q: { w: 2, h: 3 }, ys: [{ n: 1 }, { n: 2 }, { n: 3 }], gs: ['a', 'b', 'a'], sel: null, box: null, arr: [], h: null, u: null, k2: 0, cw: null, cp: null, ${Array.from({ length: reads }, (_, i) => `r${i}: null`).join(', ')} }`;
+  const state = `{ a: 1, xs: [1, 2], o: { items: [1] }, ks: [{ id: 1, n: 1 }, { id: 2, n: 2 }, { id: 3, n: 3 }], go: 0, pk: null, th: null, ct: null, sb: null, q: { w: 2, h: 3 }, ys: [{ n: 1 }, { n: 2 }, { n: 3 }], gs: ['a', 'b', 'a'], sel: null, box: null, arr: [], h: null, u: null, k2: 0, cw: null, cp: null, ${Array.from({ length: reads }, (_, i) => `r${i}: null`).join(', ')} }`;
   const html = `<sn-resource name="todos" src="/api/todos" key="id"></sn-resource>
 <sn-resource name="pg" src="/api/pg" select="items" total="total" key="id" paginate="{ numbered: true, size: 2 }"></sn-resource>
 <sn-resource name="ev" for="t in todos" src="/api/ev?id={t.id}" key="id"></sn-resource>
@@ -189,6 +194,7 @@ function page(r: () => number) {
   <ol><template data-sn-for="k in ks" data-sn-key="k.id"><li class="k" data-sn-let="{ KR: inc(k.n) }" data-sn-text="k.id + ':' + KR + ':' + KS"></li></template></ol>
   <section data-sn-state="{ ps: 1, pr: null }" data-sn-persist="fz" data-sn-let="{ PS: twice(ps) }"><b class="ps" data-sn-text="PS + T"></b><button id="pp" data-sn-on-click="pr = PS; ps = ps + 1; pr = pr + PS"></button></section>
   <button id="ok" data-sn-post="/api/ok" data-sn-body="{}" data-sn-then="th = T + KS + TS"></button>
+  <span hidden id="snd" data-sn-post="/api/snd" data-sn-body="{ t: T, p: P.v, k: KS }" data-sn-then="sb = $result.b"></span>
   <button id="bad" data-sn-post="/api/bad" data-sn-body="{}" data-sn-catch="ct = T + P.v + EV"></button>
   <button id="x" data-sn-on-click="a = a + 100"></button>
   <button id="y" data-sn-on-click="k2 = k2 + 1"></button>
@@ -219,6 +225,8 @@ const PAGES = [{ id: 11, n: 1 }, { id: 12, n: 2 }, { id: 13, n: 3 }, { id: 14, n
 const requests = () => {
   const routes: Record<string, unknown> = {
     'GET /api/todos': [{ id: 1, n: 1 }, { id: 2, n: 2 }], 'PATCH /api/t': null, 'POST /api/ok': {}, 'POST /api/bad': { status: 500 },
+    // what the action sent, back into state
+    'POST /api/snd': (c: { body?: unknown }) => ({ b: JSON.stringify(c.body) }),
     'GET /api/pg': (c: { url: string }) => { const q = new URL(c.url, 'http://x').searchParams, p = Number(q.get('page') ?? 1), n = Number(q.get('limit') ?? 2); return { items: PAGES.slice((p - 1) * n, p * n), total: PAGES.length }; },
     'GET /api/ev': (c: { url: string }) => { const id = Number(new URL(c.url, 'http://x').searchParams.get('id')); return [{ id: id * 100, n: id * 7 }]; },
   };
@@ -255,14 +263,14 @@ test('random handlers: the page with memoized helpers agrees with the plain one,
       const steps = Array.from({ length: 3 + Math.floor(sr() * (3 * DEPTH + 1)) }, () => ({ b: Math.floor(sr() * 10), row: Math.floor(sr() * 3), flush: sr() < 0.6, msg: sr() < 0.3 ? Math.floor(sr() * 5) : -1 }));
       const early = seed % 3 === 0;
       const stale: string[] = [];
-      const run = async (memoized: boolean) => {
+      const run = async (memoized: boolean, letCache = true) => {
         loc = 'en';
         for (const f of Object.values(MEMOIZED)) (f as { clear?: () => void }).clear?.();
         MEMOIZED.tr.word.clear();
         const { html } = page(rng(seed));
         const stream = mockStream();
         const storage = memoryStorage();
-        const v = await render(html, { helpers: memoized ? MEMOIZED : HELPERS, components: COMPONENTS, requests: requests(), streams: { '/s': stream }, storage, strict: false, events: SENDERS, scripts: SCRIPTS, ...(early && memoized ? { firstPaint: true } : {}) });
+        const v = await render(html, { ...(letCache ? {} : { letCache }), helpers: memoized ? MEMOIZED : HELPERS, components: COMPONENTS, requests: requests(), streams: { '/s': stream }, storage, strict: false, events: SENDERS, scripts: SCRIPTS, ...(early && memoized ? { firstPaint: true } : {}) });
         await v.settle();
         const main = v.root.querySelector('main')!;
         const out: string[] = [seen(v, storage)];
@@ -294,7 +302,9 @@ test('random handlers: the page with memoized helpers agrees with the plain one,
         return { out, handlers: page(rng(seed)).handlers };
       };
       try {
-        const got = await run(true), want = await run(false);
+        const got = await run(true), want = await run(false), inlined = await run(false, false);
+        const off = want.out.findIndex((x, i) => x !== inlined.out[i]);
+        if (off >= 0) failures.push(`seed ${seed} depth ${DEPTH}: step ${off} of ${JSON.stringify(steps)}\n  handlers ${JSON.stringify(got.handlers)}\n  cached lets  ${want.out[off]}\n  inlined lets ${inlined.out[off]}`);
         const at = got.out.findIndex((x, i) => x !== want.out[i]);
         if (at >= 0) failures.push(`seed ${seed} depth ${DEPTH}${early ? ' (early takeover)' : ''}: step ${at} of ${JSON.stringify(steps)}\n  handlers ${JSON.stringify(got.handlers)}\n  memoized ${got.out[at]}\n  plain    ${want.out[at]}`);
         if (stale.length) failures.push(`seed ${seed} depth ${DEPTH}${early ? ' (early takeover)' : ''} of ${JSON.stringify(steps)}\n  handlers ${JSON.stringify(got.handlers)}\n  ${stale[0]}`);
