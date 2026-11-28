@@ -42,22 +42,25 @@ or only after the page module takes over.
   and that read, a nested synchronous click read around, an island whose prop setter fires an event
   mid-flush, `<sn-sync>` upserts, refresh events and a dropped stream, an optimistic action, actions whose
   `then` and `catch` read lets, a component with a let of its own, a `data-sn-persist` scope and the
-  locale, with reads of lets stored between them. Three oracles: the same page with its helpers wrapped
+  locale, with reads of lets stored between them. Five oracles: the same page with its helpers wrapped
   in `memo()` (page, state and stored reads equal by structure); every state scope marked whole after
-  each settle changes nothing on the page (a write path that marks too little); and, on a third of the
-  seeds, the early script's first paint taken over. `SN_FUZZ_DEPTH` makes the handlers and click scripts
+  each settle changes nothing on the page (a write path that marks too little); the dev build's write
+  check found no change that no mark reaches (warning 36); what the rows of the computed lists show is
+  what the test computes from the state; and, on a third of the seeds, the early script's first paint
+  taken over. `SN_FUZZ_DEPTH` makes the handlers and click scripts
   longer, `SN_FUZZ_FIRST` starts at another seed (run a long sweep in chunks side by side).
   It also writes through aliases (`sel = y; sel.n += 10`): direct, inside another object, in another list, a
   helper's element, one from `reduce()` the compiler cannot follow, and through the list they alias.
   And it renders computed lists, whose rows read their item without a dependency: a filter over state objects
   that reads a scalar, a helper that returns its argument or a part of it, a helper that returns new group
   objects holding the same items (inner rows read the group and the item), and a list of state fields
-  (`col in [picked, other]`); written by the scalar alone, an item in place (through the list, an alias, an
-  inner row's handler), both in one handler, the fields' arrays in place and replaced. One more oracle
-  computes what those rows must show from the state itself, since marking a scope whole goes through the same
-  evaluation of the list. Mutants it catches at the default seeds: kept rows of a computed list not rendered
-  again (seed 1), and not rendered again unless a change of the flush is inside a value the list reads
-  (seed 4).
+  (`col in [picked, other]`), one of them a checkbox group's model; written by the scalar alone, an item in
+  place (through the list, an alias, an inner row's handler), both in one handler, the fields' arrays in
+  place and replaced, and the group's ticks. The rows are compared with what the state gives because marking
+  a scope whole goes through the same evaluation of the list. Mutants it catches at the default seeds: kept
+  rows of a computed list not rendered again (seed 1), not rendered again unless a change of the flush is
+  inside a value the list reads (seed 3), and a checkbox group that changes its array in place (seed 4,
+  by the write check).
 - `test/memo-fuzz.test.ts` calls `memo()` with random argument lists: primitives that look alike (`0` and
   `-0`, `NaN`, `''` and `undefined`, strings that run into each other), plain objects and arrays of them in
   other orders, with holes or a null prototype, look-alikes of each list, and arguments that call through.

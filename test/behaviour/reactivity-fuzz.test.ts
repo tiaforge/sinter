@@ -23,11 +23,12 @@
 // Computed lists (rows that render again when their list is evaluated again, `TemplateDef.dv`): a filter over state objects
 // that reads a scalar, a helper that returns its argument itself or a part of it, a helper that returns new group
 // objects holding the same items with inner rows that read the group and the item, and a list of state fields
-// (`col in [picked, other]`); written by a scalar the list reads (alone, so that nothing of the flush is inside a value
-// the list reads), an item in place (through the list, an alias, an inner row's own handler), both in one handler, the
-// fields' arrays in place and replaced. Two shapes are not among them, and rendering.test.ts has both by hand: a
-// helper that hands back an object it returned before with other contents (helpers are pure, docs/expressions.md), and
-// a checkbox group on one of the fields (`data-sn-model="picked"`).
+// (`col in [picked, other]`), one of them the model of a checkbox group; written by a scalar the list reads (alone, so
+// that nothing of the flush is inside a value the list reads), an item in place (through the list, an alias, an inner
+// row's own handler), both in one handler, the fields' arrays in place and replaced, and the group's ticks (each
+// assigns its field a new array: while it changed the array in place, the write check failed 51 of 150 seeds). One
+// shape is not among them, and rendering.test.ts has it by hand: a helper that hands back an object it returned before
+// with other contents (helpers are pure, docs/expressions.md).
 // Writes through aliases (`sel = y; sel.n += 10`; docs/spec.md, Aliases): direct, inside another object, in another
 // list, a helper's element, one from reduce() the compiler cannot follow, and writes through the list they alias; and
 // aliases made through a let, a loop variable over a computed list, a callback's parameter and a component event's detail.
@@ -234,6 +235,7 @@ function page(r: () => number) {
   <ol><template data-sn-for="(z, i) in over(ys, lo)"><li class="co" data-sn-text="i + ':' + z.n"></li></template></ol>
   <template data-sn-for="g in groups(ys, lo)" data-sn-key="g.k"><div class="grp"><b class="gh" data-sn-text="g.k + '/' + g.label + '/' + g.items.length"></b><template data-sn-for="z in g.items"><i class="gi" data-sn-text="g.label + ':' + z.n"></i><button class="gzb" data-sn-on-click="u = z; u.n = u.n + 1"></button></template></div></template>
   <ol><template data-sn-for="col in [picked, other]"><li class="col" data-sn-text="col.join(',')"></li></template></ol>
+  <input type="checkbox" class="cb" value="b" data-sn-model="picked"><input type="checkbox" class="cb" value="c" data-sn-model="picked">
   ${handlers.map((h, i) => `<button id="h${i}" data-sn-on-click="${h}"></button>`).join('\n  ')}
   <button id="h4" data-sn-on-click="${listHandler}"></button>
   <button id="lo" data-sn-on-click="lo = (lo + 1) % 4"></button>
@@ -309,10 +311,10 @@ test('random handlers: the page with memoized helpers agrees with the plain one,
       const steps = Array.from({ length: 3 + Math.floor(sr() * (3 * DEPTH + 1)) }, () => ({ b: Math.floor(sr() * 10), row: Math.floor(sr() * 3), flush: sr() < 0.6, msg: sr() < 0.3 ? Math.floor(sr() * 5) : -1 }));
       // the computed lists' part of the script, from a generator of its own (the steps above are what they were before it
       // existed): with a step, before or after its click, the lists' handler (0-2), the scalar alone (3, 4: nothing of the
-      // step is inside a value the lists read, unless the step's own handler writes there) or an inner row's own handler
-      // (5, the row `row`)
+      // step is inside a value the lists read, unless the step's own handler writes there), an inner row's own handler
+      // (5, the row `row`) or a checkbox of the group (6, 7)
       const cr = rng(seed * 104729 + 13);
-      const extra = steps.map(() => ({ x: cr() < 0.6 ? Math.floor(cr() * 6) : -1, row: Math.floor(cr() * 3), first: cr() < 0.5 }));
+      const extra = steps.map(() => ({ x: cr() < 0.6 ? Math.floor(cr() * 8) : -1, row: Math.floor(cr() * 3), first: cr() < 0.5 }));
       const early = seed % 3 === 0;
       const stale: string[] = [];
       const run = async (memoized: boolean) => {
@@ -346,6 +348,7 @@ test('random handlers: the page with memoized helpers agrees with the plain one,
         const more = (e: { x: number; row: number }) => {
           if (e.x === 3 || e.x === 4) main.querySelector<HTMLElement>('#lo')?.click();
           else if (e.x === 5) main.querySelectorAll<HTMLElement>('.gzb')[e.row]?.click();
+          else if (e.x === 6 || e.x === 7) main.querySelectorAll<HTMLElement>('.cb')[e.x - 6]?.click();
           else if (e.x >= 0) main.querySelector<HTMLElement>('#h4')?.click();
         };
         for (const [k, s] of steps.entries()) {
