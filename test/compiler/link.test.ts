@@ -62,3 +62,33 @@ test('an action in a definition: refused (its index is not renumbered), and each
   } finally { C['x-link'] = was; delete (globalThis as { __snLink?: unknown }).__snLink; }
   expect(stats.refused.some((r) => r.includes('adds an action'))).toBe(true);
 });
+
+test('a definition with a branch its own state closes: the early file of a page that links it is the one of a page that compiles it', () => {
+  const was = C['x-link']!;
+  // every link of the tree has a part closed at first, which its own state opens
+  C['x-link'] = was.replace('<a data-sn-attr="{ href: node.url }">', '<a data-sn-attr="{ href: node.url }"><b data-sn-state="{ open: false }"><button data-sn-on-click="open = !open">+</button><template data-sn-if="open"><i data-sn-text="node.url"></i></template></b>');
+  expect(C['x-link']).not.toBe(was);
+  const page = (name: string, definitions?: Map<string, unknown>) => {
+    const files: Record<string, string> = {};
+    for (const [k, s] of Object.entries(C)) files[`/p/src/components/${k}.html`] = s;
+    // the tree as embedded data, which the early file renders
+    const out = compile(`<!doctype html><html><head><script type="application/json" data-sn-resource="doc">${JSON.stringify(DOC)}</script></head><body><sn-resource name="doc" src="/api/doc"></sn-resource><x-doc data-sn-with="{ doc }"></x-doc></body></html>`, {
+      file: `/p/${name}.html`, root: '/p', dev: false, prerender: true, componentNames: Object.keys(C), early: { module: null }, moduleSrc: '/page.js',
+      helpers: { module: null, names: [], namespaces: {} }, readFile: (p) => { if (p in files) return files[p]!; throw new Error(p); },
+      ...(definitions ? { definitions } : {}),
+    });
+    expect(out.diagnostics.filter((d) => d.severity === 'error').map((d) => d.code + ' ' + d.message)).toEqual([]);
+    return { html: out.html, module: out.module, early: out.early };
+  };
+  const definitions = new Map<string, unknown>();
+  const stats = { hits: 0, recorded: 0, refused: [] as string[] };
+  (globalThis as { __snLink?: typeof stats }).__snLink = stats;
+  try {
+    const alone = page('a');
+    // the tree is early (its rows over embedded data), the closed part is not
+    expect(alone.early).toContain('each(');
+    expect(alone.early).not.toContain('.open');
+    for (let round = 0; round < 3; round++) for (const name of ['a', 'b']) expect(page(name, definitions), `${name}, round ${round}`).toEqual(page(name));
+  } finally { delete (globalThis as { __snLink?: unknown }).__snLink; C['x-link'] = was; }
+  expect(stats.hits).toBeGreaterThan(0);
+});

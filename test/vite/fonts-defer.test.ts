@@ -66,7 +66,7 @@ const REAL_CSS = [
 ].join('\n');
 
 /** pages: an early one (a text from the URL, rendered by its early file) and, with `staticPage`, one with nothing to run, both linking app.css */
-async function site(opts: { real?: boolean; preload?: Parameters<typeof sinter>[0] extends infer O ? O extends { fonts?: infer F } ? F extends { preload?: infer P } ? P : never : never : never; staticPage?: boolean; base?: string } = {}) {
+async function site(opts: { real?: boolean; preload?: Parameters<typeof sinter>[0] extends infer O ? O extends { fonts?: infer F } ? F extends { preload?: infer P } ? P : never : never : never; staticPage?: boolean; base?: string; body?: string } = {}) {
   const root = mkdtempSync(join(tmpdir(), 'sinter-fonts-defer-'));
   dirs.push(root);
   mkdirSync(join(root, 'files'));
@@ -75,7 +75,7 @@ async function site(opts: { real?: boolean; preload?: Parameters<typeof sinter>[
   if (opts.real) for (const [f, b] of Object.entries(REAL)) writeFileSync(join(root, `files/${f}.ttf`), Buffer.concat([b, Buffer.alloc(8192)]));
   writeFileSync(join(root, 'app.css'), opts.real ? `${CSS}\n${REAL_CSS}` : CSS);
   const head = '<meta charset="utf-8"><title>t</title><link rel="stylesheet" href="./app.css">';
-  writeFileSync(join(root, 'index.html'), `<!doctype html><html lang="en"><head>${head}</head><body><p data-sn-text="$url.q"></p></body></html>`);
+  writeFileSync(join(root, 'index.html'), `<!doctype html><html lang="en"><head>${head}</head><body>${opts.body ?? '<p data-sn-text="$url.q"></p>'}</body></html>`);
   const input = [join(root, 'index.html')];
   if (opts.staticPage) {
     writeFileSync(join(root, 'about.html'), `<!doctype html><html lang="en"><head>${head}</head><body><p>About us.</p></body></html>`);
@@ -232,4 +232,31 @@ test('withFallbackFamilies: the fitted family after the web font in font lists, 
   const css = `@font-face{font-family:"Inter";src:url(a.woff2)}body{font-family:Inter,sans-serif}h1{font:italic 700 2rem/1.2 "Inter", serif}:root{--f: 'inter' ;--g:Inter Tight,serif}p{font-family:Inter!important}code{font-family:"Inter","Inter Fallback",monospace}a{font-family:Arial}`;
   expect(withFallbackFamilies(css, ['Inter'])).toBe(`@font-face{font-family:"Inter";src:url(a.woff2)}body{font-family:Inter,"Inter Fallback",sans-serif}h1{font:italic 700 2rem/1.2 "Inter","Inter Fallback", serif}:root{--f: 'inter' ,"Inter Fallback";--g:Inter Tight,serif}p{font-family:Inter,"Inter Fallback"!important}code{font-family:"Inter","Inter Fallback",monospace}a{font-family:Arial}`);
   expect(withFallbackFamilies(css, [])).toBe(css);
+});
+
+test('a page whose early work the build left out (a branch its state closes at first) keeps its early file, and its fonts after the load', async () => {
+  const { read } = await site({ body: '<main data-sn-state="{ open: false }"><button data-sn-on-click="open = !open">menu</button><template data-sn-if="open"><nav>menu</nav></template></main>' });
+  const html = read('index.html'), l = linksOf(html);
+  // the faces are deferred as on any page with an early file: the stylesheet in <noscript>, before the head scripts
+  expect(l.fonts).not.toBeNull();
+  expect(l.scripts).toHaveLength(2);
+  expect(html.indexOf('<noscript data-sn-fonts=')).toBeLessThan(html.indexOf(l.scripts[0]!));
+  expect(read(l.sheets[0]!)).not.toMatch(/swap-400-[\w-]+\.woff2/);
+  // its own early file: the call of the loader (the head script's here, where every page has it), and nothing of the
+  // branch (no anchor rendered, no state made)
+  const own = read(l.scripts.find((x) => !/sinter-head-/.test(x))!);
+  expect(l.scripts.map(read).join('')).toContain('sn-fonts');
+  expect(own).toMatch(/fonts:\w+/);
+  expect(own).not.toContain('.open');
+  expect(own).toMatch(/scopes:\(\)=>\[\],render:\(\)=>\{\}/);
+  // the branch's markup is at the end of the body, not in the head
+  expect(html.slice(0, html.indexOf('</head>'))).not.toContain('<nav>menu</nav>');
+});
+
+test('a page that never had anything to run early has no head script, as before: its faces stay in its stylesheet', async () => {
+  const { read } = await site({ body: '<main data-sn-state="{ n: 0 }"><button data-sn-on-click="n++">+</button><p data-sn-text="n"></p></main>' });
+  const l = linksOf(read('index.html'));
+  expect(l.scripts).toEqual([]);
+  expect(l.fonts).toBeNull();
+  expect(read(l.sheets[0]!)).toMatch(/swap-400-[\w-]+\.woff2/);
 });

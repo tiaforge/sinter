@@ -7,6 +7,7 @@
 // one chunk, `runtime/security` and `url`, and hold copies of the rest), so what they
 // share goes through a global: `start` (early file) and `rendered` (page module, from the core) meet there.
 import { config, signInTarget } from './runtime/config.js';
+import { CONFIG, EMBEDDED } from './runtime/early-flags.js';
 import type { Env } from './runtime/env.js';
 import { meeting, prefetched, setPrefetched, type EarlyApi, type Prefetched } from './runtime/handoff.js';
 import { schemesOf, STYLE_BAD, urlAllowed } from './runtime/security.js';
@@ -257,13 +258,15 @@ function scope(o: ReturnType<EarlyPage>, req: EarlyRequests | null): any {
   const more = (h: string, u: any) => (o.lists ? o.lists(h, o.ir.urlArrays!, u) : u);
   return new Proxy(Object.create(null), {
     get(_, k) {
-      // a state field the build computed, embedded in the head (parsed when the early script runs: the head is there)
+      // a state field the build computed, embedded in the head: parsed when the early script runs (the compiler writes
+      // the ones this file reads first in the head, and the early script, a build's or the dev server's, comes after them)
       if (k == '$d') return json;
       // `$locale`: `configure({ locale })` from the app's early module, on pages whose early functions read it
       const l = k == '$locale' ? o.locale?.() : null;
       if (l) return l.get();
       // the resources whose data is embedded in the page: read from it (the head is parsed before any binding)
-      if (k == '$r' && o.ir.emb) return (emb ??= embedded(o.ir.emb));
+      // (`EMBEDDED`: off in the head script of a site none of whose pages has embedded data, which then holds no reader)
+      if (EMBEDDED && k == '$r' && o.ir.emb) return (emb ??= embedded(o.ir.emb));
       // the URL, as the page module reads it (a page with early requests reads it there, once for both)
       if (k == '$url' && !req) return (url ??= more(location.href, readUrl(location.href, o.ir.path)));
       // the clock is for requests only: no early binding reads it
@@ -351,7 +354,9 @@ export const $so = (s: 'l' | 's', k: string): boolean => token({ s, k, h: '', p:
 
 /** an API's token, from its storage (`setEnv()`'s in tests), as the request layer reads it; null when none is stored */
 const token = (t: NonNullable<EarlyApi['t']>): string | null => {
-  try { return (t.s == 's' ? (io?.session ? io.session() : sessionStorage) : (io?.storage ? io.storage() : localStorage))?.getItem(t.k) || null; } catch { return null; }
+  // (`CONFIG`: off in a build of an app without an early module, where nothing can have configured an environment)
+  const e = CONFIG ? io : null;
+  try { return (t.s == 's' ? (e?.session ? e.session() : sessionStorage) : (e?.storage ? e.storage() : localStorage))?.getItem(t.k) || null; } catch { return null; }
 };
 
 /** Renders a page's early part (tests; the early file goes through `start`). */
@@ -371,7 +376,7 @@ export function away(o: ReturnType<EarlyPage>, base: any, out: typeof $so, to: (
   if (!g || (document as Document & { prerendering?: boolean }).prerendering) return false;
   // `out`: `$so`, which the page passes (the shared head script's, when every page reads a token: no second copy here)
   try { if (!out(g.t.s, g.t.k) || (g.f != null && !o.fns[g.f]!(base))) return false; } catch { return false; }
-  const e = io;
+  const e = CONFIG ? io : null;
   if (!e) document.documentElement.hidden = true;
   let session: Storage | null = null;
   try { session = e?.session ? e.session() : sessionStorage; } catch { /* none */ }
@@ -402,7 +407,7 @@ function prepare(o: ReturnType<EarlyPage>, req: EarlyRequests | null) {
 /** a persisted value (`sn:<key>`), parsed; undefined when there is none or it cannot be read */
 const read = (key: string): unknown => {
   try {
-    const v = (config.env?.storage ? config.env.storage() : globalThis.localStorage)?.getItem('sn:' + key);
+    const v = (CONFIG && config.env?.storage ? config.env.storage() : globalThis.localStorage)?.getItem('sn:' + key);
     return v == null ? undefined : JSON.parse(v);
   } catch { return undefined; }
 };
@@ -577,7 +582,7 @@ export const set = (el: HTMLElement, v: any, n: string) => {
 };
 /** a URL attribute whose value may have any scheme: written only if the scheme is allowed */
 export const attr = (el: HTMLElement, v: any, n: string) => {
-  if (v == null || v === false || urlAllowed(el, n, v === true ? '' : '' + v, document.baseURI, schemesOf(config.urlSchemes))) set(el, v, n);
+  if (v == null || v === false || urlAllowed(el, n, v === true ? '' : '' + v, document.baseURI, schemesOf(CONFIG ? config.urlSchemes : []))) set(el, v, n);
 };
 export const style = (el: HTMLElement, v: any, n: string) => {
   if (v == null || v === false) el.style.removeProperty(n);

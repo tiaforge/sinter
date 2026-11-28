@@ -89,6 +89,31 @@ describe('an API with a token', () => {
     expect(out.early).toContain('$so("l", "jwt")');
   });
 
+  test('a branch over the data of an operation that needs the token is never open before the page module (null signed out and while it loads): not in the early file; the signed-out branch is', () => {
+    const a = apisOf({ main: MAIN, other: { openapi: OTHER as unknown as string } });
+    const page = PAGE.replace('<ul>', '<template data-sn-if="user && !$meta.user.error"><b data-sn-text="user.name"></b></template><template data-sn-if="user && !$meta.user.error"><i>in</i></template><template data-sn-else><u>out</u></template><ul>');
+    const early = compileParts(page, { file: '/app/index.html', root: '/app', dev: false, readFile: () => '', moduleSrc: '/page.js', helpers: { module: null, names: [], namespaces: {} }, prerender: true, early: { module: null }, apis: a.apis, openapi: a.openapi, origins: ['https://api.example.com'] }).early!;
+    const ifs = early.ir.roots.flatMap((n) => n.b).filter((b) => b.k === 'if');
+    // the signed-out branch, and the one with an else (its else shows): not the plain one over `user`, whose condition
+    // is `null && !null` once the state at mount is written in
+    expect(ifs).toHaveLength(2);
+    expect(ifs.filter((b) => b.z !== undefined)).toHaveLength(1);
+    expect(early.fns.filter((c) => c.includes('null && !null'))).toHaveLength(1);
+    expect(early.fns.some((c) => c.includes('$so("l", "jwt")'))).toBe(true);
+  });
+
+  test('such a branch whose condition, the state at mount written in, is not made of literals and operators alone: kept (the rule reads nothing else), though it is false where the build runs', () => {
+    const a = apisOf({ main: MAIN, other: { openapi: OTHER as unknown as string } });
+    const ifs = (cond: string) => {
+      const page = PAGE.replace('<ul>', `<template data-sn-if="${cond}"><b data-sn-text="user.name"></b></template><ul>`);
+      const early = compileParts(page, { file: '/app/index.html', root: '/app', dev: false, readFile: () => '', moduleSrc: '/page.js', helpers: { module: null, names: [], namespaces: {} }, prerender: true, early: { module: null }, apis: a.apis, openapi: a.openapi, origins: ['https://api.example.com'] }).early!;
+      return early.fns.filter((c) => c.includes('[].length') || c.includes('null && !null')).length;
+    };
+    // the reference: left out, with its function
+    expect(ifs('user && !$meta.user.error')).toBe(0);
+    expect(ifs('(user || [].length) && !$meta.user.error')).toBe(1);
+  });
+
   test('a signIn path needs none of loginRedirect\'s options; a signIn of its options passes signInTarget', () => {
     expect(build({}, { main: { ...MAIN, token: { ...MAIN.token, signIn: '/login' } }, other: { openapi: OTHER as unknown as string } }).out.module).toContain('$tokens();');
     const { out } = build({}, { main: { ...MAIN, token: { ...MAIN.token, signIn: { to: '/login', returnUrl: { allow: ['/'], param: 'next' } } } }, other: { openapi: OTHER as unknown as string } });

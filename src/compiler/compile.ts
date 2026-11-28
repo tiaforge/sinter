@@ -231,6 +231,13 @@ export interface CompileOptions {
   /** the early module runs as a classic script in the head, started by `observe` (see `@tiaforge-ui/sinter/runtime/early`); with `early.src`, its tag is classic */
   observe?: boolean;
   /**
+   * builds: the text of a comment (`<!--headMark-->`) the compiler writes in the head where the head scripts go,
+   * which the Vite plugin replaces with them (src/vite.ts) once the bundle names them: after the leading `<meta>`s,
+   * the values the early script reads and the preconnect and preload links, before the first stylesheet, module
+   * preload or script (`injectScript`). Taken from the page's tree, so no text inside an element can be the place.
+   */
+  headMark?: string;
+  /**
    * builds served by a server that fills embedded data (sinter-axum): every resource whose request
    * only the page's URL decides gets a placeholder in the head, so it is neither preloaded nor
    * requested early; not `call`, `each`, or `early="off"` (a request a middleware changes)
@@ -373,6 +380,8 @@ export interface CompileResult {
   html: string;
   /** the parts of the core its page module uses (`coreParts`, src/core-parts.ts); absent for a static page */
   core?: string[];
+  /** the parts of the early runtime its early file uses (`earlyRuntimeParts`, src/runtime/early-flags.ts); absent without an early file */
+  earlyRuntime?: string[];
   /** the page loads query-links: its Speculation Rules leave out its own URLs with another query */
   sameLinks?: true;
   /** the page module; with `static`, the HTML does not load it */
@@ -2950,6 +2959,7 @@ class Compiler {
     this.guard = this.signedInGuard();
     let early = this.opts.early ? this.earlyParts() : undefined;
     this.placeTemplates(doc, early);
+    this.placeFolded(doc, early);
     if (early && this.opts.sourcemap) early.sources = this.sourcesOf(early.fns, this.earlySites);
     // (after the passes that read one binding per property: the constants written at build time, the early file)
     const styleGroups = this.groupStyles();
@@ -6727,6 +6737,9 @@ class Compiler {
           const id = this.nextId++;
           this.embedded.set(name, id);
           setAttr(el, 'data-sn', String(id));
+          // its `<` as `<`, which JSON reads back the same (it stands only inside strings there): no text inside
+          // the data looks like a tag, `</head>` or `<script` (a text search of the page, Vite's or a server's, would take it for one)
+          for (const c of el.childNodes) if (c.nodeName === '#text') (c as { value: string }).value = (c as { value: string }).value.replace(/</g, '\\u003c');
         }
       }
       stripSn(el);
@@ -9525,7 +9538,9 @@ class Compiler {
     const work = this.worklist(fnOf, known, fixed, schemes, ROW, keep ? this.evalProgram!.walk : undefined, rowFns, written);
     for (const c of cands) {
       own = c.b.k === 'model' && c.b.p !== undefined ? (c.b.w![0] as string).split('.').slice(0, 2).join('.') : null;
-      let v = known(strs(c.b.d)) ? run(this.fns[c.f]!) : FAIL;
+      // (an if that is a candidate for its `$build` alone, over state something writes: `$build` is true only where all that
+      // is read is a build-time constant, so the build does not evaluate it over the initial values; as the browser, below)
+      let v = known(strs(c.b.d)) && !(c.if && !fixed(c.b.d)) ? run(this.fns[c.f]!) : FAIL;
       // an if over `$build` the build cannot decide (it reads data only the browser has): evaluated as the browser will see
       // it, `$build` undefined and anything not a build-time constant unreadable; one that comes out without reading such
       // data is what every visitor gets, so it is decided and the page ships that branch alone (docs/static-pages.md)
@@ -9711,7 +9726,8 @@ class Compiler {
     for (const f of this.foldedFields) {
       const st = this.stateInits.find((x) => x.sid === f.sid), x = st?.fields.find((y) => y.key === f.key);
       const node = [...this.roots, ...this.templates.flatMap((t) => t.nodes)].find((n) => n.sid === f.sid && n.state !== undefined);
-      if (!x || !node || !x.code.startsWith('($) => (')) continue;
+      // (`undefined` has no JSON: the field stays the browser's to compute, as any value the build cannot embed)
+      if (!x || !node || !x.code.startsWith('($) => (') || f.value === undefined) continue;
       const body = x.code.slice('($) => ('.length, -1), init = this.fns[node.state!]!;
       // the field's expression, once in the state's initializer: replaced by the read of its value
       if (init.split(body).length !== 2) continue;
@@ -9734,6 +9750,45 @@ class Compiler {
       const el = parse5.parseFragment(`<script type="application/json" data-sn="${id}">${json}</script>`).childNodes[0] as P5Element;
       el.parentNode = this.headEl;
       this.headEl.childNodes.push(el as never);
+    }
+  }
+
+  /** the values `placeFolded` put first in the head, for the early script: it stands after them (`injectScript`, src/vite.ts) */
+  private readonly earlyValues = new WeakSet<P5Element>();
+  /**
+   * Where the head's leading `<meta>`s end, and the values the early script reads after them (`placeFolded`). Never
+   * before the head's charset declaration (`<meta charset>`, `<meta http-equiv="content-type">`), wherever it stands: a
+   * browser looks for it in the page's first 1,024 bytes only, which a value before it could fill.
+   */
+  private headStart(head: P5Element): number {
+    const charset = head.childNodes.findIndex((n) => isElement(n) && n.tagName === 'meta' && (attr(n, 'charset') !== undefined || (attr(n, 'http-equiv') ?? '').toLowerCase() === 'content-type'));
+    let at = charset + 1;
+    for (let i = at; i < head.childNodes.length; i++) { const n = head.childNodes[i]!; if (isElement(n) && n.tagName !== 'meta' && !this.earlyValues.has(n)) break; if (isElement(n)) at = i + 1; }
+    return at;
+  }
+
+  /**
+   * Where a value `foldScriptsOut` wrote goes. One that an early function reads (`$.$d(id)`): after the head's leading
+   * `<meta>`s, before the early script wherever it comes from (the dev server's tag, `injectScript`; a build's head
+   * scripts, src/vite.ts), which makes the page's states as it starts and reads each value from the head parsed so
+   * far. One that no early function reads: at the end of the `<body>`, where nothing waits for it (the page module
+   * finds any by its id when it mounts).
+   */
+  placeFolded(doc: P5Parent, early: EarlyParts | null | undefined) {
+    const body = findBody(doc);
+    if (!body || !this.headEl) return;
+    for (const el of this.headEl.childNodes.filter(isElement)) {
+      const id = el.tagName === 'script' ? Number(attr(el, 'data-sn') ?? NaN) : NaN;
+      if (!this.foldScripts.has(id)) continue;
+      detach(el);
+      if (early?.fns.some((c) => c.includes(`$.$d(${id})`))) {
+        el.parentNode = this.headEl;
+        this.headEl.childNodes.splice(this.headStart(this.headEl), 0, el as never);
+        this.earlyValues.add(el);
+        continue;
+      }
+      el.parentNode = body as never;
+      body.childNodes.push(el as never);
     }
   }
 
@@ -13188,14 +13243,36 @@ class Compiler {
       reqFields.set(st.sid, f);
     }
     const fns: string[] = [], index = new Map<string, number>();
-    const fn = (code: string) => { let i = index.get(code); if (i === undefined) index.set(code, (i = fns.push(code) - 1)); return i; };
+    /**
+     * `$build` as the browser has it, written into a function of the early file: undefined (the page module's scope
+     * answers so for a name it does not know; the early script's throws for one, and the binding would wait for the page
+     * module: an `if` over `!$build && open` painted neither branch)
+     */
+    const noBuild = (code: string): string => {
+      if (!code.includes('$.$build')) return code;
+      let ast: any;
+      try { ast = parseExpression(code); } catch { return code; }
+      const at: Array<[number, number]> = [];
+      const visit = (n: any) => {
+        if (!n || typeof n.type !== 'string') return;
+        if (n.type === 'MemberExpression' && !n.computed && n.object.type === 'Identifier' && n.object.name === '$' && n.property.name === '$build') { at.push([n.start, n.end]); return; }
+        for (const k of Object.keys(n)) { const v = n[k]; if (Array.isArray(v)) v.forEach(visit); else if (v && typeof v === 'object') visit(v); }
+      };
+      visit(ast);
+      for (const [a, b] of at.reverse()) code = code.slice(0, a) + '(void 0)' + code.slice(b);
+      return code;
+    };
+    const fn = (code: string) => { code = noBuild(code); let i = index.get(code); if (i === undefined) index.set(code, (i = fns.push(code) - 1)); return i; };
     /**
      * A binding over the resources the early file knows, with their state at mount written in: `[]` (null for one object)
      * for the data, `{ loading, error: null, loadedAt: null }` for the status, loading when the `when` holds. A resource
      * with `cache` checks first that this tab has cached nothing (else it throws, and the page module renders the binding).
      */
+    /** the last `status()`'s code before its checks: the binding's value once they pass */
+    let written = '';
     const status = (code: string): string => {
       let ast: acorn.Node;
+      written = code;
       try { ast = parseExpression(code); } catch { return code; }
       const edits: Array<[number, number, string]> = [];
       const checks = new Set<number>(), reads = new Set<string>(), up = new Map<any, any>();
@@ -13264,6 +13341,7 @@ class Compiler {
       if (!edits.length) return code;
       let out = code;
       for (const [a, b, t] of edits.sort((x, y) => y[0] - x[0])) out = out.slice(0, a) + t + out.slice(b);
+      written = out;
       // a tab that has cached or prefetched rows of these: the binding throws, and the page module renders it; an embedded
       // resource's data, read first: a placeholder the server left empty throws, and the page module loads it
       const first = [...[...checks].map((i) => `f[${i}]()`), ...[...reads].map((n) => `$.$r${/^[A-Za-z_$][\w$]*$/.test(n) ? `.${n}` : `[${JSON.stringify(n)}]`}`)];
@@ -13378,9 +13456,81 @@ class Compiler {
       const code = this.fns[b.f!]!;
       return shows(code, names, { loading: true }, [], data) === false && shows(code, names, { loading: false }, [], data) === false;
     };
+    /** the page's persisted models, by the path each writes (`$s<n>.<field>`, or below a field, or an item's, a prop's) */
+    const stored = [...this.roots, ...this.templates.flatMap((t) => t.nodes)].flatMap((nd) => nd.b).filter((b) => b.k === 'model' && b.p !== undefined).map((b) => String(b.w?.[0]));
+    /**
+     * Whether what the page keeps in storage is followed: every persisted model writes a state's whole field. One that
+     * writes anything else (a member of what a field holds, an item, a prop) writes where the build does not look, and
+     * nothing on the page is taken to start as written.
+     */
+    const followed = stored.every((p) => /^\$s\d+\.[^.]+$/.test(p));
+    const NONE = Symbol('not known');
+    /**
+     * The value a state field (`$s<n>.<field>`) starts with, in the early script and in the page module alike, when it
+     * is a primitive (a string, a finite number, a boolean, null) that nothing stored can replace: its state is not
+     * persisted, no persisted model writes it, and its initializer is that literal, or a value the build computed and
+     * embedded (`$.$d(id)`), as the browser reads it back from its JSON. A primitive is no one else's to change through
+     * a copy. NONE for anything else: an object or a list, a field computed in the browser, one that reads another, a
+     * field its literal names more than once (`{ open: false, open: true }`, quoted or not: JavaScript keeps the last).
+     */
+    const startValue = (d: string): unknown => {
+      const m = /^\$s(\d+)\.([^.]+)$/.exec(d);
+      const st = m ? this.stateInits.find((x) => x.sid === Number(m[1])) : undefined, xs = st?.fields.filter((y) => y.key === m![2]) ?? [], x = xs[0]!;
+      if (!st || xs.length !== 1 || st.persist || stored.includes(d)) return NONE;
+      const emb = /^\(\$\) => \(\$\.\$d\((\d+)\)\)$/.exec(x.code);
+      let v: unknown = NONE;
+      if (emb) { try { v = JSON.parse(this.foldScripts.get(Number(emb[1]))!); } catch { return NONE; } } else {
+        let ast: any;
+        try { ast = parseExpression(x.code); } catch { return NONE; }
+        const e = ast?.type === 'ArrowFunctionExpression' ? ast.body : null, neg = e?.type === 'UnaryExpression' && e.operator === '-' && e.argument.type === 'Literal' && typeof e.argument.value === 'number';
+        if (neg) v = -e.argument.value; else if (e?.type === 'Literal' && !e.regex) v = e.value;
+      }
+      return v === null || typeof v === 'string' || typeof v === 'boolean' || (typeof v === 'number' && Number.isFinite(v)) ? v : NONE;
+    };
+    /**
+     * Whether a condition is false when the page starts, for every visitor: it is made of whole state fields, literals
+     * and operators alone (`fieldsOnly`), each field starts with a primitive nothing stored can replace (`startValue`),
+     * and over those values it evaluates false (here: operators over primitives, the same on any machine). Anything
+     * else, an evaluation that throws included, is not known to be false.
+     */
+    const startsFalse = (code: string): boolean => {
+      code = noBuild(code);
+      const reads = followed ? fieldsOnly(code) : null;
+      if (!reads) return false;
+      const $: Record<string, Record<string, unknown>> = {};
+      for (const d of reads) { const v = startValue(d), [s, f] = d.split('.') as [string, string]; if (v === NONE) return false; ($[s] ??= {})[f] = v; }
+      // eslint-disable-next-line no-new-func -- build time only: literals, operators and the fields above (`fieldsOnly`)
+      try { return !new Function('$', `"use strict"; return (${code})($);`)($); } catch { return false; }
+    };
+    /**
+     * A `data-sn-if` (without a `data-sn-else`) whose condition is false when the page starts (`startsFalse`): the early
+     * script would render nothing for it, and the page module mounts with it closed, so the binding is left out, with
+     * the templates, functions and state fields only it needs. Anything else is kept.
+     */
+    const closedByState = (b: Binding) => b.k === 'if' && b.z === undefined && startsFalse(this.fns[b.f!]!);
+    /**
+     * A `data-sn-if` (without a `data-sn-else`) whose condition, with the resources' state at mount written in (`status`),
+     * reads nothing any more and is false (`user` on an API with a token: null signed out and while it loads): the early
+     * script would render nothing, whether its checks pass or throw. Left out, with what the look added to the table.
+     */
+    const closedAsWritten = (b: Binding) => {
+      if (b.k !== 'if' || b.z !== undefined) return false;
+      const mark = fns.length;
+      status(this.fns[b.f!]!);
+      for (const c of fns.splice(mark)) index.delete(c);
+      // (a state field left in it is read off no scope, and throws: not closed)
+      if (!fieldsOnly(written)) return false;
+      // eslint-disable-next-line no-new-func -- build time only: literals and operators (`fieldsOnly`), nothing in scope
+      try { return !new Function(`"use strict"; return (${written})();`)(); } catch { return false; }
+    };
+    /**
+     * whether something that would be in the early file was left out because it would do nothing there (`closedByState`,
+     * `closedAsWritten`, a request whose `when` is closed): a page with nothing else early keeps an early file, empty (below)
+     */
+    let left = false;
     const list = (defs: NodeDef[]): NodeDef[] => {
       // a dialog's bindings wait until it opens (as in the runtime): nothing of a closed dialog is painted
-      const bs = defs.map((nd) => (nd.dl || this.lateNodes.has(nd) ? [] : nd.b.filter(eligible).filter((b) => !closedAtMount(b))));
+      const bs = defs.map((nd) => (nd.dl || this.lateNodes.has(nd) ? [] : nd.b.filter(eligible).filter((b) => !closedAtMount(b)).filter((b) => !(closedByState(b) || closedAsWritten(b)) || !(left = true))));
       for (const nd of defs) if (!nd.dl && !this.lateNodes.has(nd)) for (const b of nd.b) unrendered(b);
       const keep = new Map<number, number>();
       defs.forEach((nd, i) => { if (nd.state !== undefined || bs[i]!.length) keep.set(i, keep.size); });
@@ -13399,7 +13549,8 @@ class Compiler {
           reads.push(...strs(b.d), ...strs(b.w));
           const nb: Binding = { k: b.k, f: fn(status(this.fns[b.f!]!)) };
           if (b.n !== undefined) nb.n = b.n;
-          if (b.k === 'model') { nb.a = fn(this.fns[b.a!]!); if (b.p !== undefined) nb.p = b.p; }
+          // (the setter is for a persisted model's stored value alone: `pm`)
+          if (b.k === 'model' && b.p !== undefined) { nb.a = fn(this.fns[b.a!]!); nb.p = b.p; }
           if (b.k === 'if') { nb.x = tpl(b.x!); if (b.z !== undefined) nb.z = tpl(b.z); }
           if (b.k === 'for') nb.x = tpl(b.x!);
           if (b.k === 'ch') nb.c = b.c!.map(tpl);
@@ -13455,11 +13606,19 @@ class Compiler {
       const codes = [...def.src.filter((x): x is number => typeof x === 'number'), ...(def.when != null ? [def.when] : []), ...(start != null ? [start] : [])].map((i) => this.fns[i]!);
       const scope = (def.scope ?? -1) < 0 ? -1 : rootKeep.get(def.scope!);
       if (scope === undefined || codes.some(builtin) || codes.some((c) => /\$(r|meta|el)\b/.test(c))) continue;
+      // its `when` is false when the page starts (`startsFalse`): the early script would not send the request (`q` sends
+      // only where `u()` is truthy), nor does the page module at mount; it requests it when the state lets it
+      if (def.when != null && startsFalse(this.fns[def.when]!)) { left = true; continue; }
       reads.push(...strs(def.deps));
       url ||= codes.some((c) => c.includes('$url'));
       res.push({ src: def.src.map((x) => (typeof x === 'number' ? fn(this.fns[x]!) : x)), ...(def.when != null ? { when: fn(this.fns[def.when]!) } : {}), scope, ...(def.paginate ? { q: firstParams(def.paginate) } : {}), ...(def.paginate && start != null ? { sp: startOf(def.paginate, fn(this.fns[start]!)) } : {}), ...(def.lo ? { lo: 1 as const } : {}), ...(where === 'listed' ? { xo: 1 as const } : {}), ...(settings(def.name)), ...(this.needsToken.has(def.name) || def.so ? { r: 1 as const } : {}) });
     }
-    if (!roots.some((n) => n.b.length) && !res.length && !this.guard) return null;
+    if (!roots.some((n) => n.b.length) && !res.length && !this.guard) {
+      // nothing to run early. Where that is only because the build left out what would do nothing, the page keeps an early
+      // file with nothing in it: what a build ties to a page having one stays as it was (its web fonts load after the
+      // window's `load`, docs/first-paint.md#fonts-after-the-load; the page module waits for it as before)
+      return left ? { ir: { roots: [], templates: [] }, fns: [], helpers: [], namespaces: {} } : null;
+    }
     // only the state fields the early bindings read (and the fields those read): a field whose
     // initializer calls a heavy helper stays out of the early chunk unless something shown needs it
     const need = new Map<number, Set<string> | 'all'>();
@@ -14184,24 +14343,19 @@ class Compiler {
       const links = [...preconnects(this.resources, this.syncs).map((o) => `<link rel="preconnect" href="${esc(o)}" crossorigin>`), ...this.preloadLinks()]
         .map((t) => parse5.parseFragment(t).childNodes[0] as P5Element);
       for (const l of links) l.parentNode = head;
-      // after the leading <meta>s (charset first), before stylesheets and scripts
-      let at = 0;
-      for (let i = 0; i < head.childNodes.length; i++) { const n = head.childNodes[i]!; if (isElement(n) && n.tagName !== 'meta') break; if (isElement(n)) at = i + 1; }
-      head.childNodes.splice(at, 0, ...(links as never[]));
+      // after the leading <meta>s (charset first) and the values the early script reads, before stylesheets and scripts
+      head.childNodes.splice(this.headStart(head), 0, ...(links as never[]));
     }
     if (early) {
-      // with `observe`, a classic script (the dev server bundles it) after the leading <meta>s, before stylesheets
-      // (a classic script waits for those before it) and scripts: it renders as the parser goes; else a
-      // render-blocking module, before the page module
+      // with `observe`, a classic script (the dev server bundles it) after the leading <meta>s and the values it reads
+      // (`placeFolded`), before stylesheets (a classic script waits for those before it) and scripts: it renders as the
+      // parser goes; else a render-blocking module, before the page module
       const observe = !!this.opts.observe;
       const tag = parse5.parseFragment(observe ? `<script src="${esc(early)}"></script>` : `<script type="module" src="${esc(early)}" blocking="render"></script>`).childNodes[0] as P5Element;
       tag.parentNode = head;
       OWN_SCRIPTS.add(tag);
-      if (observe) {
-        let at = 0;
-        for (let i = 0; i < head.childNodes.length; i++) { const n = head.childNodes[i]!; if (isElement(n) && n.tagName !== 'meta') break; if (isElement(n)) at = i + 1; }
-        head.childNodes.splice(at, 0, tag as never);
-      } else head.childNodes.push(tag as never);
+      if (observe) head.childNodes.splice(this.headStart(head), 0, tag as never);
+      else head.childNodes.push(tag as never);
     }
     const src = this.opts.moduleSrc ?? `./${basename(this.opts.file).replace(/\.html?$/, '')}.sinter.js`;
     const frag = parse5.parseFragment(`<script type="module" src="${esc(src)}"></script>`);
@@ -14209,6 +14363,17 @@ class Compiler {
     script.parentNode = head;
     OWN_SCRIPTS.add(script);
     head.childNodes.push(script as never);
+    // builds: where the Vite plugin writes the head scripts (`headMark`), before the first of the head's own elements
+    // that is a stylesheet, a module preload or a script (a classic script waits for the stylesheets before it, and the
+    // page module waits for the early script); the values the early script reads are no such script (`placeFolded`).
+    // Not before the charset declaration (`headStart`), even where a stylesheet or script of the page's own is
+    if (this.opts.headMark) {
+      const start = this.headStart(head);
+      const first = head.childNodes.findIndex((n, i) => i >= start && isElement(n) && (n.tagName === 'script' ? !this.earlyValues.has(n) : n.tagName === 'link' && /^(stylesheet|modulepreload)/i.test(attr(n, 'rel') ?? '')));
+      const mark = parse5.parseFragment(`<!--${this.opts.headMark}-->`).childNodes[0]!;
+      mark.parentNode = head;
+      head.childNodes.splice(first, 0, mark as never);
+    }
   }
 }
 
@@ -15266,6 +15431,37 @@ function unitCands(u: BuildUnit, tplEls: Map<NodeDef, P5Element>, fns: string[])
 }
 
 /** a binding `prerender` evaluates: `tpl`, in a template's content, written there only when it can never change; `if`, a condition decided for a second pass; `for`, a loop unrolled in it */
+/**
+ * The state fields (`$s<n>.<field>`) a compiled expression (`($) => (…)`) reads, when it is made of nothing but whole
+ * fields of states, literals and operators. Null for anything else: a member of what a field holds, a call, a function,
+ * an array or an object, a global, the URL, the clock, a resource, an item, `$el`. An allow-list: over primitive
+ * values, what such code evaluates to is the same at build time and in the browser, whatever the machine.
+ */
+export function fieldsOnly(code: string): string[] | null {
+  let ast: any;
+  try { ast = parseExpression(code); } catch { return null; }
+  if (ast?.type !== 'ArrowFunctionExpression' || ast.params.length !== 1 || ast.params[0].type !== 'Identifier' || ast.params[0].name !== '$' || ast.body.type === 'BlockStatement') return null;
+  const fields = new Set<string>();
+  const ok = (n: any): boolean => {
+    switch (n?.type) {
+      case 'Literal': return !n.regex;
+      case 'TemplateLiteral': return n.expressions.every(ok);
+      case 'Identifier': return n.name === 'undefined' || n.name === 'NaN' || n.name === 'Infinity';
+      case 'UnaryExpression': return n.operator !== 'delete' && ok(n.argument);
+      case 'BinaryExpression': case 'LogicalExpression': return ok(n.left) && ok(n.right);
+      case 'ConditionalExpression': return ok(n.test) && ok(n.consequent) && ok(n.alternate);
+      case 'MemberExpression': {
+        // `$.$s<n>.<field>`, the field itself: the one read there is (nothing is read off a value)
+        const o = n.object;
+        if (o.type !== 'MemberExpression' || o.object.type !== 'Identifier' || o.object.name !== '$' || o.computed || n.computed || o.property.type !== 'Identifier' || n.property.type !== 'Identifier' || !/^\$s\d+$/.test(o.property.name)) return false;
+        fields.add(`${o.property.name}.${n.property.name}`);
+        return true;
+      }
+    }
+    return false;
+  };
+  return ok(ast.body) ? [...fields] : null;
+}
 type EvalCand = { el: P5Element; b: Binding; f: number; tpl?: true; if?: true; for?: true };
 
 /** what the worklist reads of the program, by node, binding and case (`worklist`): asked once per evaluation, or per kept template */

@@ -22,6 +22,12 @@ describe('parseDocument', () => {
     expect(out).toBe('<!DOCTYPE html><html><head>\n  <meta charset="utf-8">\n  <x-seo a="1"></x-seo>\n  <slot name="head"></slot>\n  <link rel="stylesheet" href="/a.css">\n</head><body><p>x</p></body></html>');
   });
 
+  test('the text `</head>` inside a script, embedded data, a title or a comment does not end the head', () => {
+    const html = '<!doctype html><html><head>\n<title>a </head> b</title><script>const s = "</head>";</script><!-- </head> -->\n<script type="application/json">{"t":"</head>"}</script><x-seo></x-seo><link rel="stylesheet" href="/a.css"></head><body><p>x</p></body></html>';
+    const out = parse5.serialize(parseDocument(html));
+    expect(out).toBe('<!DOCTYPE html><html><head>\n<title>a &lt;/head&gt; b</title><script>const s = "</head>";</script><!-- </head> -->\n<script type="application/json">{"t":"</head>"}</script><x-seo></x-seo><link rel="stylesheet" href="/a.css"></head><body><p>x</p></body></html>');
+  });
+
   test('offsets are those of the source', () => {
     const html = '<!doctype html><html><head>\n<x-seo></x-seo><title>t</title></head><body><p id="b">x</p></body></html>';
     const doc = parseDocument(html);

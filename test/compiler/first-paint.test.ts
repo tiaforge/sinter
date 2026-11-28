@@ -55,7 +55,7 @@ test('the early module: the app\'s early module first, then the bindings that ne
     </nav>`), { m: ['nav', 'mail', 'hello', 'unused'] }, ['fmt', 'other'], { module: '/src/sinter.early.ts', src: '/@sinter/early/index.html.js' });
   // the early runtime's parts the compiled renderer calls: the writers of the kinds it has, nothing else
   // (`aria-label` is no URL attribute: written without the browser's URL check)
-  expect(early).toMatch(/^import "\/src\/sinter\.early\.ts";\nimport \{ run, \$k, byId, model, pm, set, st, text, w \} from '@tiaforge-ui\/sinter\/runtime\/early';\nimport \{ fmt \} from "\/h\.js";\nimport \{ nav as m\$nav, mail as m\$mail \} from "\/m\.js";\n/);
+  expect(early).toMatch(/^import "\/src\/sinter\.early\.ts";\nimport \{ run, byId, model, pm, set, st, text, w \} from '@tiaforge-ui\/sinter\/runtime\/early';\nimport \{ fmt \} from "\/h\.js";\nimport \{ nav as m\$nav, mail as m\$mail \} from "\/m\.js";\n/);
   expect(early).not.toContain('hello');
   expect(early).not.toContain('user.name');
   expect(early).not.toContain('date(');
@@ -70,13 +70,13 @@ test('the early module: the app\'s early module first, then the bindings that ne
 test('built-in formatters: early, each imported only by an early file whose bindings call it; `relative` (the clock) and an app helper of the same name as before', () => {
   const html = (body: string) => `<!doctype html><html><head></head><body data-sn-state="{ d: '2026-01-26T00:00:00Z', n: 1234.5 }">${body}</body></html>`;
   const { early } = build(html('<span data-sn-text="date(d, \'long\')"></span><span data-sn-text="number(n)"></span><span data-sn-text="relative(d)"></span>'));
-  expect(early).toMatch(/^import \{ run, \$k, byId, st, text, w \} from '@tiaforge-ui\/sinter\/runtime\/early';\nimport \{ date, number \} from '@tiaforge-ui\/sinter\/runtime';\n/);
+  expect(early).toMatch(/^import \{ run, byId, st, text, w \} from '@tiaforge-ui\/sinter\/runtime\/early';\nimport \{ date, number \} from '@tiaforge-ui\/sinter\/runtime';\n/);
   expect(early).toContain('date(');
   expect(early).not.toContain('relative(');
   // none called early: none imported
   expect(build(html('<span data-sn-text="relative(d)"></span><span data-sn-text="d"></span>')).early ?? '').not.toMatch(/\b(date|time|datetime|number|bytes)\b/);
   // the app's own `date`: imported from its helpers module, not the early module
-  expect(build(html('<span data-sn-text="date(d)"></span>'), {}, ['date']).early).toMatch(/import \{ run, \$k, byId, st, text, w \} from '@tiaforge-ui\/sinter\/runtime\/early';\nimport \{ date \} from "\/h\.js";/);
+  expect(build(html('<span data-sn-text="date(d)"></span>'), {}, ['date']).early).toMatch(/import \{ run, byId, st, text, w \} from '@tiaforge-ui\/sinter\/runtime\/early';\nimport \{ date \} from "\/h\.js";/);
 });
 
 test('early state: fields that need no data, persisted values, and the branch of a data-sn-if that reads them', () => {
@@ -104,7 +104,7 @@ test('early state: fields that need no data, persisted values, and the branch of
   // each template it renders is written once into the table, the anchor's call names it
   expect(early).toContain('const B = []; B[0] = (ns, b) => { const n = [at(ns, [0], "div")]; w(n[0], f[1], b, text); };');
   expect(early).toContain('w(n[2], f[0], s[1], (t, v) => iff(t, v, 0, 2, B[0], 0, s[1]));');
-  expect(early).toContain("import { run, $k, at, byId, iff, sp, st, text, w } from '@tiaforge-ui/sinter/runtime/early';");
+  expect(early).toContain("import { run, at, byId, iff, sp, st, text, w } from '@tiaforge-ui/sinter/runtime/early';");
 });
 
 test('early bindings over resources, per resource: an embedded one\'s data, a fetched one\'s status, nothing of a fetched one\'s data', () => {
@@ -152,13 +152,15 @@ test('early requests: resources whose URL reads only what is known early (state,
     <body data-sn-state="{ week: monday($now), q: $url.q, sel: null }">
       <sn-resource name="user" src="/api/user"></sn-resource>
       <sn-resource name="days" src="/api/days?start={week}&q={q}" when="view === 'week'"></sn-resource>
-      <sn-resource name="detail" src="/api/x/{sel.id}" when="sel"></sn-resource>
+      <sn-resource name="detail" src="/api/x/{sel.id}" when="sel || q"></sn-resource>
+      <sn-resource name="closed" src="/api/c/{sel.id}" when="sel"></sn-resource>
       <sn-resource name="dep" src="/api/y?u={user.id}"></sn-resource>
       <sn-resource name="pg" src="/api/p?u={user.id}" paginate="{ numbered: true, size: 10 }" key="id"></sn-resource>
       <sn-resource name="fmt" src="/api/z?d={date($now)}"></sn-resource>
       <p data-sn-text="dep.x"></p>
     </body></html>`, {}, ['monday']);
-  // not: one that reads another resource (paginated or not), one that calls a built-in formatter
+  // not: one that reads another resource (paginated or not), one that calls a built-in formatter, one whose `when` the
+  // state's initial values make false (`closed`: the early script would not send it; `detail`'s also reads the URL)
   expect(ir.res.map((r: { src: string[] }) => r.src[0])).toEqual(['/api/days?start=', '/api/x/']);
   // `user` is fixed at build time: a preload link in the head, first, and not requested again by the early file
   expect(html).toMatch(/<head><link rel="preload" as="fetch" crossorigin="" href="\/api\/user"><script/);
@@ -169,7 +171,7 @@ test('early requests: resources whose URL reads only what is known early (state,
   expect(early).toContain('"q": ($.$url.q)');
   expect(early).toContain('import { monday } from "/h.js";');
   // the request machinery only on a page with early requests
-  expect(early).toContain("import { start, $k, $hq, $hv, sp, st, requests } from '@tiaforge-ui/sinter/runtime/early';");
+  expect(early).toContain("import { start, $hq, $hv, sp, st, requests } from '@tiaforge-ui/sinter/runtime/early';");
   // the requests read the root scopes the compiled `scopes` makes; there is nothing to render
   expect(early).toContain('render: () => {}');
   // each request compiled: its `when`, then its URL as the page module makes it (a whole query value through `$hq`)
@@ -201,7 +203,7 @@ test('early requests, paginated: the first page, with the query parameters the p
   expect(html).toContain('<link rel="preload" as="fetch" crossorigin="" href="/api/lit?a=1&amp;limit=10&amp;direction=first">');
   expect(html.match(/rel="preload"/g)).toHaveLength(2);
   // the parameters are added as the runtime adds them; only a page with such a request imports that
-  expect(early).toContain("import { start, $k, $hq, sp, withParams, requests } from '@tiaforge-ui/sinter/runtime/early';");
+  expect(early).toContain("import { start, $hq, sp, withParams, requests } from '@tiaforge-ui/sinter/runtime/early';");
   // a template with a query or a fragment of its own: the parameters merged into it (`withParams`)
   expect(early).toContain('q(() => withParams("/api/mail" + $hq([["box", f[0](n[0])]]), { "limit": "50", "dir": "forward" }));');
   expect(early).toContain('q(() => withParams("/api/more" + $hq([["box", f[0](n[0])]]) + "#x", { "limit": "5", "direction": "first" }));');
@@ -298,4 +300,18 @@ test('OpenAPI `security` decides preloads and early requests: public and cookie 
   // without middleware: a token operation still has no early request (it would be refused)
   expect(preloaded(opts(false))).toEqual(['cart', 'feed', 'plain', 'tags']);
   expect(early(opts(false))).toEqual([]);
+});
+
+test('the early file imports the key guard only where an early function has a computed key; a page says which parts of the early runtime it uses', () => {
+  const imports = (html: string) => /import \{([^}]*)\} from '@tiaforge-ui\/sinter\/runtime\/early'/.exec(build(html).early!)![1]!.split(',').map((x) => x.trim());
+  const plain = `<!doctype html><html><head></head><body data-sn-state="{ tab: 'a', names: { a: 'A' } }" data-sn-persist="ui"><p data-sn-text="tab"></p></body></html>`;
+  expect(imports(plain)).toEqual(['run', 'byId', 'sp', 'text', 'w']);
+  const keyed = plain.replace('data-sn-text="tab"', 'data-sn-text="names[tab]"');
+  expect(build(keyed).early).toContain('$k(');
+  expect(imports(keyed)).toEqual(['run', '$k', 'byId', 'sp', 'text', 'w']);
+  // embedded data: the reader (src/runtime/early-flags.ts), which a build keeps in the head script when a page uses it
+  const embedded = `<!doctype html><html><head><script type="application/json" data-sn-resource="a">{"name":"Ada"}</script></head><body><sn-resource name="a" src="/api/a"></sn-resource><p data-sn-text="a.name"></p></body></html>`;
+  const opts: CompileOptions = { file: '/app/index.html', root: '/app', dev: false, readFile: () => '', moduleSrc: '/page.js', helpers: { module: '/h.js', names: [], namespaces: {} }, prerender: true, early: { module: null } };
+  expect(compile(embedded, opts).earlyRuntime).toEqual(['EMBEDDED']);
+  expect(compile(plain, opts).earlyRuntime).toEqual([]);
 });

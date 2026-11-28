@@ -137,6 +137,94 @@ describe('a folded value the browser still reads is written once, as embedded da
     expect(out.early ?? '').not.toContain('titled');
   });
 
+  test('a helper that returns `undefined` for a field the browser still reads: not embedded (JSON has no such value), the browser calls it', async () => {
+    const html = `<!doctype html><html><head></head><body><main data-sn-state="{ open: false, title: pick('x') }">
+      <button id="t" data-sn-on-click="open = !open"></button><h1 data-sn-text="open ? String(title) : '…'"></h1></main></body></html>`;
+    const pick = (s: string): string | undefined => (s === 'y' ? s : undefined);
+    for (const dev of [true, false]) {
+      const out = build(html, { pick: [pick, yes] }, { early: { module: null }, dev });
+      expect(errors(out)).toEqual([]);
+      expect(out.html).not.toMatch(/<script type="application\/json" data-sn="\d+">/);
+      expect(out.module).toContain('pick');
+    }
+    const r = await render(html, { helpers: { pick } });
+    r.root.querySelector<HTMLElement>('#t')!.click();
+    await r.flush();
+    expect(r.root.querySelector('h1')!.textContent).toBe('undefined');
+  });
+
+  test('a value the early file reads stays in the head; one only the page module reads is at the end of the body', async () => {
+    // `title` shows when the stored `open` is true (the early file names it); `sub` only after a click
+    const html = `<!doctype html><html><head></head><body><main data-sn-state="{ open: false, last: '', title: titled('hello world'), sub: titled('later on') }">
+      <input type="checkbox" data-sn-model="open" data-sn-persist="open"><button data-sn-on-click="last = sub"></button>
+      <h1 data-sn-text="open ? title : '…'"></h1><h2 data-sn-text="last"></h2></main></body></html>`;
+    const out = build(html, { titled: [titled, yes] }, { early: { module: null }, dev: false });
+    expect(errors(out)).toEqual([]);
+    const head = out.html.slice(0, out.html.indexOf('</head>')), body = out.html.slice(out.html.indexOf('<body'));
+    expect(head).toMatch(/<script type="application\/json" data-sn="\d+">"Hello World"<\/script>/);
+    expect(head).not.toContain('Later On');
+    expect(body).toMatch(/<script type="application\/json" data-sn="\d+">"Later On"<\/script>\s*<\/body>/);
+    // the page module finds the one at the end of the body by its id, as it finds the head's
+    const r = await render(html, { helpers: { titled }, firstPaint: true });
+    await r.settle();
+    expect(document.body.lastElementChild!.textContent).toBe('"Later On"');
+    r.root.querySelector('button')!.click();
+    await r.flush();
+    expect(r.root.querySelector('h2')!.textContent).toBe('Later On');
+    (r.root.querySelector('input') as HTMLInputElement).click();
+    await r.flush();
+    expect(r.root.querySelector('h1')!.textContent).toBe('Hello World');
+  });
+
+  test('the early script reads the value: its state is made with every field, a stored model shows it and a branch over another field is as its initial value says', async () => {
+    // (the early script read the value from an element that was not parsed yet when it started: the initializer threw,
+    // the state had no field, and `!done` was painted as true, to be taken out again when the page module mounted)
+    const html = `<!doctype html><html><head></head><body><main data-sn-state="{ pinned: false, done: true, title: titled('hello world') }">
+      <input type="checkbox" data-sn-model="pinned" data-sn-persist="pinned"><button data-sn-on-click="done = !done; title = title + '!'"></button>
+      <template data-sn-if="!done"><p id="todo">to do</p></template><template data-sn-else><p id="fine">done</p></template>
+      <template data-sn-if="pinned"><h1 data-sn-text="title"></h1></template></main></body></html>`;
+    localStorage.setItem('sn:pinned', 'true');
+    try {
+      const early = await firstPaint(html, { helpers: { titled }, storage: localStorage });
+      expect(early.root.querySelector('h1')?.textContent).toBe('Hello World');
+      expect(early.root.querySelector('#todo')).toBeNull();
+      expect(early.root.querySelector('#fine')).not.toBeNull();
+      // and the page module takes that over: the same elements, nothing painted to be removed
+      let fine: Element | null = null;
+      const r = await render(html, { helpers: { titled }, storage: localStorage, firstPaint: { afterEarly: () => { fine = document.querySelector('#fine'); } } });
+      await r.settle();
+      expect(fine).not.toBeNull();
+      expect(document.querySelector('#fine')).toBe(fine);
+      expect(r.root.querySelector('h1')!.textContent).toBe('Hello World');
+    } finally { localStorage.clear(); }
+  });
+
+  test('where the value stands: after the head\'s leading <meta>s, before the early script (the dev server\'s tag) and everything else of the head', async () => {
+    const html = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>t</title><link rel="icon" href="data:,"></head><body><main data-sn-state="{ pinned: false, title: titled('hello world'), sub: titled('second one'), head: parsedSoFar() }">
+      <input type="checkbox" data-sn-model="pinned" data-sn-persist="pinned"><button data-sn-on-click="title = title + '!'; sub = sub + '!'; head = ''"></button>
+      <template data-sn-if="pinned"><h1 data-sn-text="title"></h1><h2 data-sn-text="sub"></h2></template><i data-sn-text="head"></i></main></body></html>`;
+    // (run in the browser alone: it reads the document; the early script calls it as it makes the state, when it starts)
+    const parsedSoFar = () => [...document.head.children].map((e) => e.localName).join(' ');
+    const order = (out: ReturnType<typeof build>) => [...out.html.slice(0, out.html.indexOf('</head>')).matchAll(/<meta|<title|<link rel="icon|<script src="\/early\.js"|"Hello World"|"Second One"/g)].map((m) => m[0].replace(/^</, ''));
+    // a build (its head scripts are the Vite plugin's, put in before the first stylesheet or script that is no value)
+    const helpers: Record<string, [unknown, FoldVerdict]> = { titled: [titled, yes], parsedSoFar: [parsedSoFar, no('reads the document')] };
+    const built = build(html, { ...helpers }, { early: { module: null }, dev: false });
+    expect(errors(built)).toEqual([]);
+    expect(order(built)).toEqual(['meta', 'meta', '"Hello World"', '"Second One"', 'title', 'link rel="icon']);
+    // the dev server: its early script's tag, a classic script that runs where it stands
+    const dev = build(html, { ...helpers }, { early: { module: null, src: '/early.js' }, observe: true, moduleSrc: '/page.js' });
+    expect(errors(dev)).toEqual([]);
+    expect(order(dev)).toEqual(['meta', 'meta', '"Hello World"', '"Second One"', 'script src="/early.js"', 'title', 'link rel="icon']);
+    // `firstPaint()` starts the early script there: the <meta>s and the values parsed, nothing after them
+    localStorage.setItem('sn:pinned', 'true');
+    try {
+      const early = await firstPaint(html, { helpers: { titled, parsedSoFar }, storage: localStorage });
+      expect(early.root.querySelector('i')?.textContent).toBe('meta meta script script');
+      expect(early.root.querySelector('h1')?.textContent).toBe('Hello World');
+      expect(early.root.querySelector('h2')?.textContent).toBe('Second One');
+    } finally { localStorage.clear(); }
+  });
+
   test('at run time and in the first paint: the value, a copy per state', async () => {
     const r = await render(page, { helpers: { titled } });
     expect(r.root.querySelector('h1')!.textContent).toBe('…');
