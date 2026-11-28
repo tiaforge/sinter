@@ -52,7 +52,7 @@ test('the preload link of a low-priority resource carries fetchpriority="low", t
   const { out } = lo(`
     <sn-resource name="user" src="/api/user"></sn-resource>
     <sn-resource name="tags" src="/api/tags"></sn-resource>
-    <sn-resource name="detail" src="/api/d/{sel.id}" when="sel"></sn-resource>
+    <sn-resource name="detail" src="/api/d/{sel.id}" when="sel || $url.d"></sn-resource>
     <sn-resource name="emb" src="/api/emb"></sn-resource>
     <p data-sn-text="user.name"></p>
     <dialog><p data-sn-text="tags.length + detail.x + emb.y"></p></dialog>`);

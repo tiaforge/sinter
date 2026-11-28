@@ -53,11 +53,27 @@ function headRange(doc: P5Document, html: string): [number, number] | null {
   const head = findHead(doc);
   const start = head?.sourceCodeLocation?.startTag;
   if (!start) return null;
+  // the first `</head>` that is a tag: not text inside an element whose content is text (a script's, embedded data's,
+  // a title's) nor inside a comment, by the offsets of those in the document as parsed
+  const texts: Array<[number, number]> = [];
+  const walk = (p: P5Parent) => {
+    for (const c of p.childNodes) {
+      const loc = (c as { sourceCodeLocation?: { startOffset: number; endOffset: number } | null }).sourceCodeLocation;
+      if (loc && (c.nodeName === '#comment' || TEXT_ONLY.has(c.nodeName))) texts.push([loc.startOffset, loc.endOffset]);
+      if ('childNodes' in c) walk(c as P5Parent);
+      // (a `<template>` in foreign content, in an `<svg>`, has none)
+      const content = c.nodeName === 'template' ? (c as Partial<DefaultTreeAdapterMap['template']>).content : undefined;
+      if (content) walk(content);
+    }
+  };
+  walk(doc);
   const re = /<\/head\s*>/gi;
   re.lastIndex = start.endOffset;
-  const m = re.exec(html);
-  return m ? [start.endOffset, m.index] : null;
+  for (let m = re.exec(html); m; m = re.exec(html)) if (!texts.some(([a, b]) => a < m!.index && m!.index < b)) return [start.endOffset, m.index];
+  return null;
 }
+/** elements whose content the parser reads as text (raw text and escapable raw text), where `</head>` is no tag */
+const TEXT_ONLY = new Set(['script', 'style', 'title', 'textarea', 'noscript', 'xmp', 'iframe', 'noembed', 'noframes']);
 
 export function findHead(doc: P5Parent): P5Element | null {
   for (const c of doc.childNodes) {

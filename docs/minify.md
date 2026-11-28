@@ -34,6 +34,9 @@ A generic HTML minifier breaks sinter's pages:
 
 - Lists and branches are marked by comments (`<!--sn 4-->…<!--/sn-->`), and a text binding beside other text by
   an empty one (`<!---->`). Stripping comments breaks them (dev builds warn, codes 2 and 31).
+- In a build, the place of the head scripts is a comment in the head (`<!--sn-head-…-->`), which sinter's last HTML
+  step replaces with them: it never reaches the output. A plugin that removes it from the page (in its
+  `transformIndexHtml`, which runs before that step whatever its order) fails the build.
 - The runtime finds the nodes it binds in a row by counting siblings, white space included. A minifier that
   drops white space between `</li>` and `<li>`, or around `<b>`, inside the head templates moves every binding
   after it.

@@ -196,6 +196,9 @@ export function describedPrefetch(out: CompileResult): NonNullable<CompiledParts
   return LATER.get(out)?.described ?? null;
 }
 
+/** the parts of the early runtime a page's early file uses (src/runtime/early-flags.ts): `EMBEDDED`, the reader of embedded data */
+export const earlyRuntimeParts = (ir: Pick<EarlyIR, 'emb'>): string[] => (ir.emb ? ['EMBEDDED'] : []);
+
 function compileOne(html: string, options0: CompileOptions): CompileResult {
   const raw = compileParts(html, options0);
   // `SN_CANON=1` (redesign-notes/stage5-assembly.md, step 0): the output in its canonical numbering, to count what a
@@ -218,6 +221,8 @@ function compileOne(html: string, options0: CompileOptions): CompileResult {
     ...(parts.ir.urlReads ? { sameLinks: true as const } : {}),
     // the parts of the core the page module uses (a site's core keeps their union: src/core-parts.ts)
     ...(parts.static ? {} : { core: coreParts(parts.ir, parts.fns) }),
+    // and of the early runtime, which its early file uses (the site's head script keeps their union: src/runtime/early-flags.ts)
+    ...(parts.early !== undefined && !parts.static ? { earlyRuntime: parts.early ? earlyRuntimeParts(parts.early.ir) : [] } : {}),
   };
   if (parts.check) out.check = parts.check;
   const lazy = parts.scripts.filter((x) => x.lazy);
@@ -339,7 +344,9 @@ function earlyLines(early: EarlyParts | null, options: Pick<CompileOptions, 'hel
   const page = early ? earlyPage(early) : null;
   // a page with nothing to wait for (no requests): `run`, one step
   const simple = !!early && !observe && !req;
-  lines.push(`import { ${[observe ? 'observe' : simple ? 'run' : 'start', ...(early ? ['$k', ...page!.uses] : []), ...(req ? ['requests', ...(app ? ['configured'] : [])] : [])].join(', ')} } from '${RUNTIME}/early';`);
+  // the computed keys' guard, where an early function has one (`a[$k(b)]`)
+  const keys = !!early && early.fns.some((x) => /(?<![\w$.])\$k\(/.test(x));
+  lines.push(`import { ${[observe ? 'observe' : simple ? 'run' : 'start', ...(keys ? ['$k'] : []), ...(early ? page!.uses : []), ...(req ? ['requests', ...(app ? ['configured'] : [])] : [])].join(', ')} } from '${RUNTIME}/early';`);
   const byModule = new Map<string, string[]>();
   if (early) {
     // each from the module that declares it: past the helpers module and barrels, whose other

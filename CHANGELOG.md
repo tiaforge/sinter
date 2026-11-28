@@ -92,6 +92,28 @@ How to write an entry (from 0.21.0 on; older sections keep their own form):
 
 ### Fixed
 
+- Embedded data in the head (`<script type="application/json" data-sn-resource>`) whose JSON holds the text
+  `</head>` is no longer cut there: the compiler took the first `</head>` of the page's text for the end of the head,
+  and wrote the page module's tag (and the Speculation Rules, the stylesheets Vite adds) into the data. The end of the
+  head is now the first `</head>` that is not inside an element whose content is text (a script, a title, a style) or
+  a comment, and embedded data is written with its `<` as `<` (the same JSON), so no text inside it looks like a
+  tag to Vite's or a server's search of the page.
+- A helper that returns `undefined` at build time for a state field the browser still reads no longer fails the
+  compile (`Cannot read properties of undefined (reading 'replace')`, while writing the value as embedded data): JSON
+  has no `undefined`, so the field is not embedded and the browser computes it, as any value the build cannot embed.
+- A `data-sn-if` over `$build` and state that a handler, a model or an action writes is no longer decided from the
+  state's initial value: `!$build && open` was decided false at build and its branch never shipped, so setting `open`
+  showed nothing; `$build && open` with `open: true` was written into the page for good. `$build` is true only where
+  everything the condition reads is a build-time constant; such a condition is now evaluated as the browser sees it
+  (`$build` undefined), which leaves the first a live branch and makes the second false. The early script reads it the
+  same way, so such a branch (or its else) is in the first paint
+  ([docs/components.md](docs/components.md#choosing-how-it-renders-per-use-build-and-slots)).
+- The early script could not read a state value a helper had computed at build time, in a build and on the dev server: the value's element
+  came after the early script, so the state's initializer failed and the early script made the state with no field at
+  all. A stored `data-sn-model` then showed nothing where it shows such a value, and a branch over another field of
+  that state was painted from `undefined` (`data-sn-if="!done"` open although `done` starts true) and taken out again
+  when the page script mounted. The values the early script reads are now first in the `<head>`, after its `<meta>`s.
+  Nothing to do ([docs/first-paint.md](docs/first-paint.md#the-early-script)).
 - A checkbox group (`<input type="checkbox" value="…" data-sn-model="tags">` over an array) gives its field a new
   array at each tick, as `tags = [...tags, v]` in a handler would. It changed the array in place and marked only the
   field, so state that held the same array under another name (`al = tags`, `form = { tags }`) had the new values
@@ -139,6 +161,29 @@ How to write an entry (from 0.21.0 on; older sections keep their own form):
   a member of a path (`sel = rows[0].items`) already did.
 
 ### Performance
+
+- The shared head script (`sinter-head-*.js`) holds less on sites that use less: no reader of embedded data where no
+  page has embedded data, the guard of computed keys only where an early binding has one (`names[tab]`), and no
+  reads of `configure()`'s settings in an app without `src/sinter.early.ts` (nothing can set them before it runs).
+  RealWorld's head script 3,140 → 2,958 B gzip, the dashboard example's 2,074 → 1,833 B, Caley's 3,781 → 3,670 B.
+  Nothing to do.
+
+- Early files are smaller where a page has closed menus and error messages: a `data-sn-if` without a
+  `data-sn-else` whose condition is false when the page starts is no longer in the early file (it would render
+  nothing), and its markup moves from the `<head>` to the end of the `<body>`; a model that is not persisted no
+  longer brings its setter; and a resource whose `when` is such a condition (`when="detail"` with `detail: null`) no
+  longer brings its early request, which was never sent. The rule is narrow: the condition reads state fields
+  themselves (`open`, `view !== 'grid'`), each written in `data-sn-state` as a string, a number, a boolean or
+  `null`. A condition that reads inside an object or a list (`sel.busy`, `items.length`), a field with
+  `data-sn-persist`, one that reads the URL, the clock, another field or a helper, and any branch of a page where a
+  persisted model writes inside an object, keep their branch and their request early, so a stored value or the URL
+  still opens them before the first paint. To let a branch leave the early file, give what it reads a field of its
+  own. Caley's mail page: early file 3,972 → 3,749 B gzip, `<head>` 3,595 → 3,341 B gzip; its calendar's early file
+  2,063 → 1,892 B, its message view's 837 → 741 B. On an API with a
+  token, a branch over data that needs the token (`data-sn-if="user"`) is left out the same way, as it is closed
+  signed out and while the user loads: RealWorld's pages 77 to 137 B gzip each, early file and `<head>` together. A state value a helper computed at build time that only the page script reads is
+  written at the end of the `<body>`, not in the `<head>` (two values on Caley's mail page; counted in its `<head>` above). Nothing to do; the first paint and the requests are the same
+  ([docs/first-paint.md](docs/first-paint.md#what-an-early-file-leaves-out)).
 
 - The early script no longer carries bindings that could never paint: one that reads, on every path, the data or
   status of a resource that is neither embedded in the page nor predictable (or a field of a predictable object

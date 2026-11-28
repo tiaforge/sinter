@@ -523,10 +523,14 @@ async function paint(parts: CompiledParts, helpers: Record<string, unknown>, app
 }
 
 /**
- * The document parsed again with `early` run from its head, as a build runs the early file (`observe`): the
+ * The document parsed again with `early` run from its head, where a page has its early script (`observe`): the
  * written page's nodes are taken out and inserted again one by one in document order, an element before its
  * children, as the parser inserts them, each insertion's observer callback run before the next; then
  * DOMContentLoaded. One node per parser chunk is the order that leaves the most elements open at each pass.
+ * The early script stands after the head's leading `<meta>`s and the build-computed values the compiler wrote after
+ * them (compile.ts `placeFolded`): there the dev server's tag is (`injectScript`), and a build's head scripts come no
+ * earlier (the compiler marks their place before the first stylesheet, module preload or script, at or after that
+ * place). So `early` starts with those nodes parsed, and nothing after them.
  */
 async function parse(early: () => void) {
   const doc = document, top = doc.documentElement;
@@ -542,9 +546,25 @@ async function parse(early: () => void) {
     await Promise.resolve();
     for (const c of inner) await put(c, n);
   };
+  /** a value the compiler wrote for the early script: `<script type="application/json" data-sn="id">` */
+  const value = (n: Node) => n.nodeName == 'SCRIPT' && (n as Element).getAttribute('type') == 'application/json' && /^\d+$/.test((n as Element).getAttribute('data-sn') ?? '');
   try {
-    early();
-    for (const k of kids) await put(k, top);
+    const head = kids.find((k) => k.nodeName == 'HEAD');
+    // a page without a <head> element (the parser makes one): the early script is the first thing in it
+    if (!head) early();
+    for (const k of kids) {
+      if (k != head) { await put(k, top); continue; }
+      const inner = [...head.childNodes];
+      // (after the charset declaration, wherever it stands: compile.ts `headStart`)
+      let at = inner.findIndex((n) => n.nodeName == 'META' && ((n as Element).hasAttribute('charset') || (n as Element).getAttribute('http-equiv')?.toLowerCase() == 'content-type')) + 1;
+      for (let i = at; i < inner.length; i++) { const n = inner[i]!; if (n.nodeType == 1 && n.nodeName != 'META' && !value(n)) break; if (n.nodeType == 1) at = i + 1; }
+      for (const c of inner) c.remove();
+      // the head so far, parsed before any script ran (no observer has seen it)
+      top.appendChild(head);
+      for (const c of inner.slice(0, at)) head.appendChild(c);
+      early();
+      for (const c of inner.slice(at)) await put(c, head);
+    }
     state = 'interactive';
     doc.dispatchEvent(new Event('DOMContentLoaded'));
   } finally {
