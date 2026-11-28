@@ -34,7 +34,7 @@ const FILES: Record<string, string> = {
   'src/sinter.helpers.ts': `export * as big from './big.ts';\nexport * as lots from './lots.ts';\n`,
   // the first page calls a message from its page module (a click): the messages module has started when the swap comes
   'a.html': page(`<main data-sn-state="{ s: '' }"><button id="hi" data-sn-on-click="s = lots.hi()">hi</button><p id="s" data-sn-text="s"></p><a id="go" href="/en/b/?q=x">b</a></main>`),
-  'b.html': page(`<main data-sn-state="{ s: '' }"><p id="b" data-sn-text="big.shout($url.q)"></p><button id="all" data-sn-on-click="s = lots.all()">all</button><p id="s" data-sn-text="s"></p></main>`),
+  'b.html': page(`<main data-sn-state="{ s: '' }"><p id="b" data-sn-text="big.shout($url.q)"></p><button id="all" data-sn-on-click="s = lots.all()">all</button><p id="s" data-sn-text="s"></p><a id="back" href="/en/a/">a</a></main>`),
 };
 
 let out = '';
@@ -52,7 +52,8 @@ test('the built pages: the second page names the helper\'s own copy for a swap, 
   expect(readFileSync(join(out, entry), 'utf8')).toMatch(/^import"\.\/en-m-[\w-]{8}\.js";/);
 });
 
-test.skipIf(!chromium)('a swap to it, its dictionary file late: the own copy runs after the file, and its message has its text', async () => {
+/** the built site over HTTP */
+async function serve(): Promise<{ origin: string; server: Server }> {
   const types: Record<string, string> = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css' };
   const server: Server = createServer((req, res) => {
     let file = join(out, decodeURIComponent(new URL(req.url!, 'http://x').pathname));
@@ -62,7 +63,11 @@ test.skipIf(!chromium)('a swap to it, its dictionary file late: the own copy run
     res.end(readFileSync(file));
   });
   await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
-  const origin = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
+  return { origin: `http://127.0.0.1:${(server.address() as { port: number }).port}`, server };
+}
+
+test.skipIf(!chromium)('a swap to it, its dictionary file late: the own copy runs after the file, and its message has its text', async () => {
+  const { origin, server } = await serve();
   const browser = await chromium!.launch();
   try {
     const p = await browser.newPage(), errors: string[] = [], docs: string[] = [];
@@ -79,6 +84,35 @@ test.skipIf(!chromium)('a swap to it, its dictionary file late: the own copy run
     expect(await p.textContent('#b')).toBe('Big label:x');
     await p.click('#all');
     expect((await p.textContent('#s'))!.split('|')).toHaveLength(N);
+    expect(errors).toEqual([]);
+  } finally {
+    await browser.close();
+    await new Promise((r) => server.close(r));
+  }
+}, 60_000);
+
+test.skipIf(!chromium)('swaps back and forth: the module preload the swap adds for the own copy goes once it has loaded', async () => {
+  const { origin, server } = await serve();
+  const browser = await chromium!.launch();
+  try {
+    const p = await browser.newPage(), errors: string[] = [];
+    p.on('pageerror', (e) => errors.push(String(e)));
+    const links = () => p.evaluate(() => document.head.querySelectorAll('link[rel=modulepreload]').length);
+    await p.goto(`${origin}/en/a/`, { waitUntil: 'networkidle' });
+    const onA = await links();
+    let onB = -1;
+    for (let i = 0; i < 4; i++) {
+      await p.click('#go');
+      await p.waitForFunction(() => document.getElementById('b')?.textContent === 'Big label:x');
+      await p.waitForLoadState('networkidle');
+      if (onB < 0) onB = await links();
+      expect(await links()).toBe(onB);
+      await p.click('#back');
+      await p.waitForFunction(() => !!document.getElementById('hi'));
+      await p.waitForLoadState('networkidle');
+      expect(await links()).toBe(onA);
+    }
+    expect(await p.evaluate(() => [...document.head.querySelectorAll('link[rel=modulepreload]')].some((l) => /\/big-/.test((l as HTMLLinkElement).href)))).toBe(false);
     expect(errors).toEqual([]);
   } finally {
     await browser.close();

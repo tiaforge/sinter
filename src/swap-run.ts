@@ -335,6 +335,7 @@ export async function prepare(s: SwapState, i: Intent, signal?: AbortSignal): Pr
   const g = globalThis as unknown as Record<symbol, number>;
   let page: PageModule | undefined;
   g[SWAPPING] = (g[SWAPPING] ?? 0) + 1;
+  const pre: Element[] = [];
   try {
     const urls = [...doc.querySelectorAll('script[type=module][src]')].filter(trusted).map((x) => new URL(x.getAttribute('src')!, final).href);
     // a helper module the page shares with its early file, which a swap does not run: the page module waits for the
@@ -343,7 +344,7 @@ export async function prepare(s: SwapState, i: Intent, signal?: AbortSignal): Pr
     // module calls as it runs reads (docs/messages.md#the-pages-dictionary)
     if (SHARED) for (const l of doc.querySelectorAll('link[data-sn-shared][href]')) {
       const u = new URL(l.getAttribute('href')!, final);
-      if (u.origin == location.origin) document.head.append(Object.assign(document.createElement('link'), { rel: 'modulepreload', href: u.href }, nonce ? { nonce } : {}));
+      if (u.origin == location.origin) document.head.append(pre[pre.length] = Object.assign(document.createElement('link'), { rel: 'modulepreload', href: u.href }, nonce ? { nonce } : {}));
     }
     await Promise.all(urls.map((u) => import(/* @vite-ignore */ u)));
     const pages = (globalThis as unknown as Record<symbol, Record<string, PageModule> | undefined>)[PAGES] ?? {};
@@ -351,7 +352,8 @@ export async function prepare(s: SwapState, i: Intent, signal?: AbortSignal): Pr
     // it is requested once; links from it are page loads
     page = urls.length ? urls.map((u) => pages[u]).find(Boolean) : { kept: [] };
   } catch { return no(); }
-  finally { g[SWAPPING]--; }
+  // (the preloads go once the page module has loaded: what it needs of them it has; the head is left as it was)
+  finally { g[SWAPPING]--; for (const l of pre) l.remove(); }
   if (!page || c.signal.aborted) return no();
   const kept = pairs(document, doc, s.kept, page.kept);
   if (!kept) return false;
